@@ -255,11 +255,37 @@ class _TotpPanelState extends State<_TotpPanel> {
     }
   }
 
-  String? _parseOtpauthSecret(String input) {
+  void _applyOtpauthUri(
+    String input,
+    TextEditingController issuerCtl,
+    TextEditingController accountCtl,
+    TextEditingController secretCtl,
+  ) {
     final t = input.trim();
-    if (!t.toLowerCase().startsWith('otpauth://')) return null;
+    if (!t.toLowerCase().startsWith('otpauth://')) return;
     final uri = Uri.tryParse(t);
-    return uri?.queryParameters['secret'];
+    if (uri == null) return;
+    final secret = uri.queryParameters['secret'];
+    if (secret != null && secret.isNotEmpty) {
+      secretCtl.text = secret;
+    }
+    var issuer = uri.queryParameters['issuer'] ?? '';
+    var account = '';
+    final path = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : '';
+    if (path.isNotEmpty) {
+      final decoded = Uri.decodeComponent(path);
+      if (decoded.contains(':')) {
+        final i = decoded.indexOf(':');
+        if (issuer.isEmpty) {
+          issuer = decoded.substring(0, i);
+        }
+        account = decoded.substring(i + 1);
+      } else {
+        account = decoded;
+      }
+    }
+    if (issuer.isNotEmpty) issuerCtl.text = issuer;
+    if (account.isNotEmpty) accountCtl.text = account;
   }
 
   Future<void> _addTotp() async {
@@ -281,10 +307,7 @@ class _TotpPanelState extends State<_TotpPanel> {
                   labelText: 'otpauth URI（可选）',
                   hintText: 'otpauth://totp/...',
                 ),
-                onChanged: (v) {
-                  final sec = _parseOtpauthSecret(v);
-                  if (sec != null) secretCtl.text = sec;
-                },
+                onChanged: (v) => _applyOtpauthUri(v, issuerCtl, accountCtl, secretCtl),
               ),
               TextField(controller: issuerCtl, decoration: const InputDecoration(labelText: '发行方 Issuer')),
               TextField(controller: accountCtl, decoration: const InputDecoration(labelText: '账号')),
@@ -302,11 +325,18 @@ class _TotpPanelState extends State<_TotpPanel> {
       ),
     );
     if (ok != true) return;
+    final rawSecret = secretCtl.text.trim();
+    if (rawSecret.toLowerCase().startsWith('otpauth://')) {
+      _applyOtpauthUri(rawSecret, issuerCtl, accountCtl, secretCtl);
+    }
+    if (uriCtl.text.trim().toLowerCase().startsWith('otpauth://')) {
+      _applyOtpauthUri(uriCtl.text.trim(), issuerCtl, accountCtl, secretCtl);
+    }
     try {
       await AgentBridge.createTotp(
         issuer: issuerCtl.text.trim().isEmpty ? 'CredPivot' : issuerCtl.text.trim(),
         account: accountCtl.text.trim(),
-        secretBase32: secretCtl.text.trim().replaceAll(' ', ''),
+        secretBase32: secretCtl.text.trim(),
       );
       await _refresh();
     } on AgentException catch (e) {
@@ -317,10 +347,30 @@ class _TotpPanelState extends State<_TotpPanel> {
   Future<void> _showCode(String id) async {
     try {
       final code = await AgentBridge.totpCode(id);
+      if (code.isEmpty) {
+        setState(() => _status = '未拿到验证码，请删除后重新添加（可整段粘贴 otpauth URI）');
+        return;
+      }
       setState(() {
         _liveCode = code;
         _liveCodeForId = id;
+        _status = '';
       });
+    } on AgentException catch (e) {
+      setState(() => _status = AgentBridge.friendlyMessage(e));
+    }
+  }
+
+  Future<void> _deleteTotp(Map<String, dynamic> row) async {
+    final itemId = row['item_id'] as String?;
+    if (itemId == null) return;
+    try {
+      await AgentBridge.trashCredential(itemId);
+      if (_liveCodeForId == row['id']) {
+        _liveCode = null;
+        _liveCodeForId = null;
+      }
+      await _refresh();
     } on AgentException catch (e) {
       setState(() => _status = e.message);
     }
@@ -367,22 +417,24 @@ class _TotpPanelState extends State<_TotpPanel> {
                       final row = _items[i];
                       return ListTile(
                         title: Text('${row['issuer']} : ${row['account']}'),
-                        trailing: FilledButton(
-                          onPressed: () => _showCode(row['id'] as String),
-                          child: Text(_liveCodeForId == row['id'] ? '刷新' : '显示验证码'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            OutlinedButton(
+                              onPressed: () => _deleteTotp(row),
+                              child: const Text('删除'),
+                            ),
+                            const SizedBox(width: 8),
+                            FilledButton(
+                              onPressed: () => _showCode(row['id'] as String),
+                              child: Text(_liveCodeForId == row['id'] ? '刷新' : '验证码'),
+                            ),
+                          ],
                         ),
-                        onLongPress: () async {
-                          final itemId = row['item_id'] as String?;
-                          if (itemId != null) {
-                            await AgentBridge.trashCredential(itemId);
-                            await _refresh();
-                          }
-                        },
                       );
                     },
                   ),
           ),
-          const Text('长按条目可删除', style: TextStyle(fontSize: 11, color: Colors.black54)),
         ],
       ),
     );

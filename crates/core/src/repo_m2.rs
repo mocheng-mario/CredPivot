@@ -466,6 +466,7 @@ pub fn insert_totp(
     account: &str,
     secret_base32: &str,
 ) -> Result<String> {
+    let secret_base32 = crate::totp::normalize_totp_secret_for_storage(secret_base32)?;
     let item_id = Uuid::new_v4().to_string();
     let totp_id = Uuid::new_v4().to_string();
     let revision = new_revision();

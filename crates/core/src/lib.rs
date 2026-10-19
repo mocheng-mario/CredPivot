@@ -52,7 +52,7 @@ pub use restore_point::{
     list_restore_points, mark_restore_dirty, should_create_restore_point, RestorePointInfo,
     MAX_RESTORE_POINTS, RESTORE_POINTS_DIR,
 };
-pub use totp::totp_code_now;
+pub use totp::{normalize_totp_secret_for_storage, totp_code_now};
 pub use snapshot::{SNAPSHOT_FORMAT, SNAPSHOT_VERSION};
 pub use vault_db::VaultDatabase;
 pub use vault_init::{create_vault_config, NewVaultMaterial};
