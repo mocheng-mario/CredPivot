@@ -1,0 +1,23 @@
+mod client;
+mod error;
+mod ipc;
+mod paths;
+mod peer_auth;
+mod protocol;
+mod runtime;
+mod single_writer;
+mod ssh_agent;
+mod vault_m0;
+
+pub use client::{call_agent, call_in_process};
+pub use error::{AgentError, Result};
+pub use ipc::{handle_request, IpcState};
+pub use peer_auth::PeerAuthConfig;
+pub use paths::{
+    agent_socket_path, ensure_runtime_dir, runtime_dir, ssh_agent_socket_path,
+    single_writer_lock_path,
+};
+pub use protocol::{AgentRequest, AgentResponse, MIN_COMPATIBLE_PROTOCOL, PROTOCOL_VERSION};
+pub use runtime::AgentRuntime;
+pub use single_writer::SingleWriterLock;
+pub use vault_m0::{FakeCredential, M0Vault};

@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/agent",
+    "crates/native-host",
+    "crates/credpivot-ffi",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+
+[profile.release]
+lto = true
+codegen-units = 1

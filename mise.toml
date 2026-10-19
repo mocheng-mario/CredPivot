@@ -1,0 +1,8 @@
+[tools]
+rust = "1.99.1"
+flutter = "3.41.9"
+
+[env]
+# 修复为 Flutter 中国社区的标准镜像域名
+PUB_HOSTED_URL="https://pub.flutter-io.cn"
+FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"

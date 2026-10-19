@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "CredPivot (M0)",
+  "version": "0.1.0",
+  "description": "M0 prototype — requires CredPivot Mac App and native host.",
+  "permissions": ["nativeMessaging", "storage", "scripting", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "CredPivot"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}

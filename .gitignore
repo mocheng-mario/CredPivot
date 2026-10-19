@@ -24,3 +24,17 @@ rustc-ice-*.txt
 .idea/
 
 **/.DS_Store
+
+# Flutter
+apps/macos/.dart_tool/
+apps/macos/build/
+apps/macos/.flutter-plugins-dependencies
+apps/macos/macos/Flutter/ephemeral/
+apps/macos/flutter_*.log
+
+# Rust 产物由 make macos-sync-artifacts 复制到 Runner，不入库
+apps/macos/macos/Runner/libcredpivot_ffi.a
+apps/macos/macos/Runner/credpivot-native-host
+
+# CredPivot runtime (local)
+.credpivot/

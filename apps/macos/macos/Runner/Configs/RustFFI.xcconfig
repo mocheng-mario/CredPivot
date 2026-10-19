@@ -1,0 +1,3 @@
+// Rust credpivot-ffi 静态库（make macos-sync-artifacts 复制到 Runner/）
+LIBRARY_SEARCH_PATHS = $(inherited) "$(PROJECT_DIR)/Runner"
+OTHER_LDFLAGS = $(inherited) -lcredpivot_ffi -framework Security -framework LocalAuthentication

@@ -1,0 +1,35 @@
+use std::path::PathBuf;
+
+/// Default runtime paths under `~/.credpivot` (0700). Socket path kept short for AF_UNIX limits.
+pub fn runtime_dir() -> PathBuf {
+    dirs_home().join(".credpivot")
+}
+
+pub fn agent_socket_path() -> PathBuf {
+    runtime_dir().join("agent.sock")
+}
+
+pub fn ssh_agent_socket_path() -> PathBuf {
+    runtime_dir().join("ssh.sock")
+}
+
+pub fn single_writer_lock_path() -> PathBuf {
+    runtime_dir().join("vault.runtime.lock")
+}
+
+pub fn dirs_home() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+}
+
+pub fn ensure_runtime_dir() -> std::io::Result<()> {
+    let dir = runtime_dir();
+    std::fs::create_dir_all(&dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}

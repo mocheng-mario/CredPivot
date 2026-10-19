@@ -1,0 +1,22 @@
+[package]
+name = "credpivot-native-host"
+description = "Chrome Native Messaging relay to in-app agent (M0)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "credpivot-native-host"
+path = "src/main.rs"
+
+[dependencies]
+credpivot-agent = { path = "../agent" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
