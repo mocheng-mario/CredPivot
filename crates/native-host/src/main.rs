@@ -85,7 +85,7 @@ fn map_extension_to_agent(
 ) -> Result<AgentRequest, Box<dyn std::error::Error>> {
     match action {
         "handshake" => Ok(AgentRequest::Ping),
-        "status" => Ok(AgentRequest::Status),
+        "status" | "agent.status" => Ok(AgentRequest::Status),
         "credential.save" => Ok(AgentRequest::CredentialSave {
             request_id: envelope
                 .get("request_id")

@@ -80,7 +80,7 @@ impl VaultSession {
         Ok(())
     }
 
-    fn try_restore_point_if_due(&mut self) -> Result<()> {
+    pub fn try_restore_point_if_due(&mut self) -> Result<()> {
         let vmk = self.vmk.as_ref().ok_or_else(|| AgentError::Vault("vmk missing".into()))?;
         let db = self
             .db

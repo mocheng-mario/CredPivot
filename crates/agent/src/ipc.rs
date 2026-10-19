@@ -78,6 +78,12 @@ async fn handle_ipc_connection(
 }
 
 pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentResponse {
+    {
+        let mut v = st.vault.lock().await;
+        if v.unlocked {
+            let _ = v.try_restore_point_if_due();
+        }
+    }
     match req {
         AgentRequest::Ping => AgentResponse::ok(json!({ "pong": true })),
         AgentRequest::Status => {

@@ -273,6 +273,26 @@ class AgentBridge {
     });
     return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
   }
+
+  static Future<Map<String, dynamic>> updateRecoveryCodes({
+    required String id,
+    required String expectedRevision,
+    required String serviceName,
+    required List<String> codes,
+  }) async {
+    final resp = await request({
+      'type': 'recovery_codes_update',
+      'id': id,
+      'expected_revision': expectedRevision,
+      'service_name': serviceName,
+      'codes': codes,
+    });
+    return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
+  }
+
+  static Future<void> trashRecoveryCodes(String itemId) async {
+    await request({'type': 'credential_trash', 'item_id': itemId});
+  }
 }
 
 class AgentException implements Exception {

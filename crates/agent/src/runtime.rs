@@ -6,6 +6,7 @@ use crate::single_writer::SingleWriterLock;
 use crate::ssh_agent::serve_ssh_agent;
 use crate::vault_session::VaultSession;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::UnixListener;
 use tokio::sync::Mutex;
 
@@ -47,8 +48,21 @@ impl AgentRuntime {
             }
         });
 
+        let restore_tick_vault = vault.clone();
+        let restore_tick_task = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30 * 60));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                let mut v = restore_tick_vault.lock().await;
+                if v.unlocked {
+                    let _ = v.try_restore_point_if_due();
+                }
+            }
+        });
+
         let tasks = tokio::spawn(async move {
-            let _ = tokio::join!(ipc_task, ssh_task);
+            let _ = tokio::join!(ipc_task, ssh_task, restore_tick_task);
         });
 
         Ok(Self {

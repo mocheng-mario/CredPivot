@@ -73,6 +73,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true, resp, lastNativeError });
         return;
       }
+      if (msg.type === "agent_status") {
+        const resp = await sendNative({ action: "status" });
+        sendResponse(resp);
+        return;
+      }
       connectNativeIfNeeded();
       if (msg.type === "suggest_credentials") {
         const resp = await sendNative({

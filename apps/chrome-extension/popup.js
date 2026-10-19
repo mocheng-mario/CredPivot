@@ -6,11 +6,16 @@ async function handshake() {
     statusEl.textContent = JSON.stringify(resp, null, 2);
     return;
   }
-  const inner = resp.resp;
-  const pong = inner?.payload?.pong ?? inner?.ok;
-  statusEl.textContent = pong
-    ? "已连接 Agent（handshake OK）\n" + JSON.stringify(inner, null, 2)
-    : JSON.stringify(resp, null, 2);
+  const st = await chrome.runtime.sendMessage({ type: "agent_status" });
+  const payload = st?.payload ?? st?.ok?.payload ?? {};
+  const unlocked = payload.unlocked === true;
+  const attached = payload.database_attached === true;
+  const count = payload.credential_count ?? 0;
+  statusEl.textContent =
+    `Agent 已连接\n` +
+    `Vault: ${unlocked ? (attached ? "已解锁（可写库）" : "已解锁（须主密码写库）") : "已锁定"}\n` +
+    `凭据数: ${count}\n` +
+    JSON.stringify(payload, null, 2);
 }
 
 document.getElementById("connect").addEventListener("click", handshake);

@@ -299,6 +299,117 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
     }
   }
 
+  Future<void> _openRecoveryCode(Map<String, dynamic> row) async {
+    final codes = (row['codes'] as List?)?.map((e) => e.toString()).toList() ?? [];
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(row['service_name']?.toString() ?? '恢复码'),
+        content: SingleChildScrollView(
+          child: SelectableText(codes.join('\n')),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await AgentBridge.copyConcealed(codes.join('\n'));
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('已复制')));
+              }
+            },
+            child: const Text('复制全部'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _editRecoveryCode(row);
+            },
+            child: const Text('编辑'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final itemId = row['item_id'] as String?;
+              if (itemId != null) {
+                await AgentBridge.trashRecoveryCodes(itemId);
+                await _loadAll();
+                setState(() => _log = '已移入回收站');
+              }
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('删除'),
+          ),
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('关闭')),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editRecoveryCode(Map<String, dynamic> row) async {
+    final nameCtl = TextEditingController(text: row['service_name']?.toString() ?? '');
+    final codesCtl = TextEditingController(
+      text: ((row['codes'] as List?) ?? []).map((e) => e.toString()).join('\n'),
+    );
+    if (!mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('编辑恢复码'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameCtl, decoration: const InputDecoration(labelText: '服务名')),
+            TextField(
+              controller: codesCtl,
+              maxLines: 4,
+              decoration: const InputDecoration(labelText: '恢复码'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('保存')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final codes = codesCtl.text
+        .split(RegExp(r'[\s,;]+'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    try {
+      await AgentBridge.updateRecoveryCodes(
+        id: row['id'] as String,
+        expectedRevision: row['current_revision'] as String,
+        serviceName: nameCtl.text.trim(),
+        codes: codes,
+      );
+      await _loadAll();
+      setState(() => _log = '恢复码已更新');
+    } on AgentException catch (e) {
+      setState(() => _log = e.message);
+    }
+  }
+
+  Future<void> _recoverOvbToEmptyDir() async {
+    final ovb = await AgentBridge.pickOpenFile();
+    if (ovb == null) return;
+    final target = await AgentBridge.pickDirectory();
+    if (target == null) return;
+    try {
+      await AgentBridge.vaultRecoverOvb(
+        ovbPath: ovb,
+        targetDir: target,
+        password: _rebuildPassword.text.isNotEmpty ? _rebuildPassword.text : null,
+        recoveryKey: _recoveryKey.text.trim().isNotEmpty ? _recoveryKey.text.trim() : null,
+      );
+      await AgentBridge.vaultOpenDir(target);
+      setState(() => _log = 'OVB 已恢复到空目录：$target（已切换工作库）');
+    } on AgentException catch (e) {
+      setState(() => _log = e.message);
+    }
+  }
+
   Future<void> _verifyRecoveryKey() async {
     try {
       await AgentBridge.verifyRecoveryKey(_recoveryKey.text.trim());
@@ -333,6 +444,17 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text('安全摘要', style: Theme.of(context).textTheme.titleMedium),
+                  if ((_summary['passwords_stale_90d'] as int? ?? 0) > 0)
+                    Material(
+                      color: Theme.of(context).colorScheme.errorContainer,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Text(
+                          '有 ${_summary['passwords_stale_90d']} 个登录密码已超过 90 天未更换，建议在「密码」页检查。',
+                        ),
+                      ),
+                    ),
                   Text(const JsonEncoder.withIndent('  ').convert(_summary)),
                   const SizedBox(height: 12),
                   Text('备份验证状态 (M3-2)', style: Theme.of(context).textTheme.titleSmall),
@@ -344,6 +466,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
                       dense: true,
                       title: Text(r['service_name']?.toString() ?? ''),
                       subtitle: Text('${(r['codes'] as List?)?.length ?? 0} 条码'),
+                      onTap: () => _openRecoveryCode(r),
                     ),
                   ),
                   TextField(
@@ -386,6 +509,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
                     runSpacing: 8,
                     children: [
                       OutlinedButton(onPressed: _loadAll, child: const Text('刷新')),
+                      OutlinedButton(onPressed: _recoverOvbToEmptyDir, child: const Text('从 OVB 恢复到空目录')),
                       OutlinedButton(onPressed: _importBitwarden, child: const Text('Bitwarden 导入')),
                       OutlinedButton(onPressed: _migrateVault, child: const Text('迁移工作库目录')),
                       OutlinedButton(onPressed: _verifyOvb, child: const Text('验证 OVB')),
