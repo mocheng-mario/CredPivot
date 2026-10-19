@@ -181,6 +181,82 @@ class AgentBridge {
   static Future<void> copyConcealed(String secret) =>
       _channel.invokeMethod('copyConcealed', secret);
 
+  static Future<Map<String, dynamic>> createLogin({
+    required String origin,
+    required String username,
+    required String password,
+  }) async {
+    final resp = await request({
+      'type': 'credential_save',
+      'request_id': 'ui-${DateTime.now().millisecondsSinceEpoch}',
+      'origin': origin,
+      'username': username,
+      'password': password,
+    });
+    return Map<String, dynamic>.from(payloadOf(resp)['credential'] as Map? ?? {});
+  }
+
+  static Future<Map<String, dynamic>> updateLogin({
+    required String credentialId,
+    required String expectedRevision,
+    required String origin,
+    required String username,
+    String? password,
+  }) async {
+    final resp = await request({
+      'type': 'credential_update',
+      'credential_id': credentialId,
+      'expected_revision': expectedRevision,
+      'origin': origin,
+      'username': username,
+      if (password != null && password.isNotEmpty) 'password': password,
+    });
+    return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
+  }
+
+  static Future<List<Map<String, dynamic>>> listTotp() async {
+    final resp = await request({'type': 'totp_list'});
+    final items = payloadOf(resp)['items'] as List<dynamic>? ?? [];
+    return items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  static Future<Map<String, dynamic>> createTotp({
+    required String issuer,
+    required String account,
+    required String secretBase32,
+  }) async {
+    final resp = await request({
+      'type': 'totp_create',
+      'issuer': issuer,
+      'account': account,
+      'secret_base32': secretBase32,
+    });
+    return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
+  }
+
+  static Future<String> totpCode(String totpId) async {
+    final resp = await request({'type': 'totp_code', 'totp_id': totpId});
+    return payloadOf(resp)['code'] as String? ?? '';
+  }
+
+  static Future<List<Map<String, dynamic>>> listSshKeys() async {
+    final resp = await request({'type': 'ssh_key_list'});
+    final items = payloadOf(resp)['items'] as List<dynamic>? ?? [];
+    return items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  static Future<Map<String, dynamic>> generateSshKey({
+    required String label,
+    bool setDefault = false,
+  }) async {
+    final resp = await request({
+      'type': 'ssh_key_generate',
+      'label': label,
+      'set_default': setDefault,
+    });
+    return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
+  }
+
   static Future<List<Map<String, dynamic>>> listCredentials([String? query]) async {
     final resp = await request({
       'type': 'credential_list',

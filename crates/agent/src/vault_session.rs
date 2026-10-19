@@ -374,6 +374,28 @@ impl VaultSession {
         db.totp_code(totp_id).map_err(|e| AgentError::Vault(e.to_string()))
     }
 
+    pub fn list_totp(&self) -> Result<Vec<credpivot_core::TotpListRow>> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.list_totp().map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn create_totp(&self, issuer: &str, account: &str, secret_base32: &str) -> Result<credpivot_core::TotpListRow> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.add_totp(issuer, account, secret_base32)
+            .map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn list_ssh_keys(&self) -> Result<Vec<credpivot_core::SshKeyListRow>> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.list_ssh().map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn generate_ssh_key(&self, label: &str, set_default: bool) -> Result<credpivot_core::SshKeyListRow> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.generate_ssh(label, set_default)
+            .map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
     pub fn get_credential(&self, credential_id: &str) -> Result<FakeCredential> {
         let db = self
             .db

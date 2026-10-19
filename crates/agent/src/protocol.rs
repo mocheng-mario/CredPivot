@@ -51,7 +51,18 @@ pub enum AgentRequest {
     CredentialTrash { item_id: String },
     SecuritySummary,
     ImportBitwarden { json: String },
+    TotpList,
+    TotpCreate {
+        issuer: String,
+        account: String,
+        secret_base32: String,
+    },
     TotpCode { totp_id: String },
+    SshKeyList,
+    SshKeyGenerate {
+        label: String,
+        set_default: Option<bool>,
+    },
     VaultCreate { password: String },
     VaultChangePassword {
         old_password: String,

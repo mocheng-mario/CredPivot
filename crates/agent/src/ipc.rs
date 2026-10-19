@@ -359,6 +359,31 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }
+        AgentRequest::TotpList => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.list_totp() {
+                Ok(items) => AgentResponse::ok(json!({ "items": items })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::TotpCreate {
+            issuer,
+            account,
+            secret_base32,
+        } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match v.create_totp(&issuer, &account, &secret_base32) {
+                Ok(row) => AgentResponse::ok(json!({ "item": row })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
         AgentRequest::TotpCode { totp_id } => {
             let v = st.vault.lock().await;
             if !v.unlocked {
@@ -366,6 +391,28 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
             }
             match v.totp_code(&totp_id) {
                 Ok(code) => AgentResponse::ok(json!({ "code": code })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::SshKeyList => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.list_ssh_keys() {
+                Ok(items) => AgentResponse::ok(json!({ "items": items })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::SshKeyGenerate { label, set_default } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            let def = set_default.unwrap_or(false);
+            match v.generate_ssh_key(&label, def) {
+                Ok(row) => AgentResponse::ok(json!({ "item": row })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }

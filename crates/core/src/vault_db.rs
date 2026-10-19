@@ -9,8 +9,9 @@ use crate::backup_status::{read_backup_status, BackupVerificationStatus};
 use crate::repo_m2::{
     ensure_default_ssh_key, insert_recovery_codes, list_logins, list_recovery_codes,
     load_default_ssh_key, security_summary, trash_item, totp_secret_for_id,
-    update_login_credential, update_recovery_codes, insert_totp, LoginListRow, RecoveryCodeRow,
-    SecuritySummary, SshKeyRecord,
+    update_login_credential, update_recovery_codes, generate_ssh_key, insert_totp_row,
+    list_ssh_keys, list_totp_credentials, LoginListRow, RecoveryCodeRow, SecuritySummary,
+    SshKeyListRow, SshKeyRecord, TotpListRow,
 };
 use crate::restore_point::{
     create_restore_point_for_risky_op, create_restore_point_if_due, mark_restore_dirty,
@@ -141,8 +142,24 @@ impl VaultDatabase {
         load_default_ssh_key(&self.conn)
     }
 
-    pub fn insert_totp(&self, issuer: &str, account: &str, secret_base32: &str) -> Result<String> {
-        insert_totp(&self.conn, issuer, account, secret_base32)
+    pub fn list_totp(&self) -> Result<Vec<TotpListRow>> {
+        list_totp_credentials(&self.conn)
+    }
+
+    pub fn add_totp(&self, issuer: &str, account: &str, secret_base32: &str) -> Result<TotpListRow> {
+        let row = insert_totp_row(&self.conn, issuer, account, secret_base32)?;
+        mark_restore_dirty(&self.conn)?;
+        Ok(row)
+    }
+
+    pub fn list_ssh(&self) -> Result<Vec<SshKeyListRow>> {
+        list_ssh_keys(&self.conn)
+    }
+
+    pub fn generate_ssh(&self, label: &str, set_default: bool) -> Result<SshKeyListRow> {
+        let row = generate_ssh_key(&self.conn, label, set_default)?;
+        mark_restore_dirty(&self.conn)?;
+        Ok(row)
     }
 
     pub fn totp_code(&self, totp_id: &str) -> Result<String> {

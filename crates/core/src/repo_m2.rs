@@ -254,6 +254,7 @@ pub fn security_summary(conn: &Connection) -> Result<SecuritySummary> {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SshKeyRecord {
     pub id: String,
+    pub item_id: String,
     pub label: String,
     pub public_openssh: String,
     pub seed: [u8; 32],
@@ -322,6 +323,7 @@ pub fn insert_ssh_key(
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(SshKeyRecord {
         id: key_id,
+        item_id,
         label: label.to_string(),
         public_openssh: public_openssh.to_string(),
         seed: *seed,
@@ -331,15 +333,15 @@ pub fn insert_ssh_key(
 
 pub fn load_default_ssh_key(conn: &Connection) -> Result<Option<SshKeyRecord>> {
     let row = conn.query_row(
-        "SELECT s.id, s.label, s.public_openssh, s.private_key_seed, s.is_default
+        "SELECT s.id, s.item_id, s.label, s.public_openssh, s.private_key_seed, s.is_default
          FROM ssh_keys s INNER JOIN items i ON i.id = s.item_id
          WHERE i.trashed = 0 AND s.is_default = 1 LIMIT 1",
         [],
         |row| {
-            let seed_blob: Vec<u8> = row.get(3)?;
+            let seed_blob: Vec<u8> = row.get(4)?;
             if seed_blob.len() != 32 {
                 return Err(rusqlite::Error::InvalidColumnType(
-                    3,
+                    4,
                     "private_key_seed".into(),
                     rusqlite::types::Type::Blob,
                 ));
@@ -348,10 +350,11 @@ pub fn load_default_ssh_key(conn: &Connection) -> Result<Option<SshKeyRecord>> {
             seed.copy_from_slice(&seed_blob);
             Ok(SshKeyRecord {
                 id: row.get(0)?,
-                label: row.get(1)?,
-                public_openssh: row.get(2)?,
+                item_id: row.get(1)?,
+                label: row.get(2)?,
+                public_openssh: row.get(3)?,
                 seed,
-                is_default: row.get::<_, i64>(4)? != 0,
+                is_default: row.get::<_, i64>(5)? != 0,
             })
         },
     );
@@ -360,6 +363,101 @@ pub fn load_default_ssh_key(conn: &Connection) -> Result<Option<SshKeyRecord>> {
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(CoreError::format(e.to_string())),
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TotpListRow {
+    pub id: String,
+    pub item_id: String,
+    pub issuer: String,
+    pub account: String,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SshKeyListRow {
+    pub id: String,
+    pub item_id: String,
+    pub label: String,
+    pub public_openssh: String,
+    pub is_default: bool,
+}
+
+pub fn list_totp_credentials(conn: &Connection) -> Result<Vec<TotpListRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.id, t.item_id, t.issuer, t.account, t.updated_at_ms
+             FROM totp_credentials t
+             INNER JOIN items i ON i.id = t.item_id
+             WHERE i.trashed = 0
+             ORDER BY t.updated_at_ms DESC",
+        )
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(TotpListRow {
+                id: row.get(0)?,
+                item_id: row.get(1)?,
+                issuer: row.get(2)?,
+                account: row.get(3)?,
+                updated_at_ms: row.get(4)?,
+            })
+        })
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| CoreError::format(e.to_string()))?);
+    }
+    Ok(out)
+}
+
+pub fn list_ssh_keys(conn: &Connection) -> Result<Vec<SshKeyListRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT s.id, s.item_id, s.label, s.public_openssh, s.is_default
+             FROM ssh_keys s
+             INNER JOIN items i ON i.id = s.item_id
+             WHERE i.trashed = 0
+             ORDER BY s.is_default DESC, s.updated_at_ms DESC",
+        )
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(SshKeyListRow {
+                id: row.get(0)?,
+                item_id: row.get(1)?,
+                label: row.get(2)?,
+                public_openssh: row.get(3)?,
+                is_default: row.get::<_, i64>(4)? != 0,
+            })
+        })
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| CoreError::format(e.to_string()))?);
+    }
+    Ok(out)
+}
+
+pub fn generate_ssh_key(conn: &Connection, label: &str, set_default: bool) -> Result<SshKeyListRow> {
+    use ed25519_dalek::SigningKey;
+    use rand::rngs::OsRng;
+    let signing = SigningKey::generate(&mut OsRng);
+    let seed = signing.to_bytes();
+    let vk = signing.verifying_key();
+    let b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        vk.as_bytes(),
+    );
+    let public = format!("ssh-ed25519 {b64} credpivot");
+    let rec = insert_ssh_key(conn, label, &public, &seed, set_default)?;
+    Ok(SshKeyListRow {
+        id: rec.id,
+        item_id: rec.item_id,
+        label: rec.label,
+        public_openssh: rec.public_openssh,
+        is_default: rec.is_default,
+    })
 }
 
 pub fn insert_totp(
@@ -390,6 +488,19 @@ pub fn insert_totp(
     .map_err(|e| CoreError::format(e.to_string()))?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(totp_id)
+}
+
+pub fn insert_totp_row(
+    conn: &Connection,
+    issuer: &str,
+    account: &str,
+    secret_base32: &str,
+) -> Result<TotpListRow> {
+    let totp_id = insert_totp(conn, issuer, account, secret_base32)?;
+    list_totp_credentials(conn)?
+        .into_iter()
+        .find(|r| r.id == totp_id)
+        .ok_or_else(|| CoreError::format("totp not found after insert"))
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -311,7 +311,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
         title: Text('CredPivot ${format.toUpperCase()}'),
         bottom: const TabBar(tabs: [
           Tab(text: '保险库'),
-          Tab(text: '密码'),
+          Tab(text: '凭据'),
           Tab(text: '安全中心'),
         ]),
         actions: [
