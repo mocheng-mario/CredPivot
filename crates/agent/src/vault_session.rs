@@ -67,10 +67,36 @@ impl VaultSession {
             .vmk
             .as_ref()
             .ok_or_else(|| AgentError::Vault("vmk not available".into()))?;
-        self.db = Some(
-            VaultDatabase::open(&self.vault_dir, &**vmk)
-                .map_err(|e| AgentError::Vault(e.to_string()))?,
-        );
+        let db = VaultDatabase::open(&self.vault_dir, &**vmk)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        self.db = Some(db);
+        self.sync_ssh_from_db()?;
+        self.try_restore_point_if_due()?;
+        Ok(())
+    }
+
+    fn try_restore_point_if_due(&mut self) -> Result<()> {
+        let vmk = self.vmk.as_ref().ok_or_else(|| AgentError::Vault("vmk missing".into()))?;
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        let _ = db
+            .try_restore_point_if_due(&self.vault_dir, &**vmk)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        Ok(())
+    }
+
+    fn sync_ssh_from_db(&mut self) -> Result<()> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        let rec = db
+            .ensure_default_ssh()
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        let sk = SigningKey::from_bytes(&rec.seed);
+        self.ssh_signing_key = sk;
         Ok(())
     }
 
@@ -125,6 +151,9 @@ impl VaultSession {
     }
 
     pub fn lock(&mut self) {
+        if self.unlocked {
+            let _ = self.try_restore_point_if_due();
+        }
         self.unlocked = false;
         self.vmk = None;
         self.db = None;
@@ -267,6 +296,65 @@ impl VaultSession {
                 password: String::new(),
             })
             .collect())
+    }
+
+    pub fn list_credentials(&self, query: Option<&str>, limit: u32) -> Result<Vec<credpivot_core::LoginListRow>> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.list_logins(query, limit).map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn update_credential(
+        &self,
+        credential_id: &str,
+        expected_revision: &str,
+        origin: &str,
+        username: &str,
+        password: Option<&str>,
+    ) -> Result<credpivot_core::LoginListRow> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.update_login(credential_id, expected_revision, origin, username, password)
+            .map_err(|e| match e {
+                credpivot_core::CoreError::Conflict => AgentError::Vault("revision conflict".into()),
+                other => AgentError::Vault(other.to_string()),
+            })
+    }
+
+    pub fn trash_credential_item(&self, item_id: &str) -> Result<()> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.trash_item(item_id).map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn security_summary(&self) -> Result<credpivot_core::SecuritySummary> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.security_summary().map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn import_bitwarden(&self, json: &str) -> Result<credpivot_core::ImportReport> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.import_bitwarden(json).map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn totp_code(&self, totp_id: &str) -> Result<String> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.totp_code(totp_id).map_err(|e| AgentError::Vault(e.to_string()))
     }
 
     pub fn get_credential(&self, credential_id: &str) -> Result<FakeCredential> {

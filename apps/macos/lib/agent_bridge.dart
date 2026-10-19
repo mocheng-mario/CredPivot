@@ -25,6 +25,55 @@ class AgentBridge {
 
   static Future<void> startAgent() => _channel.invokeMethod('startAgent');
 
+  static Future<bool> agentIsRunning() async =>
+      await _channel.invokeMethod<bool>('agentIsRunning') ?? false;
+
+  static Future<bool> restartAgent() async =>
+      await _channel.invokeMethod<bool>('restartAgent') ?? false;
+
+  static Future<void> relaunchApp() => _channel.invokeMethod('relaunchApp');
+
+  /// 确保 Agent 可用；失败时返回 false（不抛异常）。
+  static Future<bool> ensureAgentReady() async {
+    if (await agentIsRunning()) {
+      try {
+        await request({'type': 'ping'});
+        return true;
+      } on AgentException catch (e) {
+        if (!isAgentNotStartedError(e)) rethrow;
+      }
+    }
+    await startAgent();
+    if (await agentIsRunning()) {
+      try {
+        await request({'type': 'ping'});
+        return true;
+      } on AgentException catch (_) {
+        return false;
+      }
+    }
+    final restarted = await restartAgent();
+    if (!restarted) return false;
+    try {
+      await request({'type': 'ping'});
+      return true;
+    } on AgentException catch (_) {
+      return false;
+    }
+  }
+
+  static bool isAgentNotStartedError(AgentException e) =>
+      e.code == 'agent_not_started' ||
+      (e.code == 'ffi_error' &&
+          (e.message.contains('agent_not_started') || e.message.contains('agent not started')));
+
+  static String friendlyMessage(AgentException e) {
+    if (isAgentNotStartedError(e)) {
+      return '后台 Agent 未启动。请先点「重启 Agent」；仍失败请「重新打开应用」（或 Cmd+Q 退出后重开）。';
+    }
+    return e.message;
+  }
+
   static Future<void> lockVault() => _channel.invokeMethod('lockVault');
 
   static Future<bool> unlockWithPassword(String password) async {
@@ -79,7 +128,24 @@ class AgentBridge {
   static Future<void> registerLoginItem(bool enabled) =>
       _channel.invokeMethod('registerLoginItem', enabled);
 
-  static Future<void> installChromeHost() => _channel.invokeMethod('installChromeHost');
+  static Future<String> getChromeExtensionId() async =>
+      await _channel.invokeMethod<String>('getChromeExtensionId') ?? '';
+
+  static Future<Map<String, dynamic>> chromeHostStatus() async {
+    final raw = await _channel.invokeMethod<dynamic>('chromeHostStatus');
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+    return {};
+  }
+
+  static Future<Map<String, dynamic>> installChromeHost(String extensionId) async {
+    final raw = await _channel.invokeMethod<dynamic>('installChromeHost', extensionId);
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+    return {'ok': false, 'message': '未知返回: $raw'};
+  }
 
   static Future<Map<String, dynamic>> appendSshIdentityAgent() async {
     final raw = await _channel.invokeMethod<dynamic>('appendSshIdentityAgent');
@@ -106,6 +172,46 @@ class AgentBridge {
 
   static Future<String?> pickSaveFile([String defaultName = 'backup.ovb']) =>
       _channel.invokeMethod<String>('pickSaveFile', defaultName);
+
+  static Future<String> readTextFile(String path) async {
+    final raw = await _channel.invokeMethod<String>('readTextFile', path);
+    return raw ?? '';
+  }
+
+  static Future<void> copyConcealed(String secret) =>
+      _channel.invokeMethod('copyConcealed', secret);
+
+  static Future<List<Map<String, dynamic>>> listCredentials([String? query]) async {
+    final resp = await request({
+      'type': 'credential_list',
+      if (query != null && query.isNotEmpty) 'query': query,
+      'limit': 200,
+    });
+    final payload = payloadOf(resp);
+    final items = payload['items'] as List<dynamic>? ?? [];
+    return items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  static Future<Map<String, dynamic>> getCredential(String credentialId) async {
+    final detail = await request({'type': 'credential_get', 'credential_id': credentialId});
+    return payloadOf(detail);
+  }
+
+  static Future<void> trashCredential(String itemId) async {
+    await request({'type': 'credential_trash', 'item_id': itemId});
+  }
+
+  static Future<Map<String, dynamic>> securitySummary() async {
+    final resp = await request({'type': 'security_summary'});
+    final payload = payloadOf(resp);
+    return Map<String, dynamic>.from(payload['summary'] as Map? ?? {});
+  }
+
+  static Future<Map<String, dynamic>> importBitwarden(String json) async {
+    final resp = await request({'type': 'import_bitwarden', 'json': json});
+    final payload = payloadOf(resp);
+    return Map<String, dynamic>.from(payload['report'] as Map? ?? {});
+  }
 }
 
 class AgentException implements Exception {

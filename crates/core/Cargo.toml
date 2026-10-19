@@ -22,6 +22,9 @@ zeroize = { version = "1", features = ["zeroize_derive"] }
 hex = "0.4"
 rusqlite = { version = "0.32", features = ["bundled-sqlcipher", "backup"] }
 tempfile = "3"
+totp-rs = { version = "5", default-features = false, features = ["gen_secret", "otpauth"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+sha1 = "0.10"
 
 [dev-dependencies]
 ovb1-structure = { path = "../ovb1-structure" }

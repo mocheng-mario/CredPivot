@@ -44,6 +44,30 @@ pub extern "C" fn credpivot_agent_start() -> i32 {
     .unwrap_or(-1)
 }
 
+/// 1 = running, 0 = not started, -1 = internal error
+#[no_mangle]
+pub extern "C" fn credpivot_agent_is_running() -> i32 {
+    with_state(|st| Ok(if st.agent.is_some() { 1 } else { 0 }))
+        .unwrap_or(-1)
+}
+
+#[no_mangle]
+pub extern "C" fn credpivot_agent_restart() -> i32 {
+    with_state(|st| {
+        if let Some(agent) = st.agent.take() {
+            st.runtime.block_on(agent.shutdown());
+        }
+        let agent = st
+            .runtime
+            .block_on(AgentRuntime::start())
+            .map_err(|e| e.to_string())?;
+        st.agent = Some(agent);
+        Ok(())
+    })
+    .map(|_| 0)
+    .unwrap_or(-1)
+}
+
 #[no_mangle]
 pub extern "C" fn credpivot_agent_stop() -> i32 {
     with_state(|st| {
@@ -68,7 +92,7 @@ pub extern "C" fn credpivot_agent_request_json(request_json: *const c_char) -> *
         let agent = st
             .agent
             .as_ref()
-            .ok_or_else(|| "agent not started".to_string())?;
+            .ok_or_else(|| "agent_not_started".to_string())?;
         let req: AgentRequest =
             serde_json::from_str(&req_str).map_err(|e| format!("bad json: {e}"))?;
         let resp = st
@@ -83,8 +107,13 @@ pub extern "C" fn credpivot_agent_request_json(request_json: *const c_char) -> *
 }
 
 fn json_err(message: &str) -> *mut c_char {
+    let code = if message == "agent_not_started" {
+        "agent_not_started"
+    } else {
+        "ffi_error"
+    };
     let body = format!(
-        r#"{{"type":"err","protocol_version":1,"code":"ffi_error","message":"{}"}}"#,
+        r#"{{"type":"err","protocol_version":1,"code":"{code}","message":"{}"}}"#,
         message.replace('"', "\\\"")
     );
     CString::new(body)

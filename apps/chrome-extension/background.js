@@ -3,6 +3,8 @@ const PROTOCOL_VERSION = 1;
 
 /** @type {chrome.runtime.Port | null} */
 let nativePort = null;
+/** @type {string | null} */
+let lastNativeError = null;
 /** @type {Map<string, object>} */
 const inflight = new Map();
 
@@ -10,10 +12,40 @@ function uuid() {
   return crypto.randomUUID();
 }
 
+function connectNativeIfNeeded() {
+  if (nativePort) return nativePort;
+  lastNativeError = null;
+  try {
+    nativePort = chrome.runtime.connectNative(HOST_NAME);
+  } catch (e) {
+    lastNativeError = String(e);
+    nativePort = null;
+    throw e;
+  }
+  if (chrome.runtime.lastError) {
+    lastNativeError = chrome.runtime.lastError.message;
+    nativePort = null;
+    throw new Error(lastNativeError);
+  }
+  nativePort.onDisconnect.addListener(() => {
+    const msg = chrome.runtime.lastError?.message;
+    if (msg) {
+      lastNativeError = msg;
+    }
+    nativePort = null;
+    for (const [id] of inflight) {
+      inflight.delete(id);
+    }
+  });
+  return nativePort;
+}
+
 function sendNative(message) {
   return new Promise((resolve, reject) => {
-    if (!nativePort) {
-      reject(new Error("native port not connected"));
+    try {
+      connectNativeIfNeeded();
+    } catch (e) {
+      reject(e);
       return;
     }
     const requestId = message.request_id || uuid();
@@ -30,29 +62,24 @@ function sendNative(message) {
   });
 }
 
-function connectNativeIfNeeded() {
-  if (nativePort) return nativePort;
-  nativePort = chrome.runtime.connectNative(HOST_NAME);
-  nativePort.onDisconnect.addListener(() => {
-    nativePort = null;
-    // MV3: service worker 回收后不得续期未完成请求
-    for (const [id] of inflight) {
-      inflight.delete(id);
-    }
-  });
-  return nativePort;
-}
-
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
-      connectNativeIfNeeded();
       if (msg.type === "handshake") {
         const resp = await sendNative({
           action: "handshake",
           protocol_version: PROTOCOL_VERSION,
         });
-        sendResponse({ ok: true, resp });
+        sendResponse({ ok: true, resp, lastNativeError });
+        return;
+      }
+      connectNativeIfNeeded();
+      if (msg.type === "suggest_credentials") {
+        const resp = await sendNative({
+          action: "credential.suggest_for_origin",
+          origin: msg.origin,
+        });
+        sendResponse(resp);
         return;
       }
       if (msg.type === "save_credential") {
@@ -92,13 +119,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       sendResponse({ ok: false, error: "unknown message" });
     } catch (e) {
-      sendResponse({ ok: false, error: String(e) });
+      sendResponse({
+        ok: false,
+        error: String(e),
+        lastNativeError,
+        hint: "在 Mac App 填写扩展 ID 并点击「安装 Chrome Native Host」，然后完全退出 Chrome 再打开",
+      });
     }
   })();
   return true;
 });
 
-// 空闲断开 Native 端口（M0：仅在有 inflight 时保持）
 setInterval(() => {
   if (!nativePort) return;
   if (inflight.size === 0) {

@@ -15,15 +15,22 @@ macos-sync-artifacts: rust-ffi rust-host
 	cp $(RUST_LIB_FFI) $(MACOS_RUNNER)/
 	cp $(RUST_HOST_BIN) $(MACOS_RUNNER)/credpivot-native-host
 	chmod +x $(MACOS_RUNNER)/credpivot-native-host
+	@mkdir -p $(HOME)/.credpivot
+	@echo "$(RUST_HOST_BIN)" > $(HOME)/.credpivot/native_host_binary.path
 	@if [ -f $(MACOS_APP_DIR)/macos/Runner.xcodeproj/project.pbxproj ]; then \
 		$(ROOT)/scripts/patch-macos-xcode.sh; \
 	fi
 
-macos-build-debug:
+macos-write-build-stamp:
+	@STAMP="$$(date '+%Y-%m-%d %H:%M:%S') $$(cd $(ROOT) && git rev-parse --short HEAD 2>/dev/null || echo nogit) $$(openssl rand -hex 4)"; \
+	printf '%s\n' "const String kCredPivotBuildStamp = '$$STAMP';" > $(MACOS_APP_DIR)/lib/build_stamp.dart; \
+	echo "build stamp: $$STAMP"
+
+macos-build-debug: macos-write-build-stamp
 	$(MAKE) CARGO_PROFILE=debug macos-sync-artifacts
 	cd $(MACOS_APP_DIR) && $(FLUTTER) build macos --debug
 
-macos-build-release:
+macos-build-release: macos-write-build-stamp
 	$(MAKE) CARGO_PROFILE=release macos-sync-artifacts
 	cd $(MACOS_APP_DIR) && $(FLUTTER) build macos --release
 

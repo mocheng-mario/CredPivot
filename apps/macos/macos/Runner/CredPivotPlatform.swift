@@ -23,6 +23,14 @@ final class CredPivotPlatform: NSObject {
     case "startAgent":
       let code = CredPivotRustFFI.start()
       result(code == 0 ? nil : FlutterError(code: "agent", message: "start failed", details: code))
+    case "restartAgent":
+      let code = CredPivotRustFFI.restart()
+      result(code == 0)
+    case "agentIsRunning":
+      result(CredPivotRustFFI.isRunning())
+    case "relaunchApp":
+      AppRelauncher.relaunch()
+      result(nil)
     case "agentRequest":
       guard let json = call.arguments as? String else {
         result(FlutterError(code: "bad_args", message: "expected json string", details: nil))
@@ -60,9 +68,13 @@ final class CredPivotPlatform: NSObject {
     case "registerLoginItem":
       let enabled = (call.arguments as? Bool) ?? true
       LoginItemRegistrar.setEnabled(enabled, result: result)
+    case "getChromeExtensionId":
+      result(ChromeHostInstaller.storedExtensionId() ?? "")
+    case "chromeHostStatus":
+      result(ChromeHostInstaller.status())
     case "installChromeHost":
-      ChromeHostInstaller.install()
-      result(nil)
+      let extId = call.arguments as? String
+      result(ChromeHostInstaller.install(extensionId: extId))
     case "appendSshIdentityAgent":
       if !agentIsUnlocked() {
         result([
@@ -104,6 +116,23 @@ final class CredPivotPlatform: NSObject {
         panel.prompt = "保存"
         result(panel.runModal() == .OK ? panel.url?.path : nil)
       }
+    case "readTextFile":
+      guard let path = call.arguments as? String else {
+        result(FlutterError(code: "bad_args", message: "path required", details: nil))
+        return
+      }
+      do {
+        result(try String(contentsOfFile: path, encoding: .utf8))
+      } catch {
+        result(FlutterError(code: "io", message: error.localizedDescription, details: nil))
+      }
+    case "copyConcealed":
+      guard let secret = call.arguments as? String else {
+        result(FlutterError(code: "bad_args", message: "secret required", details: nil))
+        return
+      }
+      ConcealedPasteboard.copyConcealed(secret, clearAfterSeconds: 30)
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -209,24 +238,130 @@ enum LoginItemRegistrar {
 }
 
 enum ChromeHostInstaller {
-  static func install() {
-    guard let host = Bundle.main.path(forResource: "credpivot-native-host", ofType: nil) else {
-      NSLog("CredPivot: native host binary missing from bundle")
-      return
-    }
-    let manifest: [String: Any] = [
-      "name": "com.credpivot.chrome.m0",
-      "description": "CredPivot M0 Native Messaging Host",
-      "path": host,
-      "type": "stdio",
-      "allowed_origins": ["chrome-extension://REPLACE_WITH_EXTENSION_ID/"],
+  private static let hostName = "com.credpivot.chrome.m0"
+  private static let credPivotDir: URL = {
+    FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".credpivot", isDirectory: true)
+  }()
+  private static let configPath: URL = credPivotDir.appendingPathComponent("chrome_extension_id")
+  private static let installedHostPath: URL = credPivotDir.appendingPathComponent("credpivot-native-host")
+  private static let manifestURL: URL = {
+    FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(
+        "Library/Application Support/Google/Chrome/NativeMessagingHosts/\(hostName).json",
+        isDirectory: false
+      )
+  }()
+
+  static func status() -> [String: Any] {
+    var out: [String: Any] = [
+      "host_name": hostName,
+      "manifest_path": manifestURL.path,
+      "manifest_exists": FileManager.default.fileExists(atPath: manifestURL.path),
+      "installed_host_path": installedHostPath.path,
+      "installed_host_exists": FileManager.default.fileExists(atPath: installedHostPath.path),
+      "stored_extension_id": storedExtensionId() ?? "",
     ]
-    let dir = FileManager.default.homeDirectoryForCurrentUser
-      .appendingPathComponent("Library/Application Support/Google/Chrome/NativeMessagingHosts", isDirectory: true)
-    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    let url = dir.appendingPathComponent("com.credpivot.chrome.m0.json")
-    if let data = try? JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted]) {
-      try? data.write(to: url)
+    if let data = try? Data(contentsOf: manifestURL),
+       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+      out["manifest_allowed_origins"] = json["allowed_origins"]
+      out["manifest_host_binary"] = json["path"]
+    }
+    return out
+  }
+
+  private static func resolveSourceHostBinary() -> String? {
+    if let bundled = Bundle.main.path(forResource: "credpivot-native-host", ofType: nil) {
+      return bundled
+    }
+    let pathFile = credPivotDir.appendingPathComponent("native_host_binary.path")
+    if let raw = try? String(contentsOf: pathFile, encoding: .utf8) {
+      let p = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+      if FileManager.default.fileExists(atPath: p) {
+        return p
+      }
+    }
+    if FileManager.default.fileExists(atPath: installedHostPath.path) {
+      return installedHostPath.path
+    }
+    return nil
+  }
+
+  private static func materializeHostBinary() throws -> String {
+    guard let src = resolveSourceHostBinary() else {
+      throw NSError(
+        domain: "CredPivot",
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "找不到 native-host，请先 make macos-build"]
+      )
+    }
+    try FileManager.default.createDirectory(at: credPivotDir, withIntermediateDirectories: true)
+    if FileManager.default.fileExists(atPath: installedHostPath.path) {
+      try FileManager.default.removeItem(at: installedHostPath)
+    }
+    try FileManager.default.copyItem(atPath: src, toPath: installedHostPath.path)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedHostPath.path)
+    return installedHostPath.path
+  }
+
+  static func storedExtensionId() -> String? {
+    guard let raw = try? String(contentsOf: configPath, encoding: .utf8) else { return nil }
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  private static func normalizeExtensionId(_ input: String) -> String {
+    var s = input.trimmingCharacters(in: .whitespacesAndNewlines)
+    if s.hasPrefix("chrome-extension://") {
+      s = String(s.dropFirst("chrome-extension://".count))
+    }
+    if s.hasSuffix("/") {
+      s = String(s.dropLast())
+    }
+    return s
+  }
+
+  static func install(extensionId: String?) -> [String: Any] {
+    let candidate = extensionId ?? storedExtensionId() ?? ""
+    let extId = normalizeExtensionId(candidate)
+    if extId.isEmpty || extId.contains("REPLACE") {
+      return [
+        "ok": false,
+        "message": "请填写 Chrome 扩展 ID（在 chrome://extensions 打开开发者模式后复制）",
+      ]
+    }
+    do {
+      try FileManager.default.createDirectory(
+        at: configPath.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try extId.write(to: configPath, atomically: true, encoding: .utf8)
+    } catch {
+      return ["ok": false, "message": "无法保存扩展 ID: \(error.localizedDescription)"]
+    }
+
+    do {
+      let host = try materializeHostBinary()
+      let manifest: [String: Any] = [
+        "name": hostName,
+        "description": "CredPivot Native Messaging Host",
+        "path": host,
+        "type": "stdio",
+        "allowed_origins": ["chrome-extension://\(extId)/"],
+      ]
+      let dir = manifestURL.deletingLastPathComponent()
+      try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+      let data = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted])
+      try data.write(to: manifestURL)
+      return [
+        "ok": true,
+        "message": "已安装 Native Host。请完全退出 Chrome 后重开，再在扩展里点「连接 App」。",
+        "manifest_path": manifestURL.path,
+        "extension_id": extId,
+        "host_binary": host,
+      ]
+    } catch {
+      return ["ok": false, "message": error.localizedDescription]
     }
   }
 }
@@ -356,5 +491,42 @@ Host *
       return before + "\n"
     }
     return before + "\n" + after
+  }
+}
+
+enum AppRelauncher {
+  static func relaunch() {
+    let path = Bundle.main.bundlePath
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+    task.arguments = ["-n", path]
+    try? task.run()
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+      NSApp.terminate(nil)
+    }
+  }
+}
+
+// MARK: - M2-11 剪贴板：ConcealedType + changeCount 清理
+
+enum ConcealedPasteboard {
+  private static let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+  private static var clearWorkItem: DispatchWorkItem?
+
+  static func copyConcealed(_ secret: String, clearAfterSeconds: TimeInterval) {
+    let pb = NSPasteboard.general
+    let baseline = pb.changeCount
+    pb.clearContents()
+    pb.setString(secret, forType: .string)
+    pb.setString("", forType: concealed)
+    clearWorkItem?.cancel()
+    let work = DispatchWorkItem {
+      let current = NSPasteboard.general
+      if current.changeCount == baseline + 1 || current.string(forType: .string) == secret {
+        current.clearContents()
+      }
+    }
+    clearWorkItem = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + clearAfterSeconds, execute: work)
   }
 }

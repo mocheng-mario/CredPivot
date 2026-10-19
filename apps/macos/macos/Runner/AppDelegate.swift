@@ -20,6 +20,10 @@ class AppDelegate: FlutterAppDelegate {
 
     if let controller = mainFlutterWindow?.contentViewController as? FlutterViewController {
       platform = CredPivotPlatform(messenger: controller.engine.binaryMessenger)
+      let code = CredPivotRustFFI.start()
+      if code != 0 {
+        NSLog("CredPivot: agent start failed at launch (code \(code))")
+      }
     }
 
     showMainWindow()

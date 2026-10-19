@@ -264,6 +264,105 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
             st.pending_fills.remove(&request_id);
             AgentResponse::ok(json!({ "cancelled": true }))
         }
+        AgentRequest::CredentialGet { credential_id } => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.get_credential(&credential_id) {
+                Ok(c) => AgentResponse::ok(json!({
+                    "id": c.id,
+                    "origin": c.origin,
+                    "username": c.username,
+                    "password": c.password,
+                })),
+                Err(e) => AgentResponse::err("not_found", e.to_string()),
+            }
+        }
+        AgentRequest::CredentialList { query, limit } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            let lim = limit.unwrap_or(100);
+            match v.list_credentials(query.as_deref(), lim) {
+                Ok(items) => AgentResponse::ok(json!({ "items": items })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::CredentialUpdate {
+            credential_id,
+            expected_revision,
+            origin,
+            username,
+            password,
+        } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match v.update_credential(
+                &credential_id,
+                &expected_revision,
+                &origin,
+                &username,
+                password.as_deref(),
+            ) {
+                Ok(row) => AgentResponse::ok(json!({ "updated": true, "item": row })),
+                Err(e) => {
+                    let msg = e.to_string();
+                    if msg.contains("revision conflict") {
+                        AgentResponse::err("conflict", msg)
+                    } else {
+                        AgentResponse::err("vault", msg)
+                    }
+                }
+            }
+        }
+        AgentRequest::CredentialTrash { item_id } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match v.trash_credential_item(&item_id) {
+                Ok(()) => AgentResponse::ok(json!({ "trashed": true })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::SecuritySummary => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.security_summary() {
+                Ok(s) => AgentResponse::ok(json!({ "summary": s })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::ImportBitwarden { json } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match v.import_bitwarden(&json) {
+                Ok(report) => AgentResponse::ok(json!({ "report": report })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::TotpCode { totp_id } => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.totp_code(&totp_id) {
+                Ok(code) => AgentResponse::ok(json!({ "code": code })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
     }
 }
 

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'agent_bridge.dart';
+import 'build_stamp.dart';
+import 'credentials_page.dart';
 import 'memory_format.dart';
 
 void main() {
@@ -36,6 +38,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
   final _password = TextEditingController();
   final _newPassword = TextEditingController();
   final _recoveryKey = TextEditingController();
+  final _chromeExtensionId = TextEditingController();
   Map<String, dynamic> _status = {};
   int _memoryBytes = 0;
   bool _busy = false;
@@ -54,6 +57,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
     _password.dispose();
     _newPassword.dispose();
     _recoveryKey.dispose();
+    _chromeExtensionId.dispose();
     super.dispose();
   }
 
@@ -62,7 +66,11 @@ class _VaultHomePageState extends State<VaultHomePage> {
     try {
       await action();
     } on AgentException catch (e) {
-      _appendLog('$label 失败: ${e.message}');
+      final msg = AgentBridge.friendlyMessage(e);
+      _appendLog('$label 失败: $msg');
+      if (AgentBridge.isAgentNotStartedError(e)) {
+        _showAgentNotStartedHint();
+      }
     } catch (e) {
       _appendLog('$label 失败: $e');
     } finally {
@@ -77,21 +85,97 @@ class _VaultHomePageState extends State<VaultHomePage> {
   Future<void> _refreshStatus() async {
     final raw = await AgentBridge.request({'type': 'status'});
     final payload = AgentBridge.payloadOf(raw);
+    final chrome = await AgentBridge.chromeHostStatus();
     _memoryBytes = await AgentBridge.residentMemoryBytes();
     setState(() {
       _status = payload;
-      _log = const JsonEncoder.withIndent('  ').convert(payload);
+      _log = const JsonEncoder.withIndent('  ').convert({
+        'build_stamp': kCredPivotBuildStamp,
+        'chrome_host': chrome,
+        'agent': payload,
+      });
     });
   }
 
   Future<void> _bootstrap() async {
     try {
       await AgentBridge.startAgent();
-      await AgentBridge.installChromeHost();
+      if (!await AgentBridge.ensureAgentReady()) {
+        _appendLog(
+          '后台 Agent 未就绪。可点「重启 Agent」或「重新打开应用」。'
+          ' 若从旧构建启动，请先 make macos-build-debug 后重开。',
+        );
+      }
+      _chromeExtensionId.text = await AgentBridge.getChromeExtensionId();
+      if (_chromeExtensionId.text.isNotEmpty) {
+        final r = await AgentBridge.installChromeHost(_chromeExtensionId.text);
+        if (r['ok'] != true) {
+          _appendLog('Chrome Host: ${r['message']}');
+        }
+      }
+      if (_chromeExtensionId.text.trim().isEmpty) {
+        _chromeExtensionId.text = 'kclmbggfjdokgcmgdofhhkpadklbjcii';
+      }
       await _refreshStatus();
     } catch (e) {
       _appendLog('错误: $e');
     }
+  }
+
+  Future<void> _showAgentNotStartedHint() {
+    if (!mounted) return Future.value();
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('后台未启动'),
+        content: const Text(
+          '凭据后台（Agent）未运行，无法创建/解锁保险库。\n\n'
+          '请先尝试「重启 Agent」；仍失败请「重新打开应用」或 Cmd+Q 完全退出后重开。',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('知道了')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _restartAgent();
+            },
+            child: const Text('重启 Agent'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              AgentBridge.relaunchApp();
+            },
+            child: const Text('重新打开应用'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _restartAgent() async {
+    await _run('重启 Agent', () async {
+      final ok = await AgentBridge.restartAgent();
+      if (!ok) {
+        _appendLog('重启 Agent 失败，请重新打开应用');
+        return;
+      }
+      await _refreshStatus();
+      _appendLog('Agent 已重启');
+    });
+  }
+
+  Future<void> _relaunchApp() async {
+    await AgentBridge.relaunchApp();
+  }
+
+  Future<bool> _guardAgent(String actionLabel) async {
+    final ok = await AgentBridge.ensureAgentReady();
+    if (!ok) {
+      _appendLog('$actionLabel 前检查：Agent 未就绪');
+      await _showAgentNotStartedHint();
+    }
+    return ok;
   }
 
   Future<void> _createVault() async {
@@ -100,6 +184,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
       _appendLog('主密码至少 8 位');
       return;
     }
+    if (!await _guardAgent('创建保险库')) return;
     await _run('创建保险库', () async {
       final recovery = await AgentBridge.vaultCreate(pw);
       await _refreshStatus();
@@ -125,6 +210,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
   }
 
   Future<void> _unlock() async {
+    if (!await _guardAgent('解锁')) return;
     await _run('解锁', () async {
       final ok = await AgentBridge.unlockWithPassword(_password.text);
       if (!ok) {
@@ -137,12 +223,21 @@ class _VaultHomePageState extends State<VaultHomePage> {
 
   Future<void> _unlockTouchId() async {
     await _run('Touch ID', () async {
-      final ok = await AgentBridge.unlockWithTouchId();
+      final ok = await AgentBridge.unlockWithTouchId()
+          .timeout(const Duration(seconds: 120), onTimeout: () => false);
       if (!ok) {
-        _appendLog('Touch ID 未通过（扩展演示门槛，完整解密仍需主密码）');
+        _appendLog(
+          'Touch ID 未通过（取消、未录入指纹或本机不支持时会出现）。'
+          ' 写库/解密须用「主密码解锁」；Touch ID 仅作扩展操作门槛。',
+        );
         return;
       }
       await _refreshStatus();
+      if (_status['database_attached'] != true) {
+        _appendLog(
+          'Touch ID 已通过（会话门槛）。要挂载 SQLCipher 并保存密码，请再点「主密码解锁」。',
+        );
+      }
     });
   }
 
@@ -208,19 +303,36 @@ class _VaultHomePageState extends State<VaultHomePage> {
     final vaultLabel = !_vaultExists
         ? '未创建'
         : (_unlocked ? '已解锁' : '已锁定');
-    return Scaffold(
+    final format = _status['format']?.toString() ?? 'm2';
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
       appBar: AppBar(
-        title: const Text('CredPivot M1'),
+        title: Text('CredPivot ${format.toUpperCase()}'),
+        bottom: const TabBar(tabs: [
+          Tab(text: '保险库'),
+          Tab(text: '密码'),
+          Tab(text: '安全中心'),
+        ]),
         actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Center(
+              child: Text(
+                'Build: $kCredPivotBuildStamp',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Center(child: Text('Vault: $vaultLabel')),
           ),
         ],
       ),
-      body: AbsorbPointer(
-        absorbing: _busy,
-        child: Padding(
+      body: TabBarView(
+        children: [
+          Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -256,8 +368,18 @@ class _VaultHomePageState extends State<VaultHomePage> {
                   labelText: '恢复密钥（仅 OVB 恢复）',
                 ),
               ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _chromeExtensionId,
+                decoration: const InputDecoration(
+                  labelText: 'Chrome 扩展 ID',
+                  hintText: '例如 kclmbggfjdokgcmgdofhhkpadklbjcii',
+                ),
+              ),
               const SizedBox(height: 12),
-              Wrap(
+              AbsorbPointer(
+                absorbing: _busy,
+                child: Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
@@ -295,19 +417,33 @@ class _VaultHomePageState extends State<VaultHomePage> {
                     child: const Text('SSH IdentityAgent'),
                   ),
                   OutlinedButton(onPressed: _removeSshIdentityAgent, child: const Text('撤销 SSH')),
+                  OutlinedButton(onPressed: _installChromeHost, child: const Text('安装 Chrome Native Host')),
+                  OutlinedButton(onPressed: _restartAgent, child: const Text('重启 Agent')),
+                  OutlinedButton(onPressed: _relaunchApp, child: const Text('重新打开应用')),
                 ],
               ),
+              ),
+              if (_busy)
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Text('处理中…', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                ),
               const Padding(
                 padding: EdgeInsets.only(top: 8),
                 child: Text(
-                  'M1：真实 CPVC1 + SQLCipher（~/.credpivot/vault）。Chrome/SSH 凭据仍为会话内演示，业务入库在 M2。',
+                  'M2：CPVC1 + SQLCipher 登录凭据已入库（须主密码解锁）。'
+                  ' Chrome 需填写扩展 ID 并安装 Host；保存前请保持本 App 已启动 Agent。',
                   style: TextStyle(fontSize: 12, color: Colors.black54),
                 ),
               ),
             ],
           ),
-        ),
+          ),
+          CredentialsTab(unlocked: _unlocked),
+          SecurityCenterTab(unlocked: _unlocked),
+        ],
       ),
+    ),
     );
   }
 
@@ -322,6 +458,18 @@ class _VaultHomePageState extends State<VaultHomePage> {
     await _run('SSH', () async {
       final r = await AgentBridge.appendSshIdentityAgent();
       _appendLog('${r['message']}\n${r['configPath'] ?? ''}');
+    });
+  }
+
+  Future<void> _installChromeHost() async {
+    final id = _chromeExtensionId.text.trim();
+    if (id.isEmpty) {
+      _appendLog('请填写 Chrome 扩展 ID');
+      return;
+    }
+    await _run('Chrome Host', () async {
+      final r = await AgentBridge.installChromeHost(id);
+      _appendLog('${r['message']}\n${r['manifest_path'] ?? ''}');
     });
   }
 

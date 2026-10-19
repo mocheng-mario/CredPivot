@@ -22,19 +22,33 @@ pub struct LoginCredentialRecord {
     pub current_revision: String,
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
 }
 
-fn new_revision() -> String {
+pub(crate) fn new_revision() -> String {
     Uuid::new_v4().to_string()
 }
 
-/// M2-2：新建 Item + Login 凭据（单事务）。
+/// M2-2：新建 Item + Login（在已有连接/事务上执行）。
 pub fn insert_login_credential(
+    conn: &Connection,
+    origin: &str,
+    username: &str,
+    password: &str,
+) -> Result<LoginCredentialRecord> {
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    let rec = insert_login_credential_in_tx(&tx, origin, username, password)?;
+    tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
+    Ok(rec)
+}
+
+pub fn insert_login_credential_in_tx(
     conn: &Connection,
     origin: &str,
     username: &str,
@@ -46,22 +60,18 @@ pub fn insert_login_credential(
     let ts = now_ms();
     let title = format!("{origin} ({username})");
 
-    let tx = conn
-        .unchecked_transaction()
-        .map_err(|e| CoreError::format(e.to_string()))?;
-    tx.execute(
+    conn.execute(
         "INSERT INTO items (id, kind, title, trashed, current_revision, created_at_ms, updated_at_ms)
          VALUES (?1, 'login', ?2, 0, ?3, ?4, ?4)",
         params![item_id, title, revision, ts],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
-    tx.execute(
-        "INSERT INTO login_credentials (id, item_id, origin, username, secret, current_revision, created_at_ms, updated_at_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+    conn.execute(
+        "INSERT INTO login_credentials (id, item_id, origin, username, secret, current_revision, created_at_ms, updated_at_ms, password_active_since_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7)",
         params![cred_id, item_id, origin, username, password, revision, ts],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
-    tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
 
     Ok(LoginCredentialRecord {
         id: cred_id,

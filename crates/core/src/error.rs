@@ -12,6 +12,8 @@ pub enum CoreError {
     Io(String),
     #[error("password/key rejected")]
     BadSecret,
+    #[error("revision conflict")]
+    Conflict,
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;

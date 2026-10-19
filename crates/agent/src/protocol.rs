@@ -36,6 +36,22 @@ pub enum AgentRequest {
         document_id: String,
     },
     CancelRequest { request_id: String },
+    CredentialList {
+        query: Option<String>,
+        limit: Option<u32>,
+    },
+    CredentialGet { credential_id: String },
+    CredentialUpdate {
+        credential_id: String,
+        expected_revision: String,
+        origin: String,
+        username: String,
+        password: Option<String>,
+    },
+    CredentialTrash { item_id: String },
+    SecuritySummary,
+    ImportBitwarden { json: String },
+    TotpCode { totp_id: String },
     VaultCreate { password: String },
     VaultChangePassword {
         old_password: String,

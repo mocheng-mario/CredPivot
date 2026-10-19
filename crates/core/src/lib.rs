@@ -7,7 +7,11 @@ mod key_slot;
 mod limits;
 mod local_db;
 mod migrate;
+mod bitwarden_import;
 mod repo;
+mod repo_m2;
+mod restore_point;
+mod totp;
 mod ovb1;
 mod password_change;
 mod recovery_key;
@@ -26,10 +30,21 @@ pub use password_change::change_master_password;
 pub use recovery_key::{format_display, generate as generate_recovery_key, parse_display as parse_recovery_display};
 pub use local_db::{open_database, sqlcipher_sidecar_paths, verify_database, SQLCIPHER_M1_LABEL};
 pub use migrate::SCHEMA_USER_VERSION;
+pub use bitwarden_import::{import_bitwarden_json, ImportReport};
 pub use repo::{
     count_login_credentials, get_login_secret, insert_login_credential, list_login_by_origin,
     LoginCredentialRecord, LoginCredentialSummary,
 };
+pub use repo_m2::{
+    ensure_default_ssh_key, list_logins, load_default_ssh_key, security_summary, trash_item,
+    totp_secret_for_id, update_login_credential, insert_totp, insert_ssh_key, LoginListRow,
+    SecuritySummary, SshKeyRecord,
+};
+pub use restore_point::{
+    create_restore_point, create_restore_point_if_due, mark_restore_dirty,
+    should_create_restore_point, MAX_RESTORE_POINTS, RESTORE_POINTS_DIR,
+};
+pub use totp::totp_code_now;
 pub use snapshot::{SNAPSHOT_FORMAT, SNAPSHOT_VERSION};
 pub use vault_db::VaultDatabase;
 pub use vault_init::{create_vault_config, NewVaultMaterial};
