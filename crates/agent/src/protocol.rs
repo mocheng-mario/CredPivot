@@ -18,6 +18,14 @@ pub enum AgentRequest {
         origin: String,
         username: String,
         password: String,
+        #[serde(default)]
+        display_name: String,
+        #[serde(default)]
+        connection_host: String,
+        #[serde(default)]
+        linked_totp_id: Option<String>,
+        #[serde(default)]
+        group_id: Option<String>,
     },
     CredentialSuggest {
         origin: String,
@@ -46,6 +54,14 @@ pub enum AgentRequest {
         expected_revision: String,
         origin: String,
         username: String,
+        #[serde(default)]
+        display_name: String,
+        #[serde(default)]
+        group_id: String,
+        #[serde(default)]
+        connection_host: String,
+        #[serde(default)]
+        linked_totp_id: String,
         password: Option<String>,
     },
     CredentialTrash { item_id: String },
@@ -56,8 +72,50 @@ pub enum AgentRequest {
         issuer: String,
         account: String,
         secret_base32: String,
+        #[serde(default)]
+        group_id: Option<String>,
     },
     TotpCode { totp_id: String },
+    TotpReveal { totp_id: String },
+    CredentialGroupList { scope: String },
+    CredentialGroupCreate { scope: String, name: String },
+    CredentialGroupDelete { id: String },
+    CredentialItemSetGroup { item_id: String, group_id: String },
+    ServerProfileList,
+    ServerProfileCreate {
+        label: String,
+        host: String,
+        #[serde(default = "default_ssh_port")]
+        port: u16,
+        #[serde(default)]
+        manual_username: String,
+        #[serde(default)]
+        linked_login_id: Option<String>,
+        #[serde(default)]
+        linked_totp_id: Option<String>,
+        #[serde(default)]
+        linked_ssh_key_id: Option<String>,
+        #[serde(default)]
+        group_id: Option<String>,
+    },
+    ServerProfileUpdate {
+        id: String,
+        expected_revision: String,
+        label: String,
+        host: String,
+        #[serde(default = "default_ssh_port")]
+        port: u16,
+        #[serde(default)]
+        manual_username: String,
+        #[serde(default)]
+        linked_login_id: String,
+        #[serde(default)]
+        linked_totp_id: String,
+        #[serde(default)]
+        linked_ssh_key_id: String,
+        #[serde(default)]
+        group_id: String,
+    },
     SshKeyList,
     SshKeyGenerate {
         label: String,
@@ -107,6 +165,10 @@ pub enum AgentRequest {
         password: String,
     },
     VaultVerifyRecoveryKey { recovery_key: String },
+}
+
+fn default_ssh_port() -> u16 {
+    22
 }
 
 #[derive(Debug, Serialize, Deserialize)]

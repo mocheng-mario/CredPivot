@@ -107,6 +107,10 @@ fn map_extension_to_agent(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
+            display_name: String::new(),
+            connection_host: String::new(),
+            linked_totp_id: None,
+            group_id: None,
         }),
         "credential.suggest_for_origin" => Ok(AgentRequest::CredentialSuggest {
             origin: envelope

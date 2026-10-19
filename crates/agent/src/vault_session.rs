@@ -275,20 +275,30 @@ impl VaultSession {
         format!("ssh-ed25519 {b64} credpivot-m2")
     }
 
-    pub fn save_credential(&mut self, origin: &str, username: &str, password: &str) -> Result<FakeCredential> {
+    pub fn save_credential(
+        &mut self,
+        origin: &str,
+        username: &str,
+        password: &str,
+        display_name: &str,
+        connection_host: &str,
+        linked_totp_id: Option<&str>,
+        group_id: Option<&str>,
+    ) -> Result<credpivot_core::LoginListRow> {
         let db = self
             .db
             .as_ref()
             .ok_or_else(|| AgentError::Vault("unlock with master password to access database".into()))?;
-        let rec = db
-            .insert_login(origin, username, password)
-            .map_err(|e| AgentError::Vault(e.to_string()))?;
-        Ok(FakeCredential {
-            id: rec.id,
-            origin: rec.origin,
-            username: rec.username,
-            password: rec.password,
-        })
+        db.insert_login_full(
+            origin,
+            username,
+            password,
+            display_name,
+            connection_host,
+            linked_totp_id,
+            group_id,
+        )
+        .map_err(|e| AgentError::Vault(e.to_string()))
     }
 
     pub fn suggest_for_origin(&self, origin: &str) -> Result<Vec<FakeCredential>> {
@@ -324,13 +334,27 @@ impl VaultSession {
         expected_revision: &str,
         origin: &str,
         username: &str,
+        display_name: &str,
+        connection_host: &str,
+        linked_totp_id: Option<&str>,
+        group_id: Option<&str>,
         password: Option<&str>,
     ) -> Result<credpivot_core::LoginListRow> {
         let db = self
             .db
             .as_ref()
             .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
-        db.update_login(credential_id, expected_revision, origin, username, password)
+        db.update_login(
+            credential_id,
+            expected_revision,
+            origin,
+            username,
+            display_name,
+            connection_host,
+            linked_totp_id,
+            group_id,
+            password,
+        )
             .map_err(|e| match e {
                 credpivot_core::CoreError::Conflict => AgentError::Vault("revision conflict".into()),
                 other => AgentError::Vault(other.to_string()),
@@ -379,10 +403,100 @@ impl VaultSession {
         db.list_totp().map_err(|e| AgentError::Vault(e.to_string()))
     }
 
-    pub fn create_totp(&self, issuer: &str, account: &str, secret_base32: &str) -> Result<credpivot_core::TotpListRow> {
+    pub fn create_totp(
+        &self,
+        issuer: &str,
+        account: &str,
+        secret_base32: &str,
+        group_id: Option<&str>,
+    ) -> Result<credpivot_core::TotpListRow> {
         let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
-        db.add_totp(issuer, account, secret_base32)
+        db.add_totp(issuer, account, secret_base32, group_id)
             .map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn totp_reveal(&self, totp_id: &str) -> Result<credpivot_core::TotpRevealRow> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.totp_reveal(totp_id).map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn list_credential_groups(&self, scope: &str) -> Result<Vec<credpivot_core::CredentialGroupRow>> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.list_credential_groups(scope).map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn create_credential_group(&self, scope: &str, name: &str) -> Result<credpivot_core::CredentialGroupRow> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.create_credential_group(scope, name).map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn delete_credential_group(&self, id: &str) -> Result<()> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.delete_credential_group(id).map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn set_item_group(&self, item_id: &str, group_id: Option<&str>) -> Result<()> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.set_item_group(item_id, group_id).map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn list_server_profiles(&self) -> Result<Vec<credpivot_core::ServerProfileRow>> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.list_server_profiles().map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn create_server_profile(
+        &self,
+        label: &str,
+        host: &str,
+        port: u16,
+        manual_username: &str,
+        linked_login_id: Option<&str>,
+        linked_totp_id: Option<&str>,
+        linked_ssh_key_id: Option<&str>,
+        group_id: Option<&str>,
+    ) -> Result<credpivot_core::ServerProfileRow> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.create_server_profile(
+            label,
+            host,
+            port,
+            manual_username,
+            linked_login_id,
+            linked_totp_id,
+            linked_ssh_key_id,
+            group_id,
+        )
+        .map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn update_server_profile(
+        &self,
+        id: &str,
+        expected_revision: &str,
+        label: &str,
+        host: &str,
+        port: u16,
+        manual_username: &str,
+        linked_login_id: Option<&str>,
+        linked_totp_id: Option<&str>,
+        linked_ssh_key_id: Option<&str>,
+        group_id: Option<&str>,
+    ) -> Result<credpivot_core::ServerProfileRow> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.update_server_profile(
+            id,
+            expected_revision,
+            label,
+            host,
+            port,
+            manual_username,
+            linked_login_id,
+            linked_totp_id,
+            linked_ssh_key_id,
+            group_id,
+        )
+        .map_err(|e| AgentError::Vault(e.to_string()))
     }
 
     pub fn list_ssh_keys(&self) -> Result<Vec<credpivot_core::SshKeyListRow>> {

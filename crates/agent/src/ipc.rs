@@ -178,13 +178,25 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
             origin,
             username,
             password,
+            display_name,
+            connection_host,
+            linked_totp_id,
+            group_id,
         } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
-            let cred = match v.save_credential(&origin, &username, &password) {
+            let cred = match v.save_credential(
+                &origin,
+                &username,
+                &password,
+                &display_name,
+                &connection_host,
+                linked_totp_id.as_deref().and_then(|s| opt_nonempty(s)),
+                group_id.as_deref().and_then(|s| opt_nonempty(s)),
+            ) {
                 Ok(c) => c,
                 Err(e) => return AgentResponse::err("vault", e.to_string()),
             };
@@ -302,6 +314,10 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
             expected_revision,
             origin,
             username,
+            display_name,
+            group_id,
+            connection_host,
+            linked_totp_id,
             password,
         } => {
             let mut v = st.vault.lock().await;
@@ -314,6 +330,10 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
                 &expected_revision,
                 &origin,
                 &username,
+                &display_name,
+                &connection_host,
+                opt_nonempty(&linked_totp_id),
+                opt_nonempty(&group_id),
                 password.as_deref(),
             ) {
                 Ok(row) => AgentResponse::ok(json!({ "updated": true, "item": row })),
@@ -373,14 +393,30 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
             issuer,
             account,
             secret_base32,
+            group_id,
         } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
-            match v.create_totp(&issuer, &account, &secret_base32) {
+            match v.create_totp(
+                &issuer,
+                &account,
+                &secret_base32,
+                group_id.as_deref().and_then(|s| opt_nonempty(s)),
+            ) {
                 Ok(row) => AgentResponse::ok(json!({ "item": row })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::TotpReveal { totp_id } => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.totp_reveal(&totp_id) {
+                Ok(reveal) => AgentResponse::ok(json!({ "reveal": reveal })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }
@@ -535,6 +571,137 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }
+        AgentRequest::CredentialGroupList { scope } => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.list_credential_groups(&scope) {
+                Ok(items) => AgentResponse::ok(json!({ "items": items })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::CredentialGroupCreate { scope, name } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match v.create_credential_group(&scope, &name) {
+                Ok(item) => AgentResponse::ok(json!({ "item": item })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::CredentialGroupDelete { id } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match v.delete_credential_group(&id) {
+                Ok(()) => AgentResponse::ok(json!({ "deleted": true })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::CredentialItemSetGroup { item_id, group_id } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match v.set_item_group(&item_id, opt_nonempty(&group_id)) {
+                Ok(()) => AgentResponse::ok(json!({ "updated": true })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::ServerProfileList => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.list_server_profiles() {
+                Ok(items) => AgentResponse::ok(json!({ "items": items })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::ServerProfileCreate {
+            label,
+            host,
+            port,
+            manual_username,
+            linked_login_id,
+            linked_totp_id,
+            linked_ssh_key_id,
+            group_id,
+        } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match v.create_server_profile(
+                &label,
+                &host,
+                port,
+                &manual_username,
+                linked_login_id.as_deref().and_then(|s| opt_nonempty(s)),
+                linked_totp_id.as_deref().and_then(|s| opt_nonempty(s)),
+                linked_ssh_key_id.as_deref().and_then(|s| opt_nonempty(s)),
+                group_id.as_deref().and_then(|s| opt_nonempty(s)),
+            ) {
+                Ok(item) => AgentResponse::ok(json!({ "item": item })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::ServerProfileUpdate {
+            id,
+            expected_revision,
+            label,
+            host,
+            port,
+            manual_username,
+            linked_login_id,
+            linked_totp_id,
+            linked_ssh_key_id,
+            group_id,
+        } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match v.update_server_profile(
+                &id,
+                &expected_revision,
+                &label,
+                &host,
+                port,
+                &manual_username,
+                opt_nonempty(&linked_login_id),
+                opt_nonempty(&linked_totp_id),
+                opt_nonempty(&linked_ssh_key_id),
+                opt_nonempty(&group_id),
+            ) {
+                Ok(item) => AgentResponse::ok(json!({ "item": item })),
+                Err(e) => {
+                    let msg = e.to_string();
+                    if msg.contains("revision conflict") || msg.contains("Conflict") {
+                        AgentResponse::err("conflict", msg)
+                    } else {
+                        AgentResponse::err("vault", msg)
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn opt_nonempty(s: &str) -> Option<&str> {
+    let t = s.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t)
     }
 }
 
