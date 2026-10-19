@@ -13,7 +13,17 @@ fn revision_conflict_on_stale_update() {
         .insert_login("https://a.com", "u", "p1")
         .expect("insert");
     let updated = db
-        .update_login(&rec.id, &rec.current_revision, "https://a.com", "u", Some("p2"))
+        .update_login(
+            &rec.id,
+            &rec.current_revision,
+            "https://a.com",
+            "u",
+            "",
+            "",
+            None,
+            None,
+            Some("p2"),
+        )
         .expect("update");
     let conn = open_database(dir.path(), &*material.vmk).expect("conn");
     let err = update_login_credential(
@@ -22,6 +32,10 @@ fn revision_conflict_on_stale_update() {
         &rec.current_revision,
         "https://a.com",
         "u",
+        "",
+        "",
+        None,
+        None,
         Some("p3"),
     )
     .expect_err("conflict");

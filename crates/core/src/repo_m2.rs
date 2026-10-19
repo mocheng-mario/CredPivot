@@ -12,12 +12,19 @@ pub struct LoginListRow {
     pub id: String,
     pub item_id: String,
     pub title: String,
+    pub display_name: String,
     pub origin: String,
     pub username: String,
+    pub connection_host: String,
+    pub linked_totp_id: Option<String>,
+    pub group_id: Option<String>,
     pub current_revision: String,
     pub updated_at_ms: i64,
     pub password_active_since_ms: i64,
 }
+
+const LOGIN_LIST_SELECT: &str = "SELECT c.id, c.item_id, i.title, c.display_name, c.origin, c.username, c.connection_host,
+                 c.linked_totp_id, i.group_id, c.current_revision, c.updated_at_ms, c.password_active_since_ms";
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SecuritySummary {
@@ -37,11 +44,13 @@ pub fn list_logins(conn: &Connection, query: Option<&str>, limit: u32) -> Result
         let pattern = format!("%{qs}%");
         let mut stmt = conn
             .prepare(
-                "SELECT c.id, c.item_id, i.title, c.origin, c.username, c.current_revision, c.updated_at_ms, c.password_active_since_ms
+                &format!(
+                    "{LOGIN_LIST_SELECT}
                  FROM login_credentials c
                  INNER JOIN items i ON i.id = c.item_id
-                 WHERE i.trashed = 0 AND (i.title LIKE ?1 OR c.origin LIKE ?1 OR c.username LIKE ?1)
-                 ORDER BY c.updated_at_ms DESC LIMIT ?2",
+                 WHERE i.trashed = 0 AND (i.title LIKE ?1 OR c.display_name LIKE ?1 OR c.origin LIKE ?1 OR c.username LIKE ?1)
+                 ORDER BY c.updated_at_ms DESC LIMIT ?2"
+                ),
             )
             .map_err(|e| CoreError::format(e.to_string()))?;
         let rows = stmt
@@ -53,11 +62,13 @@ pub fn list_logins(conn: &Connection, query: Option<&str>, limit: u32) -> Result
     } else {
         let mut stmt = conn
             .prepare(
-                "SELECT c.id, c.item_id, i.title, c.origin, c.username, c.current_revision, c.updated_at_ms, c.password_active_since_ms
+                &format!(
+                    "{LOGIN_LIST_SELECT}
                  FROM login_credentials c
                  INNER JOIN items i ON i.id = c.item_id
                  WHERE i.trashed = 0
-                 ORDER BY c.updated_at_ms DESC LIMIT ?1",
+                 ORDER BY c.updated_at_ms DESC LIMIT ?1"
+                ),
             )
             .map_err(|e| CoreError::format(e.to_string()))?;
         let rows = stmt
@@ -75,12 +86,75 @@ fn map_login_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LoginListRow> {
         id: row.get(0)?,
         item_id: row.get(1)?,
         title: row.get(2)?,
-        origin: row.get(3)?,
-        username: row.get(4)?,
-        current_revision: row.get(5)?,
-        updated_at_ms: row.get(6)?,
-        password_active_since_ms: row.get(7)?,
+        display_name: row.get(3)?,
+        origin: row.get(4)?,
+        username: row.get(5)?,
+        connection_host: row.get(6)?,
+        linked_totp_id: row.get(7)?,
+        group_id: row.get(8)?,
+        current_revision: row.get(9)?,
+        updated_at_ms: row.get(10)?,
+        password_active_since_ms: row.get(11)?,
     })
+}
+
+fn login_item_title(display_name: &str, origin: &str, username: &str) -> String {
+    let dn = display_name.trim();
+    if !dn.is_empty() {
+        dn.to_string()
+    } else {
+        format!("{origin} ({username})")
+    }
+}
+
+/// 新建登录项（含显示名、分组、堡垒机关联字段）。
+pub fn insert_login_extended(
+    conn: &Connection,
+    origin: &str,
+    username: &str,
+    password: &str,
+    display_name: &str,
+    connection_host: &str,
+    linked_totp_id: Option<&str>,
+    group_id: Option<&str>,
+) -> Result<LoginListRow> {
+    let item_id = Uuid::new_v4().to_string();
+    let cred_id = Uuid::new_v4().to_string();
+    let revision = new_revision();
+    let ts = now_ms();
+    let title = login_item_title(display_name, origin, username);
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    tx.execute(
+        "INSERT INTO items (id, kind, title, trashed, group_id, current_revision, created_at_ms, updated_at_ms)
+         VALUES (?1, 'login', ?2, 0, ?3, ?4, ?5, ?5)",
+        params![item_id, title, group_id, revision, ts],
+    )
+    .map_err(|e| CoreError::format(e.to_string()))?;
+    tx.execute(
+        "INSERT INTO login_credentials (id, item_id, origin, username, secret, display_name, connection_host, linked_totp_id,
+         current_revision, created_at_ms, updated_at_ms, password_active_since_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?10)",
+        params![
+            cred_id,
+            item_id,
+            origin,
+            username,
+            password,
+            display_name.trim(),
+            connection_host.trim(),
+            linked_totp_id,
+            revision,
+            ts
+        ],
+    )
+    .map_err(|e| CoreError::format(e.to_string()))?;
+    tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
+    list_logins(conn, None, 500)?
+        .into_iter()
+        .find(|r| r.id == cred_id)
+        .ok_or_else(|| CoreError::format("credential not found after insert"))
 }
 
 /// 更新登录凭据；`expected_revision` 不匹配时返回 Conflict。
@@ -90,6 +164,10 @@ pub fn update_login_credential(
     expected_revision: &str,
     origin: &str,
     username: &str,
+    display_name: &str,
+    connection_host: &str,
+    linked_totp_id: Option<&str>,
+    group_id: Option<&str>,
     new_password: Option<&str>,
 ) -> Result<LoginListRow> {
     let tx = conn
@@ -110,7 +188,7 @@ pub fn update_login_credential(
     }
     let revision = new_revision();
     let ts = now_ms();
-    let title = format!("{origin} ({username})");
+    let title = login_item_title(display_name, origin, username);
 
     if let Some(pw) = new_password {
         if pw != old_secret {
@@ -128,31 +206,61 @@ pub fn update_login_credential(
             .map_err(|e| CoreError::format(e.to_string()))?;
             trim_password_history(&tx, credential_id)?;
             tx.execute(
-                "UPDATE login_credentials SET origin = ?1, username = ?2, secret = ?3,
-                 current_revision = ?4, updated_at_ms = ?5, password_active_since_ms = ?5
-                 WHERE id = ?6",
-                params![origin, username, pw, revision, ts, credential_id],
+                "UPDATE login_credentials SET origin = ?1, username = ?2, secret = ?3, display_name = ?4,
+                 connection_host = ?5, linked_totp_id = ?6, current_revision = ?7, updated_at_ms = ?8, password_active_since_ms = ?8
+                 WHERE id = ?9",
+                params![
+                    origin,
+                    username,
+                    pw,
+                    display_name.trim(),
+                    connection_host.trim(),
+                    linked_totp_id,
+                    revision,
+                    ts,
+                    credential_id
+                ],
             )
             .map_err(|e| CoreError::format(e.to_string()))?;
         } else {
             tx.execute(
-                "UPDATE login_credentials SET origin = ?1, username = ?2, current_revision = ?3, updated_at_ms = ?4
-                 WHERE id = ?5",
-                params![origin, username, revision, ts, credential_id],
+                "UPDATE login_credentials SET origin = ?1, username = ?2, display_name = ?3, connection_host = ?4,
+                 linked_totp_id = ?5, current_revision = ?6, updated_at_ms = ?7
+                 WHERE id = ?8",
+                params![
+                    origin,
+                    username,
+                    display_name.trim(),
+                    connection_host.trim(),
+                    linked_totp_id,
+                    revision,
+                    ts,
+                    credential_id
+                ],
             )
             .map_err(|e| CoreError::format(e.to_string()))?;
         }
     } else {
         tx.execute(
-            "UPDATE login_credentials SET origin = ?1, username = ?2, current_revision = ?3, updated_at_ms = ?4
-             WHERE id = ?5",
-            params![origin, username, revision, ts, credential_id],
+            "UPDATE login_credentials SET origin = ?1, username = ?2, display_name = ?3, connection_host = ?4,
+             linked_totp_id = ?5, current_revision = ?6, updated_at_ms = ?7
+             WHERE id = ?8",
+            params![
+                origin,
+                username,
+                display_name.trim(),
+                connection_host.trim(),
+                linked_totp_id,
+                revision,
+                ts,
+                credential_id
+            ],
         )
         .map_err(|e| CoreError::format(e.to_string()))?;
     }
     tx.execute(
-        "UPDATE items SET title = ?1, current_revision = ?2, updated_at_ms = ?3 WHERE id = ?4",
-        params![title, revision, ts, item_id],
+        "UPDATE items SET title = ?1, group_id = ?2, current_revision = ?3, updated_at_ms = ?4 WHERE id = ?5",
+        params![title, group_id, revision, ts, item_id],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
@@ -371,7 +479,16 @@ pub struct TotpListRow {
     pub item_id: String,
     pub issuer: String,
     pub account: String,
+    pub group_id: Option<String>,
     pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TotpRevealRow {
+    pub issuer: String,
+    pub account: String,
+    pub secret_base32: String,
+    pub otpauth_uri: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -386,7 +503,7 @@ pub struct SshKeyListRow {
 pub fn list_totp_credentials(conn: &Connection) -> Result<Vec<TotpListRow>> {
     let mut stmt = conn
         .prepare(
-            "SELECT t.id, t.item_id, t.issuer, t.account, t.updated_at_ms
+            "SELECT t.id, t.item_id, t.issuer, t.account, i.group_id, t.updated_at_ms
              FROM totp_credentials t
              INNER JOIN items i ON i.id = t.item_id
              WHERE i.trashed = 0
@@ -400,7 +517,8 @@ pub fn list_totp_credentials(conn: &Connection) -> Result<Vec<TotpListRow>> {
                 item_id: row.get(1)?,
                 issuer: row.get(2)?,
                 account: row.get(3)?,
-                updated_at_ms: row.get(4)?,
+                group_id: row.get(4)?,
+                updated_at_ms: row.get(5)?,
             })
         })
         .map_err(|e| CoreError::format(e.to_string()))?;
@@ -465,6 +583,7 @@ pub fn insert_totp(
     issuer: &str,
     account: &str,
     secret_base32: &str,
+    group_id: Option<&str>,
 ) -> Result<String> {
     let secret_base32 = crate::totp::normalize_totp_secret_for_storage(secret_base32)?;
     let item_id = Uuid::new_v4().to_string();
@@ -476,9 +595,9 @@ pub fn insert_totp(
         .unchecked_transaction()
         .map_err(|e| CoreError::format(e.to_string()))?;
     tx.execute(
-        "INSERT INTO items (id, kind, title, trashed, current_revision, created_at_ms, updated_at_ms)
-         VALUES (?1, 'totp', ?2, 0, ?3, ?4, ?4)",
-        params![item_id, title, revision, ts],
+        "INSERT INTO items (id, kind, title, trashed, group_id, current_revision, created_at_ms, updated_at_ms)
+         VALUES (?1, 'totp', ?2, 0, ?3, ?4, ?5, ?5)",
+        params![item_id, title, group_id, revision, ts],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     tx.execute(
@@ -496,8 +615,9 @@ pub fn insert_totp_row(
     issuer: &str,
     account: &str,
     secret_base32: &str,
+    group_id: Option<&str>,
 ) -> Result<TotpListRow> {
-    let totp_id = insert_totp(conn, issuer, account, secret_base32)?;
+    let totp_id = insert_totp(conn, issuer, account, secret_base32, group_id)?;
     list_totp_credentials(conn)?
         .into_iter()
         .find(|r| r.id == totp_id)
@@ -660,4 +780,23 @@ pub fn totp_secret_for_id(conn: &Connection, totp_id: &str) -> Result<String> {
         |row| row.get(0),
     )
     .map_err(|_| CoreError::format("totp not found"))
+}
+
+pub fn totp_reveal_for_id(conn: &Connection, totp_id: &str) -> Result<TotpRevealRow> {
+    let (issuer, account, secret): (String, String, String) = conn
+        .query_row(
+            "SELECT t.issuer, t.account, t.secret_base32 FROM totp_credentials t
+             INNER JOIN items i ON i.id = t.item_id
+             WHERE t.id = ?1 AND i.trashed = 0",
+            params![totp_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|_| CoreError::format("totp not found"))?;
+    let otpauth_uri = crate::totp::build_otpauth_uri(&issuer, &account, &secret)?;
+    Ok(TotpRevealRow {
+        issuer,
+        account,
+        secret_base32: secret,
+        otpauth_uri,
+    })
 }

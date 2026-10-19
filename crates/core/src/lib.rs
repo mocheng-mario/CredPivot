@@ -9,8 +9,10 @@ mod limits;
 mod local_db;
 mod migrate;
 mod bitwarden_import;
+mod credential_groups;
 mod repo;
 mod repo_m2;
+mod server_profiles;
 mod restore_point;
 mod totp;
 mod ovb1;
@@ -44,15 +46,22 @@ pub use repo_m2::{
     ensure_default_ssh_key, insert_recovery_codes, list_logins, list_recovery_codes,
     load_default_ssh_key, security_summary, trash_item, totp_secret_for_id,
     update_login_credential, update_recovery_codes, generate_ssh_key, insert_ssh_key, insert_totp,
-    insert_totp_row, list_ssh_keys, list_totp_credentials, LoginListRow, RecoveryCodeRow,
-    SecuritySummary, SshKeyListRow, SshKeyRecord, TotpListRow,
+    insert_totp_row,     list_ssh_keys, list_totp_credentials, LoginListRow, RecoveryCodeRow,
+    SecuritySummary, SshKeyListRow, SshKeyRecord, TotpListRow, TotpRevealRow,
 };
 pub use restore_point::{
     create_restore_point, create_restore_point_for_risky_op, create_restore_point_if_due,
     list_restore_points, mark_restore_dirty, should_create_restore_point, RestorePointInfo,
     MAX_RESTORE_POINTS, RESTORE_POINTS_DIR,
 };
-pub use totp::{normalize_totp_secret_for_storage, totp_code_now};
+pub use credential_groups::{
+    create_credential_group, delete_credential_group, list_credential_groups,
+    rename_credential_group, set_item_group, CredentialGroupRow,
+};
+pub use server_profiles::{
+    insert_server_profile, list_server_profiles, update_server_profile, ServerProfileRow,
+};
+pub use totp::{build_otpauth_uri, normalize_totp_secret_for_storage, totp_code_now};
 pub use snapshot::{SNAPSHOT_FORMAT, SNAPSHOT_VERSION};
 pub use vault_db::VaultDatabase;
 pub use vault_init::{create_vault_config, NewVaultMaterial};

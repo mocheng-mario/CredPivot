@@ -9,6 +9,49 @@ pub fn totp_code_now(secret_or_uri: &str) -> Result<String> {
         .map_err(|e| CoreError::format(e.to_string()))?)
 }
 
+/// 由发行方、账号与 Base32 密钥生成标准 `otpauth://` URI（SHA1 / 6 / 30s）。
+pub fn build_otpauth_uri(issuer: &str, account: &str, secret_base32: &str) -> Result<String> {
+    let secret = normalize_totp_secret_for_storage(secret_base32)?;
+    let iss = issuer.trim();
+    let acc = account.trim();
+    let label = if iss.is_empty() {
+        encode_otpauth_path_component(acc)
+    } else if acc.is_empty() {
+        encode_otpauth_path_component(iss)
+    } else {
+        format!(
+            "{}:{}",
+            encode_otpauth_path_component(iss),
+            encode_otpauth_path_component(acc)
+        )
+    };
+    let issuer_q = encode_otpauth_query_value(iss);
+    Ok(format!(
+        "otpauth://totp/{label}?secret={secret}&issuer={issuer_q}&algorithm=SHA1&digits=6&period=30"
+    ))
+}
+
+fn encode_otpauth_path_component(s: &str) -> String {
+    percent_encode(s)
+}
+
+fn encode_otpauth_query_value(s: &str) -> String {
+    percent_encode(s)
+}
+
+fn percent_encode(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
 /// 入库前规范化：只保留 Base32 密钥（从 URI 提取或规范化粘贴内容）。
 pub fn normalize_totp_secret_for_storage(input: &str) -> Result<String> {
     let trimmed = input.trim();
@@ -17,9 +60,24 @@ pub fn normalize_totp_secret_for_storage(input: &str) -> Result<String> {
             return Ok(totp.get_secret_base32());
         }
         let secret = extract_secret_from_otpauth(trimmed)?;
+        validate_base32_secret(&secret)?;
         return Ok(normalize_base32(&secret));
     }
+    validate_base32_secret(trimmed)?;
     Ok(normalize_base32(trimmed))
+}
+
+fn validate_base32_secret(raw: &str) -> Result<()> {
+    let t = raw.trim();
+    if t.is_empty() {
+        return Err(CoreError::format("TOTP 密钥为空"));
+    }
+    if t.contains('{') || t.contains('}') {
+        return Err(CoreError::format(
+            "密钥无效：请填写真实 Base32 密钥，不要使用模板占位符（如 {secret}）",
+        ));
+    }
+    Ok(())
 }
 
 fn build_totp(secret_or_uri: &str) -> Result<TOTP> {
@@ -38,16 +96,37 @@ fn extract_secret_from_otpauth(url: &str) -> Result<String> {
     let q = url
         .split('?')
         .nth(1)
-        .ok_or_else(|| CoreError::format("otpauth missing query"))?;
+        .ok_or_else(|| CoreError::format("otpauth URI 缺少查询参数"))?;
     for pair in q.split('&') {
         let mut kv = pair.splitn(2, '=');
         if kv.next() == Some("secret") {
             if let Some(v) = kv.next() {
-                return Ok(v.to_string());
+                return Ok(url_decode_component(v));
             }
         }
     }
-    Err(CoreError::format("otpauth missing secret"))
+    Err(CoreError::format("otpauth URI 缺少 secret 参数"))
+}
+
+fn url_decode_component(s: &str) -> String {
+    let mut out = String::new();
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(v) = u8::from_str_radix(
+                &s[i + 1..i + 3],
+                16,
+            ) {
+                out.push(v as char);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
 }
 
 fn totp_from_base32(secret_base32: &str) -> Result<TOTP> {
@@ -95,5 +174,13 @@ mod tests {
         assert_eq!(c.len(), 6);
         let stored = normalize_totp_secret_for_storage(url).expect("normalize");
         assert_eq!(stored, "JBSWY3DPEHPK3PXP");
+    }
+
+    #[test]
+    fn build_otpauth_roundtrip() {
+        let uri = build_otpauth_uri("TestApp", "test@example.com", "JBSWY3DPEHPK3PXP").expect("uri");
+        assert!(uri.starts_with("otpauth://totp/"));
+        let c = totp_code_now(&uri).expect("code");
+        assert_eq!(c.len(), 6);
     }
 }

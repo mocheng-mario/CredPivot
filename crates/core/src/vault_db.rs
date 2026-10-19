@@ -6,12 +6,19 @@ use crate::repo::{
     LoginCredentialRecord, LoginCredentialSummary,
 };
 use crate::backup_status::{read_backup_status, BackupVerificationStatus};
+use crate::credential_groups::{
+    create_credential_group, delete_credential_group, list_credential_groups, set_item_group,
+    CredentialGroupRow,
+};
 use crate::repo_m2::{
-    ensure_default_ssh_key, insert_recovery_codes, list_logins, list_recovery_codes,
-    load_default_ssh_key, security_summary, trash_item, totp_secret_for_id,
-    update_login_credential, update_recovery_codes, generate_ssh_key, insert_totp_row,
-    list_ssh_keys, list_totp_credentials, LoginListRow, RecoveryCodeRow, SecuritySummary,
-    SshKeyListRow, SshKeyRecord, TotpListRow,
+    ensure_default_ssh_key, insert_login_extended, insert_recovery_codes, list_logins,
+    list_recovery_codes, load_default_ssh_key, security_summary, trash_item, totp_reveal_for_id,
+    totp_secret_for_id, update_login_credential, update_recovery_codes, generate_ssh_key,
+    insert_totp_row, list_ssh_keys, list_totp_credentials, LoginListRow, RecoveryCodeRow,
+    SecuritySummary, SshKeyListRow, SshKeyRecord, TotpListRow, TotpRevealRow,
+};
+use crate::server_profiles::{
+    insert_server_profile, list_server_profiles, update_server_profile, ServerProfileRow,
 };
 use crate::restore_point::{
     create_restore_point_for_risky_op, create_restore_point_if_due, mark_restore_dirty,
@@ -44,6 +51,30 @@ impl VaultDatabase {
         Ok(rec)
     }
 
+    pub fn insert_login_full(
+        &self,
+        origin: &str,
+        username: &str,
+        password: &str,
+        display_name: &str,
+        connection_host: &str,
+        linked_totp_id: Option<&str>,
+        group_id: Option<&str>,
+    ) -> Result<LoginListRow> {
+        let row = insert_login_extended(
+            &self.conn,
+            origin,
+            username,
+            password,
+            display_name,
+            connection_host,
+            linked_totp_id,
+            group_id,
+        )?;
+        mark_restore_dirty(&self.conn)?;
+        Ok(row)
+    }
+
     pub fn list_by_origin(&self, origin: &str) -> Result<Vec<LoginCredentialSummary>> {
         list_login_by_origin(&self.conn, origin)
     }
@@ -66,6 +97,10 @@ impl VaultDatabase {
         expected_revision: &str,
         origin: &str,
         username: &str,
+        display_name: &str,
+        connection_host: &str,
+        linked_totp_id: Option<&str>,
+        group_id: Option<&str>,
         new_password: Option<&str>,
     ) -> Result<LoginListRow> {
         let row = update_login_credential(
@@ -74,6 +109,10 @@ impl VaultDatabase {
             expected_revision,
             origin,
             username,
+            display_name,
+            connection_host,
+            linked_totp_id,
+            group_id,
             new_password,
         )?;
         mark_restore_dirty(&self.conn)?;
@@ -146,8 +185,100 @@ impl VaultDatabase {
         list_totp_credentials(&self.conn)
     }
 
-    pub fn add_totp(&self, issuer: &str, account: &str, secret_base32: &str) -> Result<TotpListRow> {
-        let row = insert_totp_row(&self.conn, issuer, account, secret_base32)?;
+    pub fn add_totp(
+        &self,
+        issuer: &str,
+        account: &str,
+        secret_base32: &str,
+        group_id: Option<&str>,
+    ) -> Result<TotpListRow> {
+        let row = insert_totp_row(&self.conn, issuer, account, secret_base32, group_id)?;
+        mark_restore_dirty(&self.conn)?;
+        Ok(row)
+    }
+
+    pub fn totp_reveal(&self, totp_id: &str) -> Result<TotpRevealRow> {
+        totp_reveal_for_id(&self.conn, totp_id)
+    }
+
+    pub fn list_credential_groups(&self, scope: &str) -> Result<Vec<CredentialGroupRow>> {
+        list_credential_groups(&self.conn, scope)
+    }
+
+    pub fn create_credential_group(&self, scope: &str, name: &str) -> Result<CredentialGroupRow> {
+        let row = create_credential_group(&self.conn, scope, name)?;
+        mark_restore_dirty(&self.conn)?;
+        Ok(row)
+    }
+
+    pub fn delete_credential_group(&self, id: &str) -> Result<()> {
+        delete_credential_group(&self.conn, id)?;
+        mark_restore_dirty(&self.conn)?;
+        Ok(())
+    }
+
+    pub fn set_item_group(&self, item_id: &str, group_id: Option<&str>) -> Result<()> {
+        set_item_group(&self.conn, item_id, group_id)?;
+        mark_restore_dirty(&self.conn)?;
+        Ok(())
+    }
+
+    pub fn list_server_profiles(&self) -> Result<Vec<ServerProfileRow>> {
+        list_server_profiles(&self.conn)
+    }
+
+    pub fn create_server_profile(
+        &self,
+        label: &str,
+        host: &str,
+        port: u16,
+        manual_username: &str,
+        linked_login_id: Option<&str>,
+        linked_totp_id: Option<&str>,
+        linked_ssh_key_id: Option<&str>,
+        group_id: Option<&str>,
+    ) -> Result<ServerProfileRow> {
+        let row = insert_server_profile(
+            &self.conn,
+            label,
+            host,
+            port,
+            manual_username,
+            linked_login_id,
+            linked_totp_id,
+            linked_ssh_key_id,
+            group_id,
+        )?;
+        mark_restore_dirty(&self.conn)?;
+        Ok(row)
+    }
+
+    pub fn update_server_profile(
+        &self,
+        id: &str,
+        expected_revision: &str,
+        label: &str,
+        host: &str,
+        port: u16,
+        manual_username: &str,
+        linked_login_id: Option<&str>,
+        linked_totp_id: Option<&str>,
+        linked_ssh_key_id: Option<&str>,
+        group_id: Option<&str>,
+    ) -> Result<ServerProfileRow> {
+        let row = update_server_profile(
+            &self.conn,
+            id,
+            expected_revision,
+            label,
+            host,
+            port,
+            manual_username,
+            linked_login_id,
+            linked_totp_id,
+            linked_ssh_key_id,
+            group_id,
+        )?;
         mark_restore_dirty(&self.conn)?;
         Ok(row)
     }
