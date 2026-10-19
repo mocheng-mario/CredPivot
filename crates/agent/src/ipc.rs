@@ -363,6 +363,125 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }
+        AgentRequest::RecoveryCodesList => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.list_recovery_codes() {
+                Ok(items) => AgentResponse::ok(json!({ "items": items })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::RecoveryCodesCreate { service_name, codes } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match v.create_recovery_codes(&service_name, &codes) {
+                Ok(row) => AgentResponse::ok(json!({ "item": row })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::RecoveryCodesUpdate {
+            id,
+            expected_revision,
+            service_name,
+            codes,
+        } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match v.update_recovery_codes(&id, &expected_revision, &service_name, &codes) {
+                Ok(row) => AgentResponse::ok(json!({ "item": row })),
+                Err(e) => {
+                    let msg = e.to_string();
+                    if msg.contains("revision conflict") {
+                        AgentResponse::err("conflict", msg)
+                    } else {
+                        AgentResponse::err("vault", msg)
+                    }
+                }
+            }
+        }
+        AgentRequest::RestorePointsList => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.list_restore_points() {
+                Ok(points) => AgentResponse::ok(json!({ "points": points })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::RestorePointRecover {
+            created_at_ms,
+            target_dir,
+        } => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.recover_restore_point(created_at_ms, &target_dir) {
+                Ok(()) => AgentResponse::ok(json!({ "recovered": true, "target_dir": target_dir })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::VaultMigrate { target_dir } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match v.migrate_vault_to(&target_dir) {
+                Ok(()) => AgentResponse::ok(json!({ "migrated": true, "vault_path": target_dir })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::VaultSecurityRebuild { password, recovery_key } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match v.security_rebuild(&password, &recovery_key) {
+                Ok(()) => AgentResponse::ok(json!({ "rebuilt": true })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::BackupStatus => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.backup_status() {
+                Ok(s) => AgentResponse::ok(json!({ "status": s })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::VaultVerifyOvb { ovb_path, password } => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.verify_ovb_file(&ovb_path, &password) {
+                Ok(()) => AgentResponse::ok(json!({ "verified": true })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::VaultVerifyRecoveryKey { recovery_key } => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.verify_recovery_key(&recovery_key) {
+                Ok(()) => AgentResponse::ok(json!({ "verified": true })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
     }
 }
 

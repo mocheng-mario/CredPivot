@@ -73,6 +73,30 @@ pub fn init_database(vault_dir: &Path, vmk: &[u8; 32], vault_id: &Uuid) -> Resul
     Ok(())
 }
 
+/// 用新 VMK 派生的 SQLCipher 密钥 rekey 现有库（vault_id 不变）。
+pub fn rekey_database(
+    vault_dir: &Path,
+    old_vmk: &[u8; 32],
+    new_vmk: &[u8; 32],
+    vault_id: &Uuid,
+) -> Result<()> {
+    let path = db_path(vault_dir);
+    let old_key = derive_sqlcipher_key(old_vmk, vault_id.as_bytes());
+    let new_key = derive_sqlcipher_key(new_vmk, vault_id.as_bytes());
+    let conn = open_connection(&path, &old_key, false)?;
+    let pragma = format!("PRAGMA rekey = \"x'{}'\";", encode(&new_key));
+    conn.execute_batch(&pragma)
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    let conn2 = open_connection(&path, &new_key, false)?;
+    let check: String = conn2
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    if check != "ok" {
+        return Err(CoreError::format("integrity_check after rekey"));
+    }
+    Ok(())
+}
+
 pub fn verify_database(vault_dir: &Path, vmk: &[u8; 32]) -> Result<()> {
     let path = db_path(vault_dir);
     if !path.exists() {

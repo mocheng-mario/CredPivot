@@ -1,5 +1,6 @@
 use crate::atomic_config::{read_vault_json, write_vault_json_atomic};
 use crate::cpvc1::CpvcConfig;
+use crate::crypto::VMK_LEN;
 use crate::error::{CoreError, Result};
 use crate::key_slot::{KeySlot, SlotType};
 use crate::local_db;
@@ -111,4 +112,91 @@ pub fn change_master_password_in_dir(
     let next = change_master_password(&cfg, old_password, new_password)?;
     write_vault_json_atomic(dir, &next)?;
     Ok(next)
+}
+
+/// M1-7 / M3-4：一致性副本写入空目录并校验（不切换当前工作库）。
+pub fn clone_vault_to_empty_dir(
+    source_dir: &Path,
+    target_dir: &Path,
+    vmk: &Zeroizing<[u8; 32]>,
+) -> Result<()> {
+    ensure_empty_target(target_dir)?;
+    let outcome = (|| {
+        let snapshot = pack_snapshot_from_dir(source_dir, vmk)?;
+        fs::create_dir_all(target_dir).map_err(|e| CoreError::io(e.to_string()))?;
+        unpack_snapshot_to_dir(&snapshot, target_dir, vmk)?;
+        let cfg = read_vault_json(target_dir)?;
+        cfg.verify_mac(&*vmk)?;
+        local_db::verify_database(target_dir, &*vmk)?;
+        Ok(())
+    })();
+    if outcome.is_err() {
+        cleanup_failed_target(target_dir);
+    }
+    outcome
+}
+
+/// M3-3：从 `restore-points/<ts>/` 恢复到新的空目录。
+pub fn recover_restore_point_to_dir(
+    restore_point_dir: &Path,
+    target_dir: &Path,
+    vmk: &Zeroizing<[u8; 32]>,
+) -> Result<()> {
+    ensure_empty_target(target_dir)?;
+    let vault_json = restore_point_dir.join("vault.json");
+    let vault_db = restore_point_dir.join(local_db::DB_FILENAME);
+    if !vault_json.is_file() || !vault_db.is_file() {
+        return Err(CoreError::format("invalid restore point"));
+    }
+    let outcome = (|| {
+        fs::create_dir_all(target_dir).map_err(|e| CoreError::io(e.to_string()))?;
+        fs::copy(&vault_json, target_dir.join("vault.json"))
+            .map_err(|e| CoreError::io(e.to_string()))?;
+        fs::copy(&vault_db, target_dir.join(local_db::DB_FILENAME))
+            .map_err(|e| CoreError::io(e.to_string()))?;
+        let cfg = read_vault_json(target_dir)?;
+        cfg.verify_mac(&*vmk)?;
+        local_db::verify_database(target_dir, &*vmk)?;
+        Ok(())
+    })();
+    if outcome.is_err() {
+        cleanup_failed_target(target_dir);
+    }
+    outcome
+}
+
+/// M3-5：轮换 VMK 并 rekey SQLCipher（保留 vault_id；旧本地恢复点仍对应旧 VMK）。
+pub fn security_rebuild_in_dir(
+    dir: &Path,
+    master_password: &str,
+    recovery_key_display: &str,
+) -> Result<()> {
+    let cfg = read_vault_json(dir)?;
+    let old_vmk = cfg.unlock_master(master_password)?;
+    cfg.verify_mac(&*old_vmk)?;
+    let recovery_secret = crate::recovery_key::parse_display(recovery_key_display.trim())?;
+    let mut rec_arr = [0u8; VMK_LEN];
+    rec_arr.copy_from_slice(&recovery_secret);
+    let via_recovery = cfg.unlock_recovery(&rec_arr)?;
+    if via_recovery.as_ref() != old_vmk.as_ref() {
+        return Err(CoreError::Auth);
+    }
+    let mut new_vmk_arr = [0u8; VMK_LEN];
+    new_vmk_arr.copy_from_slice(&crate::crypto::random_bytes(VMK_LEN));
+    let new_vmk = Zeroizing::new(new_vmk_arr);
+    let vault_uuid = Uuid::parse_str(&cfg.vault_id).map_err(|_| CoreError::format("vault_id"))?;
+    local_db::rekey_database(dir, &*old_vmk, &*new_vmk, &vault_uuid)?;
+    let mut next = cfg;
+    next.control_revision += 1;
+    let master = KeySlot::create_master_password(
+        &next.vault_id,
+        next.format_major,
+        master_password,
+        &*new_vmk,
+    )?;
+    let recovery = KeySlot::create_recovery(&next.vault_id, next.format_major, &rec_arr, &*new_vmk)?;
+    next.key_slots = vec![master, recovery];
+    next.sign(&*new_vmk)?;
+    write_vault_json_atomic(dir, &next)?;
+    Ok(())
 }

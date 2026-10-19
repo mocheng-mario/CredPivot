@@ -120,6 +120,44 @@ pub fn create_restore_point(
     Ok(point_dir)
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RestorePointInfo {
+    pub created_at_ms: i64,
+    pub path: PathBuf,
+}
+
+pub fn list_restore_points(vault_dir: &Path) -> Result<Vec<RestorePointInfo>> {
+    let root = vault_dir.join(RESTORE_POINTS_DIR);
+    if !root.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for ent in fs::read_dir(&root).map_err(|e| CoreError::io(e.to_string()))? {
+        let ent = ent.map_err(|e| CoreError::io(e.to_string()))?;
+        if !ent.file_type().map_err(|e| CoreError::io(e.to_string()))?.is_dir() {
+            continue;
+        }
+        let name = ent.file_name().to_string_lossy().to_string();
+        if let Ok(ts) = name.parse::<i64>() {
+            out.push(RestorePointInfo {
+                created_at_ms: ts,
+                path: ent.path(),
+            });
+        }
+    }
+    out.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
+    Ok(out)
+}
+
+/// 高风险操作前强制创建恢复点（不依赖 24h 规则）。
+pub fn create_restore_point_for_risky_op(
+    vault_dir: &Path,
+    vmk: &[u8; 32],
+    conn: &Connection,
+) -> Result<PathBuf> {
+    create_restore_point(vault_dir, vmk, conn)
+}
+
 pub fn prune_restore_points(vault_dir: &Path) -> Result<()> {
     let root = vault_dir.join(RESTORE_POINTS_DIR);
     if !root.is_dir() {

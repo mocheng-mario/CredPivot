@@ -1,9 +1,14 @@
 use crate::error::{AgentError, Result};
 use base64::Engine;
 use credpivot_core::{
-    bootstrap_vault_dir, change_master_password_in_dir, export_ovb_from_dir, read_vault_json,
-    recover_ovb_to_dir, RecoveryUnlock, VaultDatabase, VMK_LEN,
+    bootstrap_vault_dir, change_master_password_in_dir, clone_vault_to_empty_dir,
+    create_restore_point_for_risky_op, export_ovb_from_dir, list_restore_points,
+    mark_local_restore_verified, mark_ovb_decrypt_verified, mark_ovb_export_verified,
+    mark_recovery_key_verified, parse_ovb_with_aad, parse_recovery_display, read_vault_json,
+    recover_ovb_to_dir, FORMAT_MAJOR, SlotType,
+    recover_restore_point_to_dir, security_rebuild_in_dir, RecoveryUnlock, VaultDatabase, VMK_LEN,
 };
+use std::path::Path;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
@@ -208,6 +213,10 @@ impl VaultSession {
         if !self.unlocked {
             return Err(AgentError::Locked);
         }
+        if let (Some(vmk), Some(db)) = (self.vmk.as_ref(), self.db.as_ref()) {
+            create_restore_point_for_risky_op(&self.vault_dir, &**vmk, db.conn())
+                .map_err(|e| AgentError::Vault(e.to_string()))?;
+        }
         self.db = None;
         change_master_password_in_dir(&self.vault_dir, old, new)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
@@ -228,6 +237,9 @@ impl VaultSession {
         let bytes = export_ovb_from_dir(&self.vault_dir, password)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         std::fs::write(output_path, bytes).map_err(AgentError::from)?;
+        if let Some(db) = self.db.as_ref() {
+            let _ = mark_ovb_export_verified(db.conn());
+        }
         Ok(())
     }
 
@@ -342,11 +354,16 @@ impl VaultSession {
     }
 
     pub fn import_bitwarden(&self, json: &str) -> Result<credpivot_core::ImportReport> {
+        let vmk = self
+            .vmk
+            .as_ref()
+            .ok_or_else(|| AgentError::Vault("vmk not available".into()))?;
         let db = self
             .db
             .as_ref()
             .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
-        db.import_bitwarden(json).map_err(|e| AgentError::Vault(e.to_string()))
+        db.import_bitwarden(&self.vault_dir, &**vmk, json)
+            .map_err(|e| AgentError::Vault(e.to_string()))
     }
 
     pub fn totp_code(&self, totp_id: &str) -> Result<String> {
@@ -371,5 +388,135 @@ impl VaultSession {
             username: rec.username,
             password: rec.password,
         })
+    }
+
+    pub fn list_recovery_codes(&self) -> Result<Vec<credpivot_core::RecoveryCodeRow>> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.list_recovery_codes().map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn create_recovery_codes(&self, service_name: &str, codes: &[String]) -> Result<credpivot_core::RecoveryCodeRow> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.add_recovery_codes(service_name, codes)
+            .map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn update_recovery_codes(
+        &self,
+        id: &str,
+        expected_revision: &str,
+        service_name: &str,
+        codes: &[String],
+    ) -> Result<credpivot_core::RecoveryCodeRow> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.update_recovery_codes(id, expected_revision, service_name, codes)
+            .map_err(|e| match e {
+                credpivot_core::CoreError::Conflict => AgentError::Vault("revision conflict".into()),
+                other => AgentError::Vault(other.to_string()),
+            })
+    }
+
+    pub fn list_restore_points(&self) -> Result<Vec<credpivot_core::RestorePointInfo>> {
+        list_restore_points(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn recover_restore_point(&self, created_at_ms: i64, target_dir: &str) -> Result<()> {
+        let vmk = self.vmk.as_ref().ok_or_else(|| AgentError::Vault("vmk not available".into()))?;
+        let point = self
+            .vault_dir
+            .join(credpivot_core::RESTORE_POINTS_DIR)
+            .join(created_at_ms.to_string());
+        recover_restore_point_to_dir(&point, Path::new(target_dir), vmk)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        if let Some(db) = self.db.as_ref() {
+            let _ = mark_local_restore_verified(db.conn());
+        }
+        Ok(())
+    }
+
+    pub fn migrate_vault_to(&mut self, target_dir: &str) -> Result<()> {
+        if !self.unlocked {
+            return Err(AgentError::Locked);
+        }
+        let vmk = self.vmk.as_ref().ok_or_else(|| AgentError::Vault("vmk not available".into()))?;
+        if let Some(db) = self.db.as_ref() {
+            create_restore_point_for_risky_op(&self.vault_dir, &**vmk, db.conn())
+                .map_err(|e| AgentError::Vault(e.to_string()))?;
+        }
+        self.db = None;
+        clone_vault_to_empty_dir(&self.vault_dir, Path::new(target_dir), vmk)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        self.vault_dir = PathBuf::from(target_dir);
+        self.attach_database()?;
+        Ok(())
+    }
+
+    pub fn security_rebuild(&mut self, password: &str, recovery_key: &str) -> Result<()> {
+        if !self.unlocked {
+            return Err(AgentError::Locked);
+        }
+        if let (Some(vmk), Some(db)) = (self.vmk.as_ref(), self.db.as_ref()) {
+            create_restore_point_for_risky_op(&self.vault_dir, &**vmk, db.conn())
+                .map_err(|e| AgentError::Vault(e.to_string()))?;
+        }
+        self.db = None;
+        security_rebuild_in_dir(&self.vault_dir, password, recovery_key)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        let cfg = read_vault_json(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
+        let vmk = cfg
+            .unlock_master(password)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        cfg.verify_mac(&*vmk).map_err(|e| AgentError::Vault(e.to_string()))?;
+        self.vmk = Some(vmk);
+        self.attach_database()?;
+        Ok(())
+    }
+
+    pub fn backup_status(&self) -> Result<credpivot_core::BackupVerificationStatus> {
+        let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        db.backup_status().map_err(|e| AgentError::Vault(e.to_string()))
+    }
+
+    pub fn verify_recovery_key(&self, recovery_display: &str) -> Result<()> {
+        let vmk = self.vmk.as_ref().ok_or_else(|| AgentError::Vault("vmk not available".into()))?;
+        let cfg = read_vault_json(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
+        let secret = parse_recovery_display(recovery_display.trim())
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        let mut arr = [0u8; VMK_LEN];
+        arr.copy_from_slice(&secret);
+        let via = cfg
+            .unlock_recovery(&arr)
+            .map_err(|_| AgentError::Vault("recovery key mismatch".into()))?;
+        if via.as_ref() != vmk.as_ref() {
+            return Err(AgentError::Vault("recovery key mismatch".into()));
+        }
+        if let Some(db) = self.db.as_ref() {
+            let _ = mark_recovery_key_verified(db.conn());
+        }
+        Ok(())
+    }
+
+    pub fn verify_ovb_file(&self, ovb_path: &str, password: &str) -> Result<()> {
+        let data = std::fs::read(ovb_path).map_err(AgentError::from)?;
+        let (header, aad, ciphertext) =
+            parse_ovb_with_aad(&data).map_err(|e| AgentError::Vault(e.to_string()))?;
+        let slot = header
+            .slots
+            .iter()
+            .find(|s| s.slot_type == SlotType::MasterPassword)
+            .ok_or_else(|| AgentError::Vault("no master slot".into()))?;
+        let _vmk = slot
+            .unwrap_vmk(
+                &header.vault_id.to_string(),
+                FORMAT_MAJOR,
+                password.as_bytes(),
+            )
+            .map_err(|_| AgentError::Vault("invalid ovb password".into()))?;
+        let _plain = credpivot_core::decrypt_snapshot(&_vmk, &header, &aad, &ciphertext)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        if let Some(db) = self.db.as_ref() {
+            let _ = mark_ovb_decrypt_verified(db.conn());
+        }
+        Ok(())
     }
 }

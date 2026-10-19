@@ -212,6 +212,67 @@ class AgentBridge {
     final payload = payloadOf(resp);
     return Map<String, dynamic>.from(payload['report'] as Map? ?? {});
   }
+
+  static Future<Map<String, dynamic>> backupStatus() async {
+    final resp = await request({'type': 'backup_status'});
+    return Map<String, dynamic>.from(payloadOf(resp)['status'] as Map? ?? {});
+  }
+
+  static Future<List<Map<String, dynamic>>> listRestorePoints() async {
+    final resp = await request({'type': 'restore_points_list'});
+    final points = payloadOf(resp)['points'] as List<dynamic>? ?? [];
+    return points.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  static Future<void> recoverRestorePoint(int createdAtMs, String targetDir) async {
+    await request({
+      'type': 'restore_point_recover',
+      'created_at_ms': createdAtMs,
+      'target_dir': targetDir,
+    });
+  }
+
+  static Future<void> migrateVault(String targetDir) async {
+    await request({'type': 'vault_migrate', 'target_dir': targetDir});
+  }
+
+  static Future<void> securityRebuild(String password, String recoveryKey) async {
+    await request({
+      'type': 'vault_security_rebuild',
+      'password': password,
+      'recovery_key': recoveryKey,
+    });
+  }
+
+  static Future<void> verifyOvb(String ovbPath, String password) async {
+    await request({
+      'type': 'vault_verify_ovb',
+      'ovb_path': ovbPath,
+      'password': password,
+    });
+  }
+
+  static Future<void> verifyRecoveryKey(String recoveryKey) async {
+    await request({'type': 'vault_verify_recovery_key', 'recovery_key': recoveryKey});
+  }
+
+  static Future<List<Map<String, dynamic>>> listRecoveryCodes() async {
+    final resp = await request({'type': 'recovery_codes_list'});
+    final items = payloadOf(resp)['items'] as List<dynamic>? ?? [];
+    return items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  static Future<Map<String, dynamic>> createRecoveryCodes(
+    String serviceName,
+    List<String> codes,
+  ) async {
+    final resp = await request({
+      'type': 'recovery_codes_create',
+      'service_name': serviceName,
+      'codes': codes,
+    });
+    return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
+  }
 }
 
 class AgentException implements Exception {

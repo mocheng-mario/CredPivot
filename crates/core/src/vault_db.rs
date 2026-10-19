@@ -5,12 +5,16 @@ use crate::repo::{
     count_login_credentials, get_login_secret, insert_login_credential, list_login_by_origin,
     LoginCredentialRecord, LoginCredentialSummary,
 };
+use crate::backup_status::{read_backup_status, BackupVerificationStatus};
 use crate::repo_m2::{
-    ensure_default_ssh_key, list_logins, load_default_ssh_key, security_summary, trash_item,
-    totp_secret_for_id, update_login_credential, insert_totp, LoginListRow, SecuritySummary,
-    SshKeyRecord,
+    ensure_default_ssh_key, insert_recovery_codes, list_logins, list_recovery_codes,
+    load_default_ssh_key, security_summary, trash_item, totp_secret_for_id,
+    update_login_credential, update_recovery_codes, insert_totp, LoginListRow, RecoveryCodeRow,
+    SecuritySummary, SshKeyRecord,
 };
-use crate::restore_point::{create_restore_point_if_due, mark_restore_dirty};
+use crate::restore_point::{
+    create_restore_point_for_risky_op, create_restore_point_if_due, mark_restore_dirty,
+};
 use std::path::Path;
 use crate::totp::totp_code_now;
 use rusqlite::Connection;
@@ -85,12 +89,48 @@ impl VaultDatabase {
         security_summary(&self.conn)
     }
 
-    pub fn import_bitwarden(&self, json: &str) -> Result<ImportReport> {
+    pub fn import_bitwarden(
+        &self,
+        vault_dir: &Path,
+        vmk: &[u8; 32],
+        json: &str,
+    ) -> Result<ImportReport> {
+        create_restore_point_for_risky_op(vault_dir, vmk, &self.conn)?;
         let report = import_bitwarden_json(&self.conn, json)?;
         if report.imported > 0 {
             mark_restore_dirty(&self.conn)?;
         }
         Ok(report)
+    }
+
+    pub fn list_recovery_codes(&self) -> Result<Vec<RecoveryCodeRow>> {
+        list_recovery_codes(&self.conn)
+    }
+
+    pub fn add_recovery_codes(&self, service_name: &str, codes: &[String]) -> Result<RecoveryCodeRow> {
+        let row = insert_recovery_codes(&self.conn, service_name, codes)?;
+        mark_restore_dirty(&self.conn)?;
+        Ok(row)
+    }
+
+    pub fn update_recovery_codes(
+        &self,
+        id: &str,
+        expected_revision: &str,
+        service_name: &str,
+        codes: &[String],
+    ) -> Result<RecoveryCodeRow> {
+        let row = update_recovery_codes(&self.conn, id, expected_revision, service_name, codes)?;
+        mark_restore_dirty(&self.conn)?;
+        Ok(row)
+    }
+
+    pub fn backup_status(&self) -> Result<BackupVerificationStatus> {
+        read_backup_status(&self.conn)
+    }
+
+    pub fn conn(&self) -> &Connection {
+        &self.conn
     }
 
     pub fn ensure_default_ssh(&self) -> Result<SshKeyRecord> {

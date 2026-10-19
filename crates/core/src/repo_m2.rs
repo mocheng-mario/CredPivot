@@ -392,6 +392,153 @@ pub fn insert_totp(
     Ok(totp_id)
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RecoveryCodeRow {
+    pub id: String,
+    pub item_id: String,
+    pub service_name: String,
+    pub codes: Vec<String>,
+    pub current_revision: String,
+    pub updated_at_ms: i64,
+}
+
+pub fn insert_recovery_codes(
+    conn: &Connection,
+    service_name: &str,
+    codes: &[String],
+) -> Result<RecoveryCodeRow> {
+    if service_name.trim().is_empty() {
+        return Err(CoreError::format("service_name required"));
+    }
+    let cleaned: Vec<String> = codes
+        .iter()
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+        .collect();
+    if cleaned.is_empty() {
+        return Err(CoreError::format("at least one recovery code required"));
+    }
+    let item_id = Uuid::new_v4().to_string();
+    let rec_id = Uuid::new_v4().to_string();
+    let revision = new_revision();
+    let ts = now_ms();
+    let codes_json =
+        serde_json::to_string(&cleaned).map_err(|e| CoreError::format(e.to_string()))?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    tx.execute(
+        "INSERT INTO items (id, kind, title, trashed, current_revision, created_at_ms, updated_at_ms)
+         VALUES (?1, 'recovery_codes', ?2, 0, ?3, ?4, ?4)",
+        params![item_id, service_name, revision, ts],
+    )
+    .map_err(|e| CoreError::format(e.to_string()))?;
+    tx.execute(
+        "INSERT INTO recovery_code_items (id, item_id, service_name, codes_json, current_revision, created_at_ms, updated_at_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![rec_id, item_id, service_name, codes_json, revision, ts],
+    )
+    .map_err(|e| CoreError::format(e.to_string()))?;
+    tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
+    Ok(RecoveryCodeRow {
+        id: rec_id,
+        item_id,
+        service_name: service_name.to_string(),
+        codes: cleaned,
+        current_revision: revision,
+        updated_at_ms: ts,
+    })
+}
+
+pub fn list_recovery_codes(conn: &Connection) -> Result<Vec<RecoveryCodeRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT r.id, r.item_id, r.service_name, r.codes_json, r.current_revision, r.updated_at_ms
+             FROM recovery_code_items r
+             INNER JOIN items i ON i.id = r.item_id
+             WHERE i.trashed = 0
+             ORDER BY r.updated_at_ms DESC",
+        )
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    let rows = stmt
+        .query_map([], |row| {
+            let json: String = row.get(3)?;
+            let codes: Vec<String> =
+                serde_json::from_str(&json).map_err(|_| {
+                    rusqlite::Error::InvalidColumnType(3, "codes_json".into(), rusqlite::types::Type::Text)
+                })?;
+            Ok(RecoveryCodeRow {
+                id: row.get(0)?,
+                item_id: row.get(1)?,
+                service_name: row.get(2)?,
+                codes,
+                current_revision: row.get(4)?,
+                updated_at_ms: row.get(5)?,
+            })
+        })
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| CoreError::format(e.to_string()))?);
+    }
+    Ok(out)
+}
+
+pub fn update_recovery_codes(
+    conn: &Connection,
+    id: &str,
+    expected_revision: &str,
+    service_name: &str,
+    codes: &[String],
+) -> Result<RecoveryCodeRow> {
+    let cleaned: Vec<String> = codes
+        .iter()
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+        .collect();
+    if cleaned.is_empty() {
+        return Err(CoreError::format("at least one recovery code required"));
+    }
+    let (item_id, current_rev): (String, String) = conn
+        .query_row(
+            "SELECT r.item_id, r.current_revision FROM recovery_code_items r
+             INNER JOIN items i ON i.id = r.item_id
+             WHERE r.id = ?1 AND i.trashed = 0",
+            params![id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|_| CoreError::format("recovery codes not found"))?;
+    if current_rev != expected_revision {
+        return Err(CoreError::Conflict);
+    }
+    let revision = new_revision();
+    let ts = now_ms();
+    let codes_json =
+        serde_json::to_string(&cleaned).map_err(|e| CoreError::format(e.to_string()))?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    tx.execute(
+        "UPDATE recovery_code_items SET service_name = ?1, codes_json = ?2, current_revision = ?3, updated_at_ms = ?4 WHERE id = ?5",
+        params![service_name, codes_json, revision, ts, id],
+    )
+    .map_err(|e| CoreError::format(e.to_string()))?;
+    tx.execute(
+        "UPDATE items SET title = ?1, current_revision = ?2, updated_at_ms = ?3 WHERE id = ?4",
+        params![service_name, revision, ts, item_id],
+    )
+    .map_err(|e| CoreError::format(e.to_string()))?;
+    tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
+    Ok(RecoveryCodeRow {
+        id: id.to_string(),
+        item_id,
+        service_name: service_name.to_string(),
+        codes: cleaned,
+        current_revision: revision,
+        updated_at_ms: ts,
+    })
+}
+
 pub fn totp_secret_for_id(conn: &Connection, totp_id: &str) -> Result<String> {
     conn.query_row(
         "SELECT t.secret_base32 FROM totp_credentials t

@@ -1,4 +1,5 @@
 mod atomic_config;
+mod backup_status;
 mod canonical_json;
 mod cpvc1;
 mod crypto;
@@ -21,10 +22,14 @@ mod vault_init;
 mod vault_pipeline;
 
 pub use atomic_config::{read_vault_json, recover_pending_next, write_vault_json_atomic};
+pub use backup_status::{
+    mark_local_restore_verified, mark_ovb_decrypt_verified, mark_ovb_export_verified,
+    mark_recovery_key_verified, read_backup_status, BackupVerificationStatus,
+};
 pub use cpvc1::{parse_config, serialize_config, CpvcConfig, FORMAT_MAJOR, MAGIC};
 pub use crypto::{derive_sqlcipher_key, VMK_LEN};
 pub use error::{CoreError, Result};
-pub use key_slot::KeySlot;
+pub use key_slot::{KeySlot, SlotType};
 pub use ovb1::{build_ovb_file, decrypt_snapshot, parse_ovb_file, parse_ovb_with_aad, OvbHeader};
 pub use password_change::change_master_password;
 pub use recovery_key::{format_display, generate as generate_recovery_key, parse_display as parse_recovery_display};
@@ -36,19 +41,22 @@ pub use repo::{
     LoginCredentialRecord, LoginCredentialSummary,
 };
 pub use repo_m2::{
-    ensure_default_ssh_key, list_logins, load_default_ssh_key, security_summary, trash_item,
-    totp_secret_for_id, update_login_credential, insert_totp, insert_ssh_key, LoginListRow,
-    SecuritySummary, SshKeyRecord,
+    ensure_default_ssh_key, insert_recovery_codes, list_logins, list_recovery_codes,
+    load_default_ssh_key, security_summary, trash_item, totp_secret_for_id,
+    update_login_credential, update_recovery_codes, insert_totp, insert_ssh_key, LoginListRow,
+    RecoveryCodeRow, SecuritySummary, SshKeyRecord,
 };
 pub use restore_point::{
-    create_restore_point, create_restore_point_if_due, mark_restore_dirty,
-    should_create_restore_point, MAX_RESTORE_POINTS, RESTORE_POINTS_DIR,
+    create_restore_point, create_restore_point_for_risky_op, create_restore_point_if_due,
+    list_restore_points, mark_restore_dirty, should_create_restore_point, RestorePointInfo,
+    MAX_RESTORE_POINTS, RESTORE_POINTS_DIR,
 };
 pub use totp::totp_code_now;
 pub use snapshot::{SNAPSHOT_FORMAT, SNAPSHOT_VERSION};
 pub use vault_db::VaultDatabase;
 pub use vault_init::{create_vault_config, NewVaultMaterial};
 pub use vault_pipeline::{
-    bootstrap_vault_dir, change_master_password_in_dir, ensure_empty_target, export_ovb_from_dir,
-    recover_ovb_to_dir, RecoveryUnlock,
+    bootstrap_vault_dir, change_master_password_in_dir, clone_vault_to_empty_dir,
+    ensure_empty_target, export_ovb_from_dir, recover_ovb_to_dir, recover_restore_point_to_dir,
+    security_rebuild_in_dir, RecoveryUnlock,
 };

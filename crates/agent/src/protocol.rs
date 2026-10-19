@@ -69,6 +69,33 @@ pub enum AgentRequest {
     },
     /// 锁定状态下切换本地工作库目录（须含 vault.json）。
     VaultOpenDir { path: String },
+    RecoveryCodesList,
+    RecoveryCodesCreate {
+        service_name: String,
+        codes: Vec<String>,
+    },
+    RecoveryCodesUpdate {
+        id: String,
+        expected_revision: String,
+        service_name: String,
+        codes: Vec<String>,
+    },
+    RestorePointsList,
+    RestorePointRecover {
+        created_at_ms: i64,
+        target_dir: String,
+    },
+    VaultMigrate { target_dir: String },
+    VaultSecurityRebuild {
+        password: String,
+        recovery_key: String,
+    },
+    BackupStatus,
+    VaultVerifyOvb {
+        ovb_path: String,
+        password: String,
+    },
+    VaultVerifyRecoveryKey { recovery_key: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
