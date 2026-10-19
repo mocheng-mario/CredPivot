@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'agent_bridge.dart';
 import 'build_stamp.dart';
 import 'credentials_page.dart';
+import 'touch_id_gate.dart';
 import 'memory_format.dart';
 
 void main() {
@@ -87,6 +88,9 @@ class _VaultHomePageState extends State<VaultHomePage> {
     final payload = AgentBridge.payloadOf(raw);
     final chrome = await AgentBridge.chromeHostStatus();
     _memoryBytes = await AgentBridge.residentMemoryBytes();
+    if (payload['unlocked'] != true) {
+      clearSensitiveAuthGrace();
+    }
     setState(() {
       _status = payload;
       _log = const JsonEncoder.withIndent('  ').convert({
@@ -244,6 +248,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
   Future<void> _lock() async {
     await _run('锁定', () async {
       await AgentBridge.lockVault();
+      clearSensitiveAuthGrace();
       await _refreshStatus();
     });
   }

@@ -84,6 +84,11 @@ class AgentBridge {
     return await _channel.invokeMethod<bool>('unlockTouchId') ?? false;
   }
 
+  /// 仅生物识别门槛，不触发 Vault 解锁。
+  static Future<bool> authenticateTouchId([String reason = 'CredPivot 需要验证您的身份']) async {
+    return await _channel.invokeMethod<bool>('authenticateTouchId', reason) ?? false;
+  }
+
   static Future<String> vaultCreate(String password) async {
     final resp = await request({'type': 'vault_create', 'password': password});
     final payload = payloadOf(resp);
@@ -181,10 +186,54 @@ class AgentBridge {
   static Future<void> copyConcealed(String secret) =>
       _channel.invokeMethod('copyConcealed', secret);
 
+  static Future<List<Map<String, dynamic>>> listCredentialGroups(String scope) async {
+    final resp = await request({'type': 'credential_group_list', 'scope': scope});
+    final items = payloadOf(resp)['items'] as List<dynamic>? ?? [];
+    return items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  static Future<void> createCredentialGroup(String scope, String name) async {
+    await request({'type': 'credential_group_create', 'scope': scope, 'name': name});
+  }
+
+  static Future<void> deleteCredentialGroup(String id) async {
+    await request({'type': 'credential_group_delete', 'id': id});
+  }
+
+  static Future<void> setItemGroup(String itemId, String? groupId) async {
+    await request({
+      'type': 'credential_item_set_group',
+      'item_id': itemId,
+      'group_id': groupId ?? '',
+    });
+  }
+
+  static Future<String?> getTerminalPreference() =>
+      _channel.invokeMethod<String>('getTerminalPreference');
+
+  static Future<void> setTerminalPreference(String terminalId) =>
+      _channel.invokeMethod('setTerminalPreference', terminalId);
+
+  static Future<String?> openSshInTerminal({
+    required String host,
+    required int port,
+    required String username,
+  }) async {
+    return await _channel.invokeMethod<String>('openSshInTerminal', {
+      'host': host,
+      'port': port,
+      'username': username,
+    });
+  }
+
   static Future<Map<String, dynamic>> createLogin({
     required String origin,
     required String username,
     required String password,
+    String displayName = '',
+    String? groupId,
+    String connectionHost = '',
+    String? linkedTotpId,
   }) async {
     final resp = await request({
       'type': 'credential_save',
@@ -192,6 +241,10 @@ class AgentBridge {
       'origin': origin,
       'username': username,
       'password': password,
+      'display_name': displayName,
+      if (groupId != null && groupId.isNotEmpty) 'group_id': groupId,
+      'connection_host': connectionHost,
+      if (linkedTotpId != null && linkedTotpId.isNotEmpty) 'linked_totp_id': linkedTotpId,
     });
     return Map<String, dynamic>.from(payloadOf(resp)['credential'] as Map? ?? {});
   }
@@ -201,6 +254,10 @@ class AgentBridge {
     required String expectedRevision,
     required String origin,
     required String username,
+    String displayName = '',
+    String? groupId,
+    String connectionHost = '',
+    String? linkedTotpId,
     String? password,
   }) async {
     final resp = await request({
@@ -209,6 +266,10 @@ class AgentBridge {
       'expected_revision': expectedRevision,
       'origin': origin,
       'username': username,
+      'display_name': displayName,
+      'group_id': groupId ?? '',
+      'connection_host': connectionHost,
+      'linked_totp_id': linkedTotpId ?? '',
       if (password != null && password.isNotEmpty) 'password': password,
     });
     return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
@@ -224,12 +285,14 @@ class AgentBridge {
     required String issuer,
     required String account,
     required String secretBase32,
+    String? groupId,
   }) async {
     final resp = await request({
       'type': 'totp_create',
       'issuer': issuer,
       'account': account,
       'secret_base32': secretBase32,
+      if (groupId != null && groupId.isNotEmpty) 'group_id': groupId,
     });
     return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
   }
@@ -237,6 +300,69 @@ class AgentBridge {
   static Future<String> totpCode(String totpId) async {
     final resp = await request({'type': 'totp_code', 'totp_id': totpId});
     return payloadOf(resp)['code'] as String? ?? '';
+  }
+
+  static Future<Map<String, dynamic>> totpReveal(String totpId) async {
+    final resp = await request({'type': 'totp_reveal', 'totp_id': totpId});
+    return Map<String, dynamic>.from(payloadOf(resp)['reveal'] as Map? ?? {});
+  }
+
+  static Future<List<Map<String, dynamic>>> listServerProfiles() async {
+    final resp = await request({'type': 'server_profile_list'});
+    final items = payloadOf(resp)['items'] as List<dynamic>? ?? [];
+    return items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  static Future<Map<String, dynamic>> createServerProfile({
+    required String label,
+    required String host,
+    int port = 22,
+    String manualUsername = '',
+    String? linkedLoginId,
+    String? linkedTotpId,
+    String? linkedSshKeyId,
+    String? groupId,
+  }) async {
+    final resp = await request({
+      'type': 'server_profile_create',
+      'label': label,
+      'host': host,
+      'port': port,
+      'manual_username': manualUsername,
+      if (linkedLoginId != null && linkedLoginId.isNotEmpty) 'linked_login_id': linkedLoginId,
+      if (linkedTotpId != null && linkedTotpId.isNotEmpty) 'linked_totp_id': linkedTotpId,
+      if (linkedSshKeyId != null && linkedSshKeyId.isNotEmpty) 'linked_ssh_key_id': linkedSshKeyId,
+      if (groupId != null && groupId.isNotEmpty) 'group_id': groupId,
+    });
+    return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
+  }
+
+  static Future<Map<String, dynamic>> updateServerProfile({
+    required String id,
+    required String expectedRevision,
+    required String label,
+    required String host,
+    int port = 22,
+    String manualUsername = '',
+    String? linkedLoginId,
+    String? linkedTotpId,
+    String? linkedSshKeyId,
+    String? groupId,
+  }) async {
+    final resp = await request({
+      'type': 'server_profile_update',
+      'id': id,
+      'expected_revision': expectedRevision,
+      'label': label,
+      'host': host,
+      'port': port,
+      'manual_username': manualUsername,
+      'linked_login_id': linkedLoginId ?? '',
+      'linked_totp_id': linkedTotpId ?? '',
+      'linked_ssh_key_id': linkedSshKeyId ?? '',
+      'group_id': groupId ?? '',
+    });
+    return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
   }
 
   static Future<List<Map<String, dynamic>>> listSshKeys() async {

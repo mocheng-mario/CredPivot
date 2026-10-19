@@ -49,8 +49,15 @@ final class CredPivotPlatform: NSObject {
       let body = #"{"type":"unlock_password","password":"\#(escaped)"}"#
       let resp = credpivotAgentRequestJsonString(body)
       result(resp.contains("\"unlocked\":true"))
+    case "authenticateTouchId":
+      let reason = (call.arguments as? String) ?? "CredPivot 需要验证您的身份"
+      TouchIdGate.shared.authenticateBiometricOnly(reason: reason) { ok in
+        DispatchQueue.main.async {
+          result(ok)
+        }
+      }
     case "unlockTouchId":
-      TouchIdGate.shared.authenticate { ok, token in
+      TouchIdGate.shared.authenticateForUnlock { ok, token in
         DispatchQueue.main.async {
           guard ok, let token else {
             result(false)
@@ -133,6 +140,28 @@ final class CredPivotPlatform: NSObject {
       }
       ConcealedPasteboard.copyConcealed(secret, clearAfterSeconds: 30)
       result(nil)
+    case "getTerminalPreference":
+      result(TerminalLauncher.current() ?? "")
+    case "setTerminalPreference":
+      guard let id = call.arguments as? String else {
+        result(FlutterError(code: "bad_args", message: "terminal id required", details: nil))
+        return
+      }
+      TerminalLauncher.set(id)
+      result(nil)
+    case "openSshInTerminal":
+      guard let args = call.arguments as? [String: Any],
+            let host = args["host"] as? String,
+            let username = args["username"] as? String else {
+        result(FlutterError(code: "bad_args", message: "host/username required", details: nil))
+        return
+      }
+      let port = args["port"] as? Int ?? 22
+      if let err = TerminalLauncher.openSsh(host: host, port: port, user: username) {
+        result(err)
+      } else {
+        result(nil)
+      }
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -150,7 +179,26 @@ final class TouchIdGate {
   private let keychainService = "com.credpivot.macos.touchid.m0"
   private let keychainAccount = "vmk-wrapper-token"
 
-  func authenticate(completion: @escaping (Bool, String?) -> Void) {
+  /// 敏感操作门槛：仅 Touch ID，不访问钥匙串（避免二次输入登录密码）。
+  func authenticateBiometricOnly(reason: String, completion: @escaping (Bool) -> Void) {
+    let context = LAContext()
+    var error: NSError?
+    guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
+      completion(false)
+      return
+    }
+    TouchIdGate.isAuthenticating = true
+    context.evaluatePolicy(
+      .deviceOwnerAuthenticationWithBiometrics,
+      localizedReason: reason
+    ) { success, _ in
+      TouchIdGate.isAuthenticating = false
+      completion(success)
+    }
+  }
+
+  /// Touch ID 解锁 Agent 门槛：指纹通过后读取/创建钥匙串中的门槛令牌。
+  func authenticateForUnlock(completion: @escaping (Bool, String?) -> Void) {
     let context = LAContext()
     var error: NSError?
     guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
@@ -160,24 +208,39 @@ final class TouchIdGate {
     TouchIdGate.isAuthenticating = true
     context.evaluatePolicy(
       .deviceOwnerAuthenticationWithBiometrics,
-      localizedReason: "CredPivot：Touch ID 操作门槛（非 VMK 绑定）"
+      localizedReason: "CredPivot：Touch ID 解锁"
     ) { success, _ in
       TouchIdGate.isAuthenticating = false
       guard success else {
         completion(false, nil)
         return
       }
-      let token = self.loadOrCreateToken()
+      let token = self.loadOrCreateToken(context: context)
       completion(true, token)
     }
   }
 
-  private func loadOrCreateToken() -> String {
-    if let existing = KeychainLoginStore.read(service: keychainService, account: keychainAccount) {
+  private func loadOrCreateToken(context: LAContext) -> String {
+    if let existing = KeychainLoginStore.read(
+      service: keychainService,
+      account: keychainAccount,
+      context: context
+    ) {
       return existing
     }
+    if let legacy = KeychainLoginStore.read(
+      service: keychainService,
+      account: keychainAccount,
+      context: nil
+    ) {
+      return legacy
+    }
     let token = UUID().uuidString
-    KeychainLoginStore.write(service: keychainService, account: keychainAccount, value: token)
+    KeychainLoginStore.writeBiometricProtected(
+      service: keychainService,
+      account: keychainAccount,
+      value: token
+    )
     _ = agentConfigureTouchIdToken(token)
     return token
   }
@@ -190,26 +253,45 @@ final class TouchIdGate {
 }
 
 enum KeychainLoginStore {
-  static func write(service: String, account: String, value: String) {
+  static func writeBiometricProtected(service: String, account: String, value: String) -> Bool {
     let data = value.data(using: .utf8) ?? Data()
-    let query: [String: Any] = [
+    var createError: Unmanaged<CFError>?
+    guard let access = SecAccessControlCreateWithFlags(
+      kCFAllocatorDefault,
+      kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+      .biometryCurrentSet,
+      &createError
+    ) else {
+      return false
+    }
+    let deleteQuery: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
       kSecAttrAccount as String: account,
-      kSecValueData as String: data,
-      kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
     ]
-    SecItemDelete(query as CFDictionary)
-    SecItemAdd(query as CFDictionary, nil)
+    SecItemDelete(deleteQuery as CFDictionary)
+    let addQuery: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: service,
+      kSecAttrAccount as String: account,
+      kSecAttrAccessControl as String: access,
+      kSecValueData as String: data,
+    ]
+    let status = SecItemAdd(addQuery as CFDictionary, nil)
+    return status == errSecSuccess
   }
 
-  static func read(service: String, account: String) -> String? {
-    let query: [String: Any] = [
+  static func read(service: String, account: String, context: LAContext?) -> String? {
+    var query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
       kSecAttrAccount as String: account,
       kSecReturnData as String: true,
+      kSecMatchLimit as String: kSecMatchLimitOne,
     ]
+    if let context {
+      query[kSecUseAuthenticationContext as String] = context
+    }
     var item: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &item)
     guard status == errSecSuccess, let data = item as? Data else { return nil }
@@ -528,5 +610,65 @@ enum ConcealedPasteboard {
     }
     clearWorkItem = work
     DispatchQueue.main.asyncAfter(deadline: .now() + clearAfterSeconds, execute: work)
+  }
+}
+
+enum TerminalLauncher {
+  private static let prefKey = "credpivot.terminal.app"
+
+  static func current() -> String? {
+    UserDefaults.standard.string(forKey: prefKey)
+  }
+
+  static func set(_ id: String) {
+    UserDefaults.standard.set(id, forKey: prefKey)
+  }
+
+  /// 成功返回 nil；失败返回错误文案。
+  static func openSsh(host: String, port: Int, user: String) -> String? {
+    guard let app = current(), !app.isEmpty else {
+      return "未选择终端应用，请先点「终端设置」选择 Terminal / iTerm 等"
+    }
+    let portArg = port == 22 ? "" : " -p \(port)"
+    let sshCmd = "ssh\(portArg) \(shellQuote(user))@\(shellQuote(host))"
+    switch app {
+    case "terminal":
+      let script = "tell application \"Terminal\" to do script \"\(escapeAppleScript(sshCmd))\""
+      return runOsascript(script)
+    case "iterm":
+      let script =
+        "tell application \"iTerm\" to create window with default profile command \"\(escapeAppleScript(sshCmd))\""
+      return runOsascript(script)
+    case "warp":
+      let url = "warp://action/new_tab?command=\(sshCmd.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sshCmd)"
+      NSWorkspace.shared.open(URL(string: url)!)
+      return nil
+    default:
+      return "未知终端类型: \(app)"
+    }
+  }
+
+  private static func runOsascript(_ source: String) -> String? {
+    let proc = Process()
+    proc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    proc.arguments = ["-e", source]
+    do {
+      try proc.run()
+      proc.waitUntilExit()
+      if proc.terminationStatus != 0 {
+        return "无法启动终端（osascript 退出码 \(proc.terminationStatus)）"
+      }
+      return nil
+    } catch {
+      return error.localizedDescription
+    }
+  }
+
+  private static func shellQuote(_ s: String) -> String {
+    "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+  }
+
+  private static func escapeAppleScript(_ s: String) -> String {
+    s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
   }
 }
