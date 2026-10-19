@@ -18,6 +18,8 @@ pub enum AgentError {
     Io(std::io::Error),
     #[error("protocol error: {0}")]
     Protocol(String),
+    #[error("vault error: {0}")]
+    Vault(String),
 }
 
 impl From<std::io::Error> for AgentError {

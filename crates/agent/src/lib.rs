@@ -7,7 +7,7 @@ mod protocol;
 mod runtime;
 mod single_writer;
 mod ssh_agent;
-mod vault_m0;
+mod vault_session;
 
 pub use client::{call_agent, call_in_process};
 pub use error::{AgentError, Result};
@@ -20,4 +20,4 @@ pub use paths::{
 pub use protocol::{AgentRequest, AgentResponse, MIN_COMPATIBLE_PROTOCOL, PROTOCOL_VERSION};
 pub use runtime::AgentRuntime;
 pub use single_writer::SingleWriterLock;
-pub use vault_m0::{FakeCredential, M0Vault};
+pub use vault_session::{FakeCredential, VaultSession};

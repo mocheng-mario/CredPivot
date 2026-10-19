@@ -1,0 +1,16 @@
+{
+  "description": "M1 烟雾向量：运行 `cargo test -p credpivot-core -p ovb1-structure`；正式发布前补充固定 OVB/CPVC 字节快照。",
+  "snapshot_format": "credpivot-snapshot-m1",
+  "snapshot_version": 1,
+  "sqlcipher_label": "sqlcipher-bundled-m1",
+  "argon2_default": {
+    "memory_kib": 65536,
+    "iterations": 3,
+    "parallelism": 4
+  },
+  "hkdf_labels": {
+    "local_db": "credpivot/local-db/v1",
+    "ovb_snapshot": "credpivot/ovb-snapshot/v1",
+    "config_mac": "credpivot/config-mac/v1"
+  }
+}

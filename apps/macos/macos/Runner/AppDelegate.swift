@@ -22,10 +22,11 @@ class AppDelegate: FlutterAppDelegate {
       platform = CredPivotPlatform(messenger: controller.engine.binaryMessenger)
     }
 
-    NSApp.setActivationPolicy(.accessory)
+    showMainWindow()
   }
 
   @objc func showMainWindow() {
+    NSApp.setActivationPolicy(.regular)
     mainFlutterWindow?.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
   }

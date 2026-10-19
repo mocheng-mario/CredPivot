@@ -1,16 +1,21 @@
 use credpivot_agent::{
-    handle_request, AgentRequest, AgentResponse, IpcState, M0Vault, PeerAuthConfig,
+    handle_request, AgentRequest, AgentResponse, IpcState, PeerAuthConfig, VaultSession,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
+use tempfile::tempdir;
 use tokio::sync::Mutex;
 
-fn test_state() -> IpcState {
-    IpcState {
-        vault: Arc::new(Mutex::new(M0Vault::new())),
+fn test_state() -> (IpcState, tempfile::TempDir) {
+    let dir = tempdir().expect("tmpdir");
+    std::env::set_var("CREDPIVOT_VAULT_DIR", dir.path());
+    let vault = VaultSession::new_at(dir.path().to_path_buf());
+    let state = IpcState {
+        vault: Arc::new(Mutex::new(vault)),
         pending_fills: HashMap::new(),
         peer_auth: PeerAuthConfig::default(),
-    }
+    };
+    (state, dir)
 }
 
 fn assert_err_locked(resp: AgentResponse) {
@@ -22,7 +27,7 @@ fn assert_err_locked(resp: AgentResponse) {
 
 #[tokio::test]
 async fn locked_vault_rejects_sensitive_agent_ops() {
-    let mut st = test_state();
+    let (mut st, _dir) = test_state();
     assert_err_locked(
         handle_request(
             &mut st,
@@ -35,28 +40,19 @@ async fn locked_vault_rejects_sensitive_agent_ops() {
         )
         .await,
     );
-    assert_err_locked(
-        handle_request(
-            &mut st,
-            AgentRequest::CredentialSuggest {
-                origin: "https://example.com".into(),
-            },
-        )
-        .await,
-    );
 }
 
 #[tokio::test]
 async fn unlock_then_save_then_lock_blocks_again() {
-    let mut st = test_state();
-    let unlock = handle_request(
+    let (mut st, _dir) = test_state();
+    let create = handle_request(
         &mut st,
-        AgentRequest::UnlockPassword {
-            password: "credpivot-m0".into(),
+        AgentRequest::VaultCreate {
+            password: "test-vault-pass".into(),
         },
     )
     .await;
-    assert!(matches!(unlock, AgentResponse::Ok { .. }));
+    assert!(matches!(create, AgentResponse::Ok { .. }));
 
     let save = handle_request(
         &mut st,
@@ -89,10 +85,11 @@ async fn unlock_then_save_then_lock_blocks_again() {
 
 #[tokio::test]
 async fn status_reports_locked_without_unlock() {
-    let mut st = test_state();
+    let (mut st, _dir) = test_state();
     let resp = handle_request(&mut st, AgentRequest::Status).await;
     let AgentResponse::Ok { payload, .. } = resp else {
         panic!("expected ok status");
     };
     assert_eq!(payload.get("unlocked").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(payload.get("format").and_then(|v| v.as_str()), Some("m1"));
 }

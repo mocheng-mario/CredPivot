@@ -1,0 +1,6 @@
+[package]
+name = "ovb1-structure"
+description = "Independent OVB1 structural validator (M1-9, no credpivot-core)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true

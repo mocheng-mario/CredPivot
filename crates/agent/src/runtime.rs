@@ -4,7 +4,7 @@ use crate::paths::{agent_socket_path, ensure_runtime_dir, ssh_agent_socket_path}
 use crate::peer_auth::PeerAuthConfig;
 use crate::single_writer::SingleWriterLock;
 use crate::ssh_agent::serve_ssh_agent;
-use crate::vault_m0::M0Vault;
+use crate::vault_session::VaultSession;
 use std::sync::Arc;
 use tokio::net::UnixListener;
 use tokio::sync::Mutex;
@@ -26,7 +26,7 @@ impl AgentRuntime {
         let ipc_listener = UnixListener::bind(agent_socket_path())?;
         let ssh_listener = UnixListener::bind(ssh_agent_socket_path())?;
 
-        let vault = Arc::new(Mutex::new(M0Vault::new()));
+        let vault = Arc::new(Mutex::new(VaultSession::new()));
         let state = Arc::new(Mutex::new(IpcState {
             vault: vault.clone(),
             pending_fills: std::collections::HashMap::new(),

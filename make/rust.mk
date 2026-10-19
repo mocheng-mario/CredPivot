@@ -20,4 +20,10 @@ rust-check:
 	cd $(ROOT) && $(CARGO) check --workspace
 
 rust-test:
-	cd $(ROOT) && $(CARGO) test -p credpivot-agent
+	cd $(ROOT) && $(CARGO) test -p credpivot-agent -p credpivot-core
+
+rust-core:
+	cd $(ROOT) && $(CARGO) build -p credpivot-core
+
+rust-cli:
+	cd $(ROOT) && $(CARGO) build -p credpivot-cli

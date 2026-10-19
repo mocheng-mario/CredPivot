@@ -1,25 +1,48 @@
 import Cocoa
 
-/// 锁屏 / 睡眠 / 空闲时通知 Agent 锁定（M0 验证入口）。
+/// 锁屏 / 睡眠时通知 Agent 锁定。勿用 sessionDidResignActive（Touch ID / 文件面板也会触发）。
 final class LifecycleBridge {
   static let shared = LifecycleBridge()
 
   func start() {
-    let center = NSWorkspace.shared.notificationCenter
-    center.addObserver(self, selector: #selector(screenLocked), name: NSWorkspace.screensDidSleepNotification, object: nil)
-    center.addObserver(self, selector: #selector(screenLocked), name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
-    NotificationCenter.default.addObserver(self, selector: #selector(systemWillSleep), name: NSWorkspace.willSleepNotification, object: nil)
+    let workspace = NSWorkspace.shared.notificationCenter
+    workspace.addObserver(
+      self,
+      selector: #selector(systemWillSleep),
+      name: NSWorkspace.willSleepNotification,
+      object: nil
+    )
+    workspace.addObserver(
+      self,
+      selector: #selector(screensDidSleep),
+      name: NSWorkspace.screensDidSleepNotification,
+      object: nil
+    )
+
+    DistributedNotificationCenter.default().addObserver(
+      self,
+      selector: #selector(screenLocked),
+      name: NSNotification.Name("com.apple.screenIsLocked"),
+      object: nil
+    )
   }
 
   @objc private func screenLocked() {
-    lockAgent()
+    lockAgentUnlessTouchId()
+  }
+
+  @objc private func screensDidSleep() {
+    lockAgentUnlessTouchId()
   }
 
   @objc private func systemWillSleep() {
-    lockAgent()
+    lockAgentUnlessTouchId()
   }
 
-  private func lockAgent() {
+  private func lockAgentUnlessTouchId() {
+    if TouchIdGate.isAuthenticating {
+      return
+    }
     _ = credpivotAgentRequestJsonString(#"{"type":"lock"}"#)
   }
 }

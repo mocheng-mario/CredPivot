@@ -15,5 +15,6 @@ class MainFlutterWindow: NSWindow {
 
   override func close() {
     orderOut(nil)
+    NSApp.setActivationPolicy(.accessory)
   }
 }

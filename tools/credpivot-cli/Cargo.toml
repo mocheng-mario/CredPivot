@@ -1,0 +1,16 @@
+[package]
+name = "credpivot-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "credpivot-cli"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+credpivot-core = { path = "../../crates/core" }
+ovb1-structure = { path = "../../crates/ovb1-structure" }
+rpassword = "7"
+serde_json = "1"

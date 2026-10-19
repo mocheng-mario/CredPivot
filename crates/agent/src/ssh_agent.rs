@@ -1,5 +1,5 @@
 use crate::error::{AgentError, Result};
-use crate::vault_m0::M0Vault;
+use crate::vault_session::VaultSession;
 use ed25519_dalek::{Signer, VerifyingKey};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -13,7 +13,7 @@ const SSH_AGENT_SIGN_RESPONSE: u8 = 14;
 const SSH_AGENTC_REQUEST_IDENTITIES: u8 = 11;
 const SSH_AGENTC_SIGN_REQUEST: u8 = 13;
 
-pub async fn serve_ssh_agent(listener: UnixListener, vault: Arc<Mutex<M0Vault>>) -> Result<()> {
+pub async fn serve_ssh_agent(listener: UnixListener, vault: Arc<Mutex<VaultSession>>) -> Result<()> {
     loop {
         let (mut stream, _) = listener.accept().await?;
         let vault = vault.clone();
@@ -27,7 +27,7 @@ pub async fn serve_ssh_agent(listener: UnixListener, vault: Arc<Mutex<M0Vault>>)
 
 async fn handle_ssh_connection(
     stream: &mut tokio::net::UnixStream,
-    vault: Arc<Mutex<M0Vault>>,
+    vault: Arc<Mutex<VaultSession>>,
 ) -> Result<()> {
     let mut len_buf = [0u8; 4];
     stream.read_exact(&mut len_buf).await?;
@@ -76,7 +76,7 @@ fn frame(body: &[u8]) -> Vec<u8> {
     out
 }
 
-fn identities_answer(vault: &M0Vault) -> Result<Vec<u8>> {
+fn identities_answer(vault: &VaultSession) -> Result<Vec<u8>> {
     let vk: VerifyingKey = vault.ssh_signing_key.verifying_key();
     let key_blob = ed25519_key_blob(&vk);
     let comment = b"credpivot-m0";
@@ -99,7 +99,7 @@ fn ed25519_key_blob(vk: &VerifyingKey) -> Vec<u8> {
     blob
 }
 
-fn sign_request(vault: &M0Vault, msg: &[u8]) -> Result<Vec<u8>> {
+fn sign_request(vault: &VaultSession, msg: &[u8]) -> Result<Vec<u8>> {
     if msg.len() < 5 {
         return Ok(failure_packet());
     }

@@ -1,7 +1,7 @@
 use crate::error::{AgentError, Result};
 use crate::peer_auth::{authorize_peer, PeerAuthConfig};
 use crate::protocol::{AgentRequest, AgentResponse};
-use crate::vault_m0::{FillGrant, M0Vault};
+use crate::vault_session::{FillGrant, VaultSession};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 const FILL_TTL_MS: u128 = 60_000;
 
 pub struct IpcState {
-    pub vault: Arc<Mutex<M0Vault>>,
+    pub vault: Arc<Mutex<VaultSession>>,
     pub pending_fills: HashMap<String, FillGrant>,
     pub peer_auth: PeerAuthConfig,
 }
@@ -82,13 +82,7 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
         AgentRequest::Ping => AgentResponse::ok(json!({ "pong": true })),
         AgentRequest::Status => {
             let v = st.vault.lock().await;
-            AgentResponse::ok(json!({
-                "unlocked": v.unlocked,
-                "idle_timeout_sec": v.idle_timeout.as_secs(),
-                "credential_count": v.credentials.len(),
-                "ssh_pubkey": v.ssh_public_key_openssh(),
-                "touch_id_token_configured": v.touch_id_wrapped_token.is_some(),
-            }))
+            AgentResponse::ok(v.vault_status_json())
         }
         AgentRequest::Lock => {
             st.vault.lock().await.lock();
@@ -96,10 +90,68 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
             AgentResponse::ok(json!({ "locked": true }))
         }
         AgentRequest::UnlockPassword { password } => {
-            if st.vault.lock().await.unlock_password(&password) {
-                AgentResponse::ok(json!({ "unlocked": true }))
-            } else {
-                AgentResponse::err("bad_unlock", "invalid password (M0 demo: credpivot-m0)")
+            match st.vault.lock().await.unlock_password(&password) {
+                Ok(()) => AgentResponse::ok(json!({ "unlocked": true })),
+                Err(e) => AgentResponse::err("bad_unlock", e.to_string()),
+            }
+        }
+        AgentRequest::VaultCreate { password } => {
+            match st.vault.lock().await.create_vault(&password) {
+                Ok(recovery_display) => AgentResponse::ok(json!({
+                    "created": true,
+                    "recovery_key": recovery_display,
+                })),
+                Err(e) => AgentResponse::err("vault_create", e.to_string()),
+            }
+        }
+        AgentRequest::VaultChangePassword {
+            old_password,
+            new_password,
+        } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.change_password(&old_password, &new_password) {
+                Ok(()) => AgentResponse::ok(json!({ "changed": true })),
+                Err(e) => AgentResponse::err("change_password", e.to_string()),
+            }
+        }
+        AgentRequest::VaultExportOvb { output_path, password } => {
+            let v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            match v.export_ovb(&output_path, &password) {
+                Ok(()) => AgentResponse::ok(json!({ "exported": true, "path": output_path })),
+                Err(e) => AgentResponse::err("export_ovb", e.to_string()),
+            }
+        }
+        AgentRequest::VaultRecoverOvb {
+            ovb_path,
+            target_dir,
+            password,
+            recovery_key,
+        } => match VaultSession::recover_ovb(
+            &ovb_path,
+            &target_dir,
+            password.as_deref(),
+            recovery_key.as_deref(),
+        ) {
+            Ok(()) => AgentResponse::ok(json!({
+                "recovered": true,
+                "target_dir": target_dir,
+            })),
+            Err(e) => AgentResponse::err("recover_ovb", e.to_string()),
+        },
+        AgentRequest::VaultOpenDir { path } => {
+            let mut v = st.vault.lock().await;
+            match v.open_dir(std::path::PathBuf::from(path)) {
+                Ok(()) => AgentResponse::ok(json!({
+                    "opened": true,
+                    "vault_path": v.vault_dir.to_string_lossy(),
+                })),
+                Err(e) => AgentResponse::err("open_dir", e.to_string()),
             }
         }
         AgentRequest::UnlockTouchIdToken { token } => {

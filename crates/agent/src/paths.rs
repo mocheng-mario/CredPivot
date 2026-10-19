@@ -23,6 +23,12 @@ pub fn dirs_home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/tmp"))
 }
 
+pub fn vault_data_dir() -> PathBuf {
+    std::env::var_os("CREDPIVOT_VAULT_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| runtime_dir().join("vault"))
+}
+
 pub fn ensure_runtime_dir() -> std::io::Result<()> {
     let dir = runtime_dir();
     std::fs::create_dir_all(&dir)?;

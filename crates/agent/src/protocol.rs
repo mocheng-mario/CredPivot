@@ -36,6 +36,23 @@ pub enum AgentRequest {
         document_id: String,
     },
     CancelRequest { request_id: String },
+    VaultCreate { password: String },
+    VaultChangePassword {
+        old_password: String,
+        new_password: String,
+    },
+    VaultExportOvb {
+        output_path: String,
+        password: String,
+    },
+    VaultRecoverOvb {
+        ovb_path: String,
+        target_dir: String,
+        password: Option<String>,
+        recovery_key: Option<String>,
+    },
+    /// 锁定状态下切换本地工作库目录（须含 vault.json）。
+    VaultOpenDir { path: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]

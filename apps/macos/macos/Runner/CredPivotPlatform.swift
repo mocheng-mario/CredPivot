@@ -43,13 +43,19 @@ final class CredPivotPlatform: NSObject {
       result(resp.contains("\"unlocked\":true"))
     case "unlockTouchId":
       TouchIdGate.shared.authenticate { ok, token in
-        guard ok, let token else {
-          result(false)
-          return
+        DispatchQueue.main.async {
+          guard ok, let token else {
+            result(false)
+            return
+          }
+          let escaped = token.replacingOccurrences(of: "\"", with: "\\\"")
+          let body = #"{"type":"unlock_touch_id_token","token":"\#(escaped)"}"#
+          let unlocked = credpivotAgentRequestJsonString(body).contains("\"unlocked\":true")
+          if unlocked {
+            (NSApp.delegate as? AppDelegate)?.showMainWindow()
+          }
+          result(unlocked)
         }
-        let escaped = token.replacingOccurrences(of: "\"", with: "\\\"")
-        let body = #"{"type":"unlock_touch_id_token","token":"\#(escaped)"}"#
-        result(credpivotAgentRequestJsonString(body).contains("\"unlocked\":true"))
       }
     case "registerLoginItem":
       let enabled = (call.arguments as? Bool) ?? true
@@ -70,6 +76,34 @@ final class CredPivotPlatform: NSObject {
       result(SshIdentityAgentHelper.removeSnippet())
     case "residentMemoryBytes":
       result(ProcessMemory.residentBytes())
+    case "pickDirectory":
+      DispatchQueue.main.async {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "选择"
+        result(panel.runModal() == .OK ? panel.url?.path : nil)
+      }
+    case "pickOpenFile":
+      DispatchQueue.main.async {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.data]
+        panel.prompt = "打开"
+        result(panel.runModal() == .OK ? panel.url?.path : nil)
+      }
+    case "pickSaveFile":
+      let defaultName = (call.arguments as? String) ?? "backup.ovb"
+      DispatchQueue.main.async {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = defaultName
+        panel.allowedContentTypes = [.data]
+        panel.prompt = "保存"
+        result(panel.runModal() == .OK ? panel.url?.path : nil)
+      }
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -81,6 +115,9 @@ final class CredPivotPlatform: NSObject {
 
 final class TouchIdGate {
   static let shared = TouchIdGate()
+  /// 生物识别弹窗期间勿因 resign-active 误锁 Agent。
+  static var isAuthenticating = false
+
   private let keychainService = "com.credpivot.macos.touchid.m0"
   private let keychainAccount = "vmk-wrapper-token"
 
@@ -91,10 +128,12 @@ final class TouchIdGate {
       completion(false, nil)
       return
     }
+    TouchIdGate.isAuthenticating = true
     context.evaluatePolicy(
       .deviceOwnerAuthenticationWithBiometrics,
-      localizedReason: "CredPivot M0：Touch ID 操作门槛（非密钥绑定）"
+      localizedReason: "CredPivot：Touch ID 操作门槛（非 VMK 绑定）"
     ) { success, _ in
+      TouchIdGate.isAuthenticating = false
       guard success else {
         completion(false, nil)
         return

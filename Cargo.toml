@@ -2,8 +2,11 @@
 resolver = "2"
 members = [
     "crates/agent",
+    "crates/core",
     "crates/native-host",
     "crates/credpivot-ffi",
+    "crates/ovb1-structure",
+    "tools/credpivot-cli",
 ]
 
 [workspace.package]
