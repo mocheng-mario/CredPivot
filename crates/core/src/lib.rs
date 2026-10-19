@@ -6,10 +6,13 @@ mod error;
 mod key_slot;
 mod limits;
 mod local_db;
+mod migrate;
+mod repo;
 mod ovb1;
 mod password_change;
 mod recovery_key;
 mod snapshot;
+mod vault_db;
 mod vault_init;
 mod vault_pipeline;
 
@@ -21,8 +24,14 @@ pub use key_slot::KeySlot;
 pub use ovb1::{build_ovb_file, decrypt_snapshot, parse_ovb_file, parse_ovb_with_aad, OvbHeader};
 pub use password_change::change_master_password;
 pub use recovery_key::{format_display, generate as generate_recovery_key, parse_display as parse_recovery_display};
-pub use local_db::{sqlcipher_sidecar_paths, verify_database, SQLCIPHER_M1_LABEL};
+pub use local_db::{open_database, sqlcipher_sidecar_paths, verify_database, SQLCIPHER_M1_LABEL};
+pub use migrate::SCHEMA_USER_VERSION;
+pub use repo::{
+    count_login_credentials, get_login_secret, insert_login_credential, list_login_by_origin,
+    LoginCredentialRecord, LoginCredentialSummary,
+};
 pub use snapshot::{SNAPSHOT_FORMAT, SNAPSHOT_VERSION};
+pub use vault_db::VaultDatabase;
 pub use vault_init::{create_vault_config, NewVaultMaterial};
 pub use vault_pipeline::{
     bootstrap_vault_dir, change_master_password_in_dir, ensure_empty_target, export_ovb_from_dir,

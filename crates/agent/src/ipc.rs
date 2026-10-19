@@ -178,7 +178,10 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
-            let cred = v.save_credential(&origin, &username, &password);
+            let cred = match v.save_credential(&origin, &username, &password) {
+                Ok(c) => c,
+                Err(e) => return AgentResponse::err("vault", e.to_string()),
+            };
             AgentResponse::ok(json!({
                 "request_id": request_id,
                 "saved": true,
@@ -191,7 +194,10 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
-            let items = v.suggest_for_origin(&origin);
+            let items = match v.suggest_for_origin(&origin) {
+                Ok(c) => c,
+                Err(e) => return AgentResponse::err("vault", e.to_string()),
+            };
             AgentResponse::ok(json!({ "candidates": items }))
         }
         AgentRequest::CredentialFillPrepare {
@@ -207,7 +213,7 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
-            if !v.credentials.contains_key(&credential_id) {
+            if v.get_credential(&credential_id).is_err() {
                 return AgentResponse::err("not_found", "credential not found");
             }
             let now = now_ms();
@@ -245,14 +251,13 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
             if grant.frame_id != frame_id || grant.document_id != document_id {
                 return AgentResponse::err("frame_mismatch", "frame/document mismatch");
             }
-            let cred = v.credentials.get(&grant.credential_id).cloned();
-            match cred {
-                Some(c) => AgentResponse::ok(json!({
+            match v.get_credential(&grant.credential_id) {
+                Ok(c) => AgentResponse::ok(json!({
                     "username": c.username,
                     "password": c.password,
                     "origin": c.origin,
                 })),
-                None => AgentResponse::err("not_found", "credential not found"),
+                Err(_) => AgentResponse::err("not_found", "credential not found"),
             }
         }
         AgentRequest::CancelRequest { request_id } => {

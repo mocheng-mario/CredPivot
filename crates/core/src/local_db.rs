@@ -2,6 +2,7 @@
 
 use crate::crypto::derive_sqlcipher_key;
 use crate::error::{CoreError, Result};
+use crate::migrate::migrate_to_latest;
 use crate::limits::MAX_OVB_FILE_BYTES;
 use hex::encode;
 use rusqlite::{backup::Backup, Connection};
@@ -13,15 +14,6 @@ use uuid::Uuid;
 pub const DB_FILENAME: &str = "vault.db";
 /// 与 rusqlite `bundled-sqlcipher` 绑定的发行版本（M1 冻结，升级须回归）。
 pub const SQLCIPHER_M1_LABEL: &str = "sqlcipher-bundled-m1";
-
-const M1_SCHEMA: &str = "
-PRAGMA user_version = 1;
-CREATE TABLE IF NOT EXISTS vault_meta (
-  key TEXT PRIMARY KEY NOT NULL,
-  value BLOB NOT NULL
-);
-INSERT OR REPLACE INTO vault_meta(key, value) VALUES ('m1_marker', X'01');
-";
 
 fn db_path(dir: &Path) -> PathBuf {
     dir.join(DB_FILENAME)
@@ -49,14 +41,26 @@ fn open_connection(path: &Path, key: &[u8; 32], create: bool) -> Result<Connecti
     }
     let conn = Connection::open(path).map_err(|e| CoreError::io(e.to_string()))?;
     apply_cipher_key(&conn, key)?;
-    if create {
-        conn.execute_batch(M1_SCHEMA)
-            .map_err(|e| CoreError::format(e.to_string()))?;
-    } else {
-        conn.query_row("SELECT count(*) FROM vault_meta", [], |_| Ok(()))
+    if !create {
+        // 探测密钥是否正确（任意已迁移表均可；失败即 Auth）。
+        let probe = conn
+            .prepare("SELECT 1 FROM sqlite_master LIMIT 1")
             .map_err(|_| CoreError::Auth)?;
+        drop(probe);
     }
+    migrate_to_latest(&conn)?;
     Ok(conn)
+}
+
+/// 解锁后持有连接，供 M2 事务读写。
+pub fn open_database(vault_dir: &Path, vmk: &[u8; 32]) -> Result<Connection> {
+    let path = db_path(vault_dir);
+    if !path.exists() {
+        return Err(CoreError::format("missing vault.db"));
+    }
+    let vault_id = read_vault_uuid_from_dir(vault_dir)?;
+    let key = derive_sqlcipher_key(vmk, vault_id.as_bytes());
+    open_connection(&path, &key, false)
 }
 
 pub fn init_database(vault_dir: &Path, vmk: &[u8; 32], vault_id: &Uuid) -> Result<()> {

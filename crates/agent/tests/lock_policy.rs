@@ -91,5 +91,5 @@ async fn status_reports_locked_without_unlock() {
         panic!("expected ok status");
     };
     assert_eq!(payload.get("unlocked").and_then(|v| v.as_bool()), Some(false));
-    assert_eq!(payload.get("format").and_then(|v| v.as_str()), Some("m1"));
+    assert_eq!(payload.get("format").and_then(|v| v.as_str()), Some("m2"));
 }

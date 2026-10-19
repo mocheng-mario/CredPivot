@@ -2,24 +2,23 @@ use crate::error::{AgentError, Result};
 use base64::Engine;
 use credpivot_core::{
     bootstrap_vault_dir, change_master_password_in_dir, export_ovb_from_dir, read_vault_json,
-    recover_ovb_to_dir, RecoveryUnlock, VMK_LEN,
+    recover_ovb_to_dir, RecoveryUnlock, VaultDatabase, VMK_LEN,
 };
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 
-/// 进程内 Vault 会话：M1 加密库 + M0 演示凭据/SSH（业务入库在 M2）。
+/// 进程内 Vault 会话：M1 控制面 + M2 SQLCipher 业务库。
 #[derive(Debug)]
 pub struct VaultSession {
     pub vault_dir: PathBuf,
     pub vmk: Option<Zeroizing<[u8; VMK_LEN]>>,
+    pub db: Option<VaultDatabase>,
     pub unlocked: bool,
     pub touch_id_wrapped_token: Option<Vec<u8>>,
-    pub credentials: HashMap<String, FakeCredential>,
     pub ssh_signing_key: SigningKey,
     pub idle_timeout: Duration,
     pub last_activity: Instant,
@@ -54,13 +53,25 @@ impl VaultSession {
         Self {
             vault_dir,
             vmk: None,
+            db: None,
             unlocked: false,
             touch_id_wrapped_token: None,
-            credentials: HashMap::new(),
             ssh_signing_key: signing_key,
             idle_timeout: Duration::from_secs(5 * 60),
             last_activity: Instant::now(),
         }
+    }
+
+    fn attach_database(&mut self) -> Result<()> {
+        let vmk = self
+            .vmk
+            .as_ref()
+            .ok_or_else(|| AgentError::Vault("vmk not available".into()))?;
+        self.db = Some(
+            VaultDatabase::open(&self.vault_dir, &**vmk)
+                .map_err(|e| AgentError::Vault(e.to_string()))?,
+        );
+        Ok(())
     }
 
     pub fn vault_exists(&self) -> bool {
@@ -79,13 +90,20 @@ impl VaultSession {
     }
 
     pub fn vault_status_json(&self) -> serde_json::Value {
+        let cred_count = self
+            .db
+            .as_ref()
+            .and_then(|db| db.login_count().ok())
+            .unwrap_or(0);
         let mut out = serde_json::json!({
-            "format": "m1",
+            "format": "m2",
+            "schema_user_version": credpivot_core::SCHEMA_USER_VERSION,
             "vault_exists": self.vault_exists(),
             "vault_path": self.vault_dir.to_string_lossy(),
             "unlocked": self.unlocked,
+            "database_attached": self.db.is_some(),
             "idle_timeout_sec": self.idle_timeout.as_secs(),
-            "credential_count": self.credentials.len(),
+            "credential_count": cred_count,
             "ssh_pubkey": self.ssh_public_key_openssh(),
             "touch_id_token_configured": self.touch_id_wrapped_token.is_some(),
         });
@@ -109,6 +127,7 @@ impl VaultSession {
     pub fn lock(&mut self) {
         self.unlocked = false;
         self.vmk = None;
+        self.db = None;
     }
 
     pub fn create_vault(&mut self, password: &str) -> Result<String> {
@@ -125,6 +144,7 @@ impl VaultSession {
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         self.vmk = Some(material.vmk);
         self.unlocked = true;
+        self.attach_database()?;
         self.touch_activity();
         Ok(material.recovery_display)
     }
@@ -141,13 +161,13 @@ impl VaultSession {
             .map_err(|_| AgentError::Vault("control mac failed".into()))?;
         self.vmk = Some(vmk);
         self.unlocked = true;
+        self.attach_database()?;
         self.touch_activity();
         Ok(())
     }
 
     pub fn unlock_touch_id_token(&mut self, token: &[u8]) -> bool {
         if self.touch_id_wrapped_token.as_deref() == Some(token) && self.vault_exists() {
-            // M1：Touch ID 仍为操作门槛（非 VMK 绑定）；扩展/SSH 演示可在无 VMK 时工作。
             self.unlocked = true;
             self.touch_activity();
             return true;
@@ -159,6 +179,7 @@ impl VaultSession {
         if !self.unlocked {
             return Err(AgentError::Locked);
         }
+        self.db = None;
         change_master_password_in_dir(&self.vault_dir, old, new)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         let cfg = read_vault_json(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
@@ -167,6 +188,7 @@ impl VaultSession {
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         cfg.verify_mac(&*vmk).map_err(|e| AgentError::Vault(e.to_string()))?;
         self.vmk = Some(vmk);
+        self.attach_database()?;
         Ok(())
     }
 
@@ -209,26 +231,57 @@ impl VaultSession {
         let vk: VerifyingKey = self.ssh_signing_key.verifying_key();
         let bytes = vk.to_bytes();
         let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-        format!("ssh-ed25519 {b64} credpivot-m1")
+        format!("ssh-ed25519 {b64} credpivot-m2")
     }
 
-    pub fn save_credential(&mut self, origin: &str, username: &str, password: &str) -> FakeCredential {
-        let id = uuid::Uuid::new_v4().to_string();
-        let cred = FakeCredential {
-            id,
-            origin: origin.to_string(),
-            username: username.to_string(),
-            password: password.to_string(),
-        };
-        self.credentials.insert(cred.id.clone(), cred.clone());
-        cred
+    pub fn save_credential(&mut self, origin: &str, username: &str, password: &str) -> Result<FakeCredential> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AgentError::Vault("unlock with master password to access database".into()))?;
+        let rec = db
+            .insert_login(origin, username, password)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        Ok(FakeCredential {
+            id: rec.id,
+            origin: rec.origin,
+            username: rec.username,
+            password: rec.password,
+        })
     }
 
-    pub fn suggest_for_origin(&self, origin: &str) -> Vec<FakeCredential> {
-        self.credentials
-            .values()
-            .filter(|c| c.origin == origin)
-            .cloned()
-            .collect()
+    pub fn suggest_for_origin(&self, origin: &str) -> Result<Vec<FakeCredential>> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        let list = db
+            .list_by_origin(origin)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        Ok(list
+            .into_iter()
+            .map(|c| FakeCredential {
+                id: c.id,
+                origin: c.origin,
+                username: c.username,
+                password: String::new(),
+            })
+            .collect())
+    }
+
+    pub fn get_credential(&self, credential_id: &str) -> Result<FakeCredential> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        let rec = db
+            .get_login(credential_id)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        Ok(FakeCredential {
+            id: rec.id,
+            origin: rec.origin,
+            username: rec.username,
+            password: rec.password,
+        })
     }
 }
