@@ -123,25 +123,6 @@ CREATE TABLE IF NOT EXISTS server_login_profiles (
 CREATE INDEX IF NOT EXISTS idx_server_login_profiles_host ON server_login_profiles(host);
 ";
 
-const MIGRATION_V6: &str = "
-ALTER TABLE items ADD COLUMN group_id TEXT;
-ALTER TABLE login_credentials ADD COLUMN display_name TEXT NOT NULL DEFAULT '';
-CREATE TABLE IF NOT EXISTS credential_groups (
-  id TEXT PRIMARY KEY NOT NULL,
-  name TEXT NOT NULL,
-  scope TEXT NOT NULL,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  created_at_ms INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_credential_groups_scope ON credential_groups(scope);
-";
-
-const MIGRATION_V7: &str = "
-ALTER TABLE totp_credentials ADD COLUMN totp_algorithm TEXT NOT NULL DEFAULT 'SHA1';
-ALTER TABLE totp_credentials ADD COLUMN totp_digits INTEGER NOT NULL DEFAULT 6;
-ALTER TABLE totp_credentials ADD COLUMN totp_period INTEGER NOT NULL DEFAULT 30;
-";
-
 /// 早期开发库在 V5 可能已创建不含 `manual_username` 的 `server_login_profiles`（CREATE IF NOT EXISTS 不会补列）。
 fn repair_server_login_profiles_columns(conn: &Connection) -> Result<()> {
     ensure_column(

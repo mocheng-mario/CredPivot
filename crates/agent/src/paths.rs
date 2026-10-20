@@ -16,10 +16,6 @@ pub fn materialized_native_host_path() -> PathBuf {
     runtime_dir().join("credpivot-native-host")
 }
 
-pub fn native_host_digest_path() -> PathBuf {
-    runtime_dir().join("native_host.sha256")
-}
-
 /// Chrome 扩展连接时由 native-host 写入，App 前台后触发指纹门槛。
 pub fn extension_gate_pending_path() -> PathBuf {
     runtime_dir().join("extension_gate.pending")

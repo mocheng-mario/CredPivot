@@ -319,19 +319,19 @@ final class TouchIdGate {
   /// 生物识别弹窗期间勿因 resign-active 误锁 Agent。
   static var isAuthenticating = false
   /// 锁屏/睡眠时递增，使在途认证结果失效。
-  private(set) static var authenticationEpoch = 0
+  private(set) static var authenticationEpoch: UInt64 = 0
 
   static func invalidateInFlightAuthentication() {
     authenticationEpoch += 1
     isAuthenticating = false
   }
 
-  private static func beginAuthentication() -> UInt64 {
+  static func beginAuthentication() -> UInt64 {
     isAuthenticating = true
     return authenticationEpoch
   }
 
-  private static func endAuthentication(_ epoch: UInt64) -> Bool {
+  static func endAuthentication(_ epoch: UInt64) -> Bool {
     isAuthenticating = false
     return epoch == authenticationEpoch
   }
