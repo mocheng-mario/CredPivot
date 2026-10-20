@@ -117,6 +117,7 @@ impl VaultSession {
             return Err(AgentError::Vault("vault.json not found in directory".into()));
         }
         self.vault_dir = path;
+        let _ = crate::paths::persist_active_vault_dir(&self.vault_dir);
         Ok(())
     }
 
@@ -245,7 +246,8 @@ impl VaultSession {
         }
         let bytes = export_ovb_from_dir(&self.vault_dir, password)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
-        std::fs::write(output_path, bytes).map_err(AgentError::from)?;
+        credpivot_core::write_file_atomic(Path::new(output_path), &bytes)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
         if let Some(db) = self.db.as_ref() {
             let _ = mark_ovb_export_verified(db.conn());
         }
@@ -512,10 +514,15 @@ impl VaultSession {
         db.list_ssh().map_err(|e| AgentError::Vault(e.to_string()))
     }
 
-    pub fn generate_ssh_key(&self, label: &str, set_default: bool) -> Result<credpivot_core::SshKeyListRow> {
+    pub fn generate_ssh_key(&mut self, label: &str, set_default: bool) -> Result<credpivot_core::SshKeyListRow> {
         let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
-        db.generate_ssh(label, set_default)
-            .map_err(|e| AgentError::Vault(e.to_string()))
+        let row = db
+            .generate_ssh(label, set_default)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        if set_default {
+            self.sync_ssh_from_db()?;
+        }
+        Ok(row)
     }
 
     pub fn get_credential(&self, credential_id: &str) -> Result<FakeCredential> {
@@ -591,6 +598,7 @@ impl VaultSession {
         clone_vault_to_empty_dir(&self.vault_dir, Path::new(target_dir), vmk)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         self.vault_dir = PathBuf::from(target_dir);
+        let _ = crate::paths::persist_active_vault_dir(&self.vault_dir);
         self.attach_database()?;
         Ok(())
     }

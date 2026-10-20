@@ -20,6 +20,7 @@ struct BwUri {
 struct BwItem {
     id: Option<String>,
     name: Option<String>,
+    notes: Option<String>,
     login: Option<BwLogin>,
 }
 
@@ -41,6 +42,8 @@ pub struct ImportReport {
     pub imported: u32,
     pub skipped_duplicate: u32,
     pub skipped_invalid: u32,
+    /// 含备注、额外 URI、TOTP 等当前未迁入字段的条目数（仍可能已导入登录）。
+    pub skipped_unsupported_fields: u32,
 }
 
 pub fn import_bitwarden_json(conn: &Connection, json: &str) -> Result<ImportReport> {
@@ -49,6 +52,7 @@ pub fn import_bitwarden_json(conn: &Connection, json: &str) -> Result<ImportRepo
         imported: 0,
         skipped_duplicate: 0,
         skipped_invalid: 0,
+        skipped_unsupported_fields: 0,
     };
     let tx = conn
         .unchecked_transaction()
@@ -67,11 +71,18 @@ pub fn import_bitwarden_json(conn: &Connection, json: &str) -> Result<ImportRepo
             report.skipped_invalid += 1;
             continue;
         }
-        let origin = login
-            .uris
-            .and_then(|u| u.first().and_then(|x| x.uri.clone()))
+        let uris = login.uris.unwrap_or_default();
+        let origin = uris
+            .first()
+            .and_then(|x| x.uri.as_deref())
             .filter(|s| !s.is_empty())
+            .map(normalize_login_origin)
             .unwrap_or_else(|| item.name.clone().unwrap_or_else(|| "imported".into()));
+        let has_extra_uri = uris.len() > 1;
+        let has_notes = item.notes.as_deref().is_some_and(|n| !n.trim().is_empty());
+        if has_extra_uri || has_notes {
+            report.skipped_unsupported_fields += 1;
+        }
         let source_id = item.id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
         let exists: i64 = tx
             .query_row(
@@ -94,4 +105,25 @@ pub fn import_bitwarden_json(conn: &Connection, json: &str) -> Result<ImportRepo
     }
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(report)
+}
+
+/// 与浏览器填充查询一致：仅保留 scheme + host（无路径）。
+fn normalize_login_origin(uri: &str) -> String {
+    let s = uri.trim();
+    let (scheme, rest) = if let Some(r) = s.strip_prefix("https://") {
+        ("https", r)
+    } else if let Some(r) = s.strip_prefix("http://") {
+        ("http", r)
+    } else {
+        return s.to_string();
+    };
+    let authority = rest.split('/').next().unwrap_or(rest);
+    let host = authority
+        .rsplit('@')
+        .next()
+        .unwrap_or(authority)
+        .split(':')
+        .next()
+        .unwrap_or(authority);
+    format!("{scheme}://{host}")
 }

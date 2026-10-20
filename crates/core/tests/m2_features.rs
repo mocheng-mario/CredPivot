@@ -46,6 +46,20 @@ fn revision_conflict_on_stale_update() {
 }
 
 #[test]
+fn bitwarden_origin_strips_path() {
+    let dir = tempdir().expect("tmpdir");
+    let material = bootstrap_vault_dir(dir.path(), "m2-pass").expect("bootstrap");
+    let conn = open_database(dir.path(), &*material.vmk).expect("open");
+    let json = r#"{"items":[{"id":"bw-path","name":"Site","login":{"username":"u","password":"p","uris":[{"uri":"https://example.com/login?x=1"}]}}]}"#;
+    let report = import_bitwarden_json(&conn, json).expect("import");
+    assert_eq!(report.imported, 1);
+    let db = VaultDatabase::open(dir.path(), &*material.vmk).expect("open");
+    let list = db.list_logins(None, 50).expect("list");
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].origin, "https://example.com");
+}
+
+#[test]
 fn bitwarden_export_object_format() {
     let dir = tempdir().expect("tmpdir");
     let material = bootstrap_vault_dir(dir.path(), "m2-pass").expect("bootstrap");

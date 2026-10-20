@@ -131,7 +131,7 @@ fn cmd_init(target_dir: &PathBuf) -> i32 {
 fn cmd_export_ovb(vault_dir: &PathBuf, output: &PathBuf) -> i32 {
     let pw = rpassword::prompt_password("主密码: ").expect("tty");
     let bytes = export_ovb_from_dir(vault_dir, &pw).expect("export");
-    fs::write(output, bytes).expect("write ovb");
+    credpivot_core::write_file_atomic(output, &bytes).expect("write ovb");
     println!("wrote {}", output.display());
     0
 }

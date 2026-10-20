@@ -25,6 +25,25 @@ pub fn read_vault_json(dir: &Path) -> Result<CpvcConfig> {
     parse_config(&body)
 }
 
+/// 同目录临时文件 + rename，避免覆盖写入时截断破坏已有文件。
+pub fn write_file_atomic(path: &Path, contents: &[u8]) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| CoreError::io("output path has no parent"))?;
+    fs::create_dir_all(parent).map_err(|e| CoreError::io(e.to_string()))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| CoreError::io("output path has no file name"))?;
+    let next = parent.join(format!("{}.next", name.to_string_lossy()));
+    let bak = parent.join(format!("{}.bak", name.to_string_lossy()));
+    fs::write(&next, contents).map_err(|e| CoreError::io(e.to_string()))?;
+    if path.exists() {
+        fs::copy(path, &bak).map_err(|e| CoreError::io(e.to_string()))?;
+    }
+    fs::rename(&next, path).map_err(|e| CoreError::io(e.to_string()))?;
+    Ok(())
+}
+
 pub fn recover_pending_next(dir: &Path) -> Result<Option<PathBuf>> {
     let next = dir.join("vault.json.next");
     if !next.exists() {

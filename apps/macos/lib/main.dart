@@ -302,9 +302,11 @@ class _VaultHomePageState extends State<VaultHomePage> {
         password: useRecovery ? null : _password.text,
         recoveryKey: useRecovery ? _recoveryKey.text.trim() : null,
       );
+      await AgentBridge.lockVault();
       await AgentBridge.vaultOpenDir(target);
+      _onVaultLockedExternally();
       await _refreshStatus();
-      _appendLog('已恢复到并打开: $target');
+      _appendLog('已恢复到: $target。工作库已切换，请重新解锁。');
     });
   }
 
@@ -312,7 +314,9 @@ class _VaultHomePageState extends State<VaultHomePage> {
     final dir = await AgentBridge.pickDirectory();
     if (dir == null) return;
     await _run('打开目录', () async {
+      await AgentBridge.lockVault();
       await AgentBridge.vaultOpenDir(dir);
+      _onVaultLockedExternally();
       await _refreshStatus();
     });
   }

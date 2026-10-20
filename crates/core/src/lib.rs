@@ -23,7 +23,9 @@ mod vault_db;
 mod vault_init;
 mod vault_pipeline;
 
-pub use atomic_config::{read_vault_json, recover_pending_next, write_vault_json_atomic};
+pub use atomic_config::{
+    read_vault_json, recover_pending_next, write_file_atomic, write_vault_json_atomic,
+};
 pub use backup_status::{
     mark_local_restore_verified, mark_ovb_decrypt_verified, mark_ovb_export_verified,
     mark_recovery_key_verified, read_backup_status, BackupVerificationStatus,
