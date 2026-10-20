@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'diagnostics_tab.dart';
 import 'credentials_page.dart';
 import 'touch_id_gate.dart';
 import 'memory_format.dart';
+import 'vault_lock_coordinator.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +24,7 @@ class CredPivotApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: vaultRootNavigatorKey,
       title: 'CredPivot',
       theme: ThemeData(colorSchemeSeed: const Color(0xFF2F6FED), useMaterial3: true),
       home: const VaultHomePage(),
@@ -49,11 +52,32 @@ class _VaultHomePageState extends State<VaultHomePage> {
   bool get _vaultExists => _status['vault_exists'] == true;
   bool get _unlocked => _status['unlocked'] == true;
 
+  Timer? _vaultLockPoll;
+  int _lastVaultLockGen = 0;
+
   @override
   void initState() {
     super.initState();
-    AgentBridge.installVaultLockHandler(_onVaultLockedExternally);
+    installVaultLockCoordinator(_onVaultLockedExternally);
+    AgentBridge.installVaultLockHandler(notifyVaultLocked);
+    _vaultLockPoll = Timer.periodic(const Duration(seconds: 2), (_) => _pollVaultLockGeneration());
     _bootstrap();
+  }
+
+  Future<void> _pollVaultLockGeneration() async {
+    if (!_unlocked) return;
+    try {
+      final raw = await AgentBridge.request({'type': 'status'});
+      final payload = AgentBridge.payloadOf(raw);
+      final gen = (payload['vault_lock_generation'] as num?)?.toInt() ?? 0;
+      final agentUnlocked = payload['unlocked'] == true;
+      if (!agentUnlocked && _unlocked) {
+        notifyVaultLocked();
+      } else if (agentUnlocked && _lastVaultLockGen != 0 && gen != _lastVaultLockGen) {
+        notifyVaultLocked();
+      }
+      _lastVaultLockGen = gen;
+    } catch (_) {}
   }
 
   void _onVaultLockedExternally() {
@@ -71,6 +95,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
 
   @override
   void dispose() {
+    _vaultLockPoll?.cancel();
     _password.dispose();
     _newPassword.dispose();
     _recoveryKey.dispose();

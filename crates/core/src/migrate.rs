@@ -235,13 +235,25 @@ pub fn migrate_to_latest(conn: &Connection) -> Result<()> {
         Ok(())
     })?;
     apply_migration_step(conn, 6, |c| {
-        c.execute_batch(MIGRATION_V6)
-            .map_err(|e| CoreError::format(e.to_string()))?;
+        ensure_column(c, "items", "group_id", "TEXT")?;
+        ensure_column(c, "login_credentials", "display_name", "TEXT NOT NULL DEFAULT ''")?;
+        c.execute_batch(
+            "CREATE TABLE IF NOT EXISTS credential_groups (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_credential_groups_scope ON credential_groups(scope);",
+        )
+        .map_err(|e| CoreError::format(e.to_string()))?;
         Ok(())
     })?;
     apply_migration_step(conn, 7, |c| {
-        c.execute_batch(MIGRATION_V7)
-            .map_err(|e| CoreError::format(e.to_string()))?;
+        ensure_column(c, "totp_credentials", "totp_algorithm", "TEXT NOT NULL DEFAULT 'SHA1'")?;
+        ensure_column(c, "totp_credentials", "totp_digits", "INTEGER NOT NULL DEFAULT 6")?;
+        ensure_column(c, "totp_credentials", "totp_period", "INTEGER NOT NULL DEFAULT 30")?;
         Ok(())
     })?;
     apply_migration_step(conn, SCHEMA_USER_VERSION, |c| {

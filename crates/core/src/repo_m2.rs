@@ -436,6 +436,36 @@ pub fn insert_ssh_key(
     })
 }
 
+pub fn load_ssh_key_by_id(conn: &Connection, key_id: &str) -> Result<SshKeyRecord> {
+    conn.query_row(
+        "SELECT s.id, s.item_id, s.label, s.public_openssh, s.private_key_seed, s.is_default
+         FROM ssh_keys s INNER JOIN items i ON i.id = s.item_id
+         WHERE s.id = ?1 AND i.trashed = 0",
+        params![key_id],
+        |row| {
+            let seed_blob: Vec<u8> = row.get(4)?;
+            if seed_blob.len() != 32 {
+                return Err(rusqlite::Error::InvalidColumnType(
+                    4,
+                    "private_key_seed".into(),
+                    rusqlite::types::Type::Blob,
+                ));
+            }
+            let mut seed = [0u8; 32];
+            seed.copy_from_slice(&seed_blob);
+            Ok(SshKeyRecord {
+                id: row.get(0)?,
+                item_id: row.get(1)?,
+                label: row.get(2)?,
+                public_openssh: row.get(3)?,
+                seed,
+                is_default: row.get::<_, i64>(5)? != 0,
+            })
+        },
+    )
+    .map_err(|_| CoreError::format("ssh key not found"))
+}
+
 pub fn load_default_ssh_key(conn: &Connection) -> Result<Option<SshKeyRecord>> {
     let row = conn.query_row(
         "SELECT s.id, s.item_id, s.label, s.public_openssh, s.private_key_seed, s.is_default
@@ -843,7 +873,9 @@ pub fn totp_reveal_for_id(conn: &Connection, totp_id: &str) -> Result<TotpReveal
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .map_err(|_| CoreError::format("totp not found"))?;
-    let otpauth_uri = crate::totp::build_otpauth_uri(&issuer, &account, &secret)?;
+    let params = totp_params_for_id(conn, totp_id)?;
+    let otpauth_uri =
+        crate::totp::build_otpauth_uri_from_params(&issuer, &account, &params)?;
     Ok(TotpRevealRow {
         issuer,
         account,

@@ -132,6 +132,8 @@ pub enum AgentRequest {
         #[serde(default)]
         group_id: Option<String>,
     },
+    /// 将 CredPivot SSH Agent 当前身份切换为指定库内密钥。
+    SshSelectKey { key_id: String },
     VaultCreate { password: String },
     VaultChangePassword {
         old_password: String,

@@ -41,6 +41,7 @@ impl AgentRuntime {
             peer_auth: PeerAuthConfig::default(),
             extension_gate_expires_ms: 0,
             extension_gate_last_native_ms: 0,
+            shutting_down: false,
         };
         load_extension_gate_into_state(&mut ipc_state);
         let state = Arc::new(Mutex::new(ipc_state));
@@ -95,6 +96,7 @@ impl AgentRuntime {
     pub async fn shutdown(self) {
         {
             let mut st = self.state.lock().await;
+            st.shutting_down = true;
             st.vault.lock().await.lock();
             st.pending_fills.clear();
         }

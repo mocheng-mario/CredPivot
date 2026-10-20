@@ -1,4 +1,5 @@
-const fillDocumentId = `${location.origin}#${document.URL}`;
+const fillDocumentId =
+  globalThis.crypto?.randomUUID?.() ?? `doc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 function findLoginFields() {
   const user = document.querySelector(
@@ -25,6 +26,9 @@ function setValue(el, value) {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "fill_context") {
+    if (window !== window.top) {
+      return;
+    }
     sendResponse({
       documentId: fillDocumentId,
       origin: location.origin,

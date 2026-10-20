@@ -14,11 +14,33 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
   String _logText = '';
   String _logPath = '';
   bool _loading = false;
+  String _repairMsg = '';
 
   @override
   void initState() {
     super.initState();
     _refresh();
+  }
+
+  Future<void> _repairAgentAndHost() async {
+    setState(() => _repairMsg = '');
+    final restarted = await AgentBridge.restartAgent();
+    if (!restarted) {
+      setState(() => _repairMsg = 'Agent 重启失败，请完全退出 App 后重开');
+      return;
+    }
+    final host = await AgentBridge.chromeHostStatus();
+    final extId = host['stored_extension_id']?.toString() ?? '';
+    if (extId.isEmpty) {
+      setState(() => _repairMsg = 'Agent 已重启。请在「Chrome」页填写扩展 ID 并点「更新 Native Host」');
+      await _refresh();
+      return;
+    }
+    final r = await AgentBridge.installChromeHost(extId);
+    setState(() {
+      _repairMsg = r['message']?.toString() ?? '已尝试重装 Native Host';
+    });
+    await _refresh();
   }
 
   Future<void> _refresh() async {
@@ -55,10 +77,19 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
             style: const TextStyle(fontSize: 13),
           ),
           const SizedBox(height: 12),
+          const Text(
+            '若扩展报 unsupported action 或连接失败，可一键重启 Agent 并按已保存的扩展 ID 重装 Native Host（仍须在 Chrome 重载扩展）。',
+            style: TextStyle(fontSize: 13),
+          ),
+          const SizedBox(height: 8),
           Wrap(
             spacing: 8,
             children: [
               FilledButton(onPressed: _loading ? null : _refresh, child: const Text('刷新')),
+              OutlinedButton(
+                onPressed: _loading ? null : _repairAgentAndHost,
+                child: const Text('修复 Agent / Native Host'),
+              ),
               OutlinedButton(
                 onPressed: _logText.isEmpty
                     ? null
@@ -72,6 +103,10 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
               ),
             ],
           ),
+          if (_repairMsg.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(_repairMsg, style: const TextStyle(fontSize: 12)),
+          ],
           const SizedBox(height: 12),
           Expanded(
             child: DecoratedBox(

@@ -9,9 +9,14 @@ pub fn totp_code_now(secret_or_uri: &str) -> Result<String> {
         .map_err(|e| CoreError::format(e.to_string()))?)
 }
 
-/// 由发行方、账号与 Base32 密钥生成标准 `otpauth://` URI（SHA1 / 6 / 30s）。
-pub fn build_otpauth_uri(issuer: &str, account: &str, secret_base32: &str) -> Result<String> {
-    let secret = normalize_totp_secret_for_storage(secret_base32)?;
+/// 由发行方、账号与入库参数生成 `otpauth://` URI。
+pub fn build_otpauth_uri_from_params(
+    issuer: &str,
+    account: &str,
+    params: &TotpStoredParams,
+) -> Result<String> {
+    let secret = params.secret_base32.clone();
+    let alg = algorithm_name(params.algorithm);
     let iss = issuer.trim();
     let acc = account.trim();
     let label = if iss.is_empty() {
@@ -27,8 +32,16 @@ pub fn build_otpauth_uri(issuer: &str, account: &str, secret_base32: &str) -> Re
     };
     let issuer_q = encode_otpauth_query_value(iss);
     Ok(format!(
-        "otpauth://totp/{label}?secret={secret}&issuer={issuer_q}&algorithm=SHA1&digits=6&period=30"
+        "otpauth://totp/{label}?secret={secret}&issuer={issuer_q}&algorithm={alg}&digits={}&period={}",
+        params.digits,
+        params.period
     ))
+}
+
+/// 由发行方、账号与 Base32 密钥生成标准 `otpauth://` URI（SHA1 / 6 / 30s）。
+pub fn build_otpauth_uri(issuer: &str, account: &str, secret_base32: &str) -> Result<String> {
+    let params = totp_params_for_storage(secret_base32)?;
+    build_otpauth_uri_from_params(issuer, account, &params)
 }
 
 fn encode_otpauth_path_component(s: &str) -> String {

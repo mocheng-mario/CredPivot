@@ -177,10 +177,40 @@ fn verify_peer_codesign_matches_self(peer_path: &Path) -> Result<()> {
     let self_team = codesign_team_id(&self_path)?;
     match (peer_team, self_team) {
         (Some(p), Some(s)) if p == s => Ok(()),
-        (None, None) => Ok(()),
+        (None, None) => {
+            if executables_in_same_macos_app_bundle(peer_path, &self_path) {
+                Ok(())
+            } else {
+                Err(AgentError::PeerDenied(
+                    "ad-hoc signed peer must reside in the same app bundle as agent".into(),
+                ))
+            }
+        }
         _ => Err(AgentError::PeerDenied(
             "peer team identifier does not match agent".into(),
         )),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_app_bundle_root(executable: &Path) -> Option<PathBuf> {
+    let mut cur = fs::canonicalize(executable).ok()?;
+    while cur.file_name().and_then(|n| n.to_str()) != Some("Contents") {
+        if !cur.pop() {
+            return None;
+        }
+    }
+    if !cur.pop() {
+        return None;
+    }
+    Some(cur)
+}
+
+#[cfg(target_os = "macos")]
+fn executables_in_same_macos_app_bundle(a: &Path, b: &Path) -> bool {
+    match (macos_app_bundle_root(a), macos_app_bundle_root(b)) {
+        (Some(x), Some(y)) => x == y,
+        _ => false,
     }
 }
 

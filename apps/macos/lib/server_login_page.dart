@@ -318,6 +318,17 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     return manual.isEmpty ? null : manual;
   }
 
+  Future<String?> _activateLinkedSshKey(Map<String, dynamic> row) async {
+    final keyId = dropdownValueIfPresent(row['linked_ssh_key_id'] as String?, _sshKeys);
+    if (keyId == null || keyId.isEmpty) return null;
+    try {
+      await AgentBridge.selectSshKey(keyId);
+      return null;
+    } on AgentException catch (e) {
+      return AgentBridge.friendlyMessage(e);
+    }
+  }
+
   Future<void> _openExpectAuto() async {
     final row = _selected;
     if (row == null) return;
@@ -365,6 +376,11 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
       setState(() => _status = '关联的登录密码为空');
       return;
     }
+    final sshErr = await _activateLinkedSshKey(row);
+    if (sshErr != null) {
+      setState(() => _status = sshErr);
+      return;
+    }
     final port = row['port'] is int ? row['port'] as int : int.tryParse('${row['port']}') ?? 22;
     final err = await AgentBridge.openSshExpect(
       host: host,
@@ -399,6 +415,11 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     }
     if (!await ensureTerminalConfigured(context)) {
       setState(() => _status = '请先选择终端应用（终端设置）');
+      return;
+    }
+    final sshErr = await _activateLinkedSshKey(row);
+    if (sshErr != null) {
+      setState(() => _status = sshErr);
       return;
     }
     final port = row['port'] is int ? row['port'] as int : int.tryParse('${row['port']}') ?? 22;

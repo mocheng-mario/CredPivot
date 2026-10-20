@@ -12,7 +12,7 @@ function gateHint(resp) {
 async function loadPageContext(tabId, origin) {
   let ctx;
   try {
-    ctx = await chrome.tabs.sendMessage(tabId, { type: "fill_context" });
+    ctx = await chrome.tabs.sendMessage(tabId, { type: "fill_context" }, { frameId: 0 });
   } catch (e) {
     return {
       error: {

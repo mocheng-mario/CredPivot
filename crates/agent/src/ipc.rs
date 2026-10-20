@@ -33,6 +33,7 @@ pub struct IpcState {
     pub extension_gate_expires_ms: u128,
     /// 最近一次扩展（native-host）敏感操作时间（毫秒）。
     pub extension_gate_last_native_ms: u128,
+    pub shutting_down: bool,
 }
 
 fn extension_gate_active(st: &IpcState) -> bool {
@@ -156,6 +157,9 @@ pub async fn handle_request(
     req: AgentRequest,
     peer: RequestPeerContext,
 ) -> AgentResponse {
+    if st.shutting_down {
+        return AgentResponse::err("shutting_down", "agent is shutting down");
+    }
     {
         let mut v = st.vault.lock().await;
         if v.unlocked {
@@ -611,6 +615,17 @@ pub async fn handle_request(
                 group_id.as_deref().and_then(|s| opt_nonempty(s)),
             ) {
                 Ok(row) => AgentResponse::ok(json!({ "item": row })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::SshSelectKey { key_id } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match v.select_ssh_key(&key_id) {
+                Ok(()) => AgentResponse::ok(json!({ "selected": key_id })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }

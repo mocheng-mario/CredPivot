@@ -101,6 +101,29 @@ pub fn vault_data_dir() -> PathBuf {
         .unwrap_or_else(|| read_persisted_vault_dir().unwrap_or_else(|| runtime_dir().join("vault")))
 }
 
+/// 每次 Vault 锁定递增；App 轮询以同步空闲锁等 UI。
+pub fn vault_lock_generation_path() -> PathBuf {
+    runtime_dir().join("vault_lock.generation")
+}
+
+pub fn bump_vault_lock_generation() {
+    let _ = ensure_runtime_dir();
+    let path = vault_lock_generation_path();
+    let next = fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .map(|n| n + 1)
+        .unwrap_or(1);
+    let _ = fs::write(path, next.to_string());
+}
+
+pub fn read_vault_lock_generation() -> u64 {
+    fs::read_to_string(vault_lock_generation_path())
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0)
+}
+
 pub fn ensure_runtime_dir() -> std::io::Result<()> {
     let dir = runtime_dir();
     std::fs::create_dir_all(&dir)?;

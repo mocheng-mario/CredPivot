@@ -6,10 +6,13 @@ class AgentBridge {
   static const _channel = MethodChannel('credpivot/agent');
 
   /// 接收菜单栏/系统触发的锁定通知。
+  static void Function()? _onVaultLocked;
+
   static void installVaultLockHandler(void Function() onLocked) {
+    _onVaultLocked = onLocked;
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onVaultLocked') {
-        onLocked();
+        _onVaultLocked?.call();
       }
       return null;
     });
@@ -22,12 +25,20 @@ class AgentBridge {
     }
     final decoded = jsonDecode(raw) as Map<String, dynamic>;
     if (decoded['type'] == 'err') {
+      final code = decoded['code'] as String? ?? 'error';
+      if (code == 'locked') {
+        _onVaultLocked?.call();
+      }
       throw AgentException(
-        decoded['code'] as String? ?? 'error',
+        code,
         decoded['message'] as String? ?? 'unknown',
       );
     }
     return decoded;
+  }
+
+  static Future<void> selectSshKey(String keyId) async {
+    await request({'type': 'ssh_select_key', 'key_id': keyId});
   }
 
   static Map<String, dynamic> payloadOf(Map<String, dynamic> resp) =>

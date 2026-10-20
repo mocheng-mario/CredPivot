@@ -17,6 +17,7 @@ fn test_state() -> (IpcState, tempfile::TempDir) {
         peer_auth: PeerAuthConfig::default(),
         extension_gate_expires_ms: 0,
         extension_gate_last_native_ms: 0,
+        shutting_down: false,
     };
     (state, dir)
 }

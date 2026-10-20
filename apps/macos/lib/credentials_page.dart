@@ -485,8 +485,11 @@ class _TotpPanelState extends State<_TotpPanel> {
     if (uriCtl.text.trim().toLowerCase().startsWith('otpauth://')) {
       _applyOtpauthUri(uriCtl.text.trim(), issuerCtl, accountCtl, secretCtl);
     }
+    final uriInput = uriCtl.text.trim();
     final secret = secretCtl.text.trim();
-    final localErr = validateTotpSecretInput(secret);
+    final storageInput =
+        uriInput.toLowerCase().startsWith('otpauth://') ? uriInput : secret;
+    final localErr = validateTotpSecretInput(storageInput);
     if (localErr != null) {
       setState(() => _status = localErr);
       if (mounted) {
@@ -498,7 +501,7 @@ class _TotpPanelState extends State<_TotpPanel> {
       await AgentBridge.createTotp(
         issuer: issuerCtl.text.trim().isEmpty ? 'CredPivot' : issuerCtl.text.trim(),
         account: accountCtl.text.trim(),
-        secretBase32: secret,
+        secretBase32: storageInput,
         groupId: groupId,
       );
       await _refresh();

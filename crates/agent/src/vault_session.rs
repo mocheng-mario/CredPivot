@@ -160,6 +160,7 @@ impl VaultSession {
             "credential_count": cred_count,
             "ssh_pubkey": self.ssh_public_key_openssh(),
             "touch_id_token_configured": self.touch_id_wrapped_token.is_some(),
+            "vault_lock_generation": crate::paths::read_vault_lock_generation(),
         });
         if self.vault_exists() {
             if let Ok(cfg) = read_vault_json(&self.vault_dir) {
@@ -186,6 +187,23 @@ impl VaultSession {
         self.vmk = None;
         self.db = None;
         self.ssh_signing_key = SigningKey::generate(&mut OsRng);
+        crate::paths::bump_vault_lock_generation();
+    }
+
+    /// 将 Agent SSH 身份切换为库内指定密钥（供服务器一键连接使用）。
+    pub fn select_ssh_key(&mut self, key_id: &str) -> Result<()> {
+        if !self.unlocked {
+            return Err(AgentError::Locked);
+        }
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
+        let rec = db
+            .load_ssh_key(key_id)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        self.ssh_signing_key = SigningKey::from_bytes(&rec.seed);
+        Ok(())
     }
 
     pub fn create_vault(&mut self, password: &str) -> Result<String> {
@@ -642,12 +660,24 @@ impl VaultSession {
             create_restore_point_for_risky_op(&self.vault_dir, &**vmk, db.conn())
                 .map_err(|e| AgentError::Vault(e.to_string()))?;
         }
+        let previous_dir = self.vault_dir.clone();
         self.db = None;
-        clone_vault_to_empty_dir(&self.vault_dir, Path::new(target_dir), vmk)
-            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        if let Err(e) = clone_vault_to_empty_dir(&self.vault_dir, Path::new(target_dir), vmk) {
+            self.attach_database()?;
+            return Err(AgentError::Vault(e.to_string()));
+        }
         self.vault_dir = PathBuf::from(target_dir);
-        let _ = crate::paths::persist_active_vault_dir(&self.vault_dir);
-        self.attach_database()?;
+        if let Err(e) = crate::paths::persist_active_vault_dir(&self.vault_dir) {
+            self.vault_dir = previous_dir;
+            self.attach_database()?;
+            return Err(AgentError::Vault(e.to_string()));
+        }
+        if let Err(e) = self.attach_database() {
+            self.vault_dir = previous_dir;
+            let _ = crate::paths::persist_active_vault_dir(&self.vault_dir);
+            self.attach_database()?;
+            return Err(e);
+        }
         Ok(())
     }
 
@@ -660,15 +690,23 @@ impl VaultSession {
                 .map_err(|e| AgentError::Vault(e.to_string()))?;
         }
         self.db = None;
-        let new_recovery = security_rebuild_in_dir(&self.vault_dir, password, recovery_key)
-            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        let new_recovery = match security_rebuild_in_dir(&self.vault_dir, password, recovery_key) {
+            Ok(r) => r,
+            Err(e) => {
+                self.attach_database()?;
+                return Err(AgentError::Vault(e.to_string()));
+            }
+        };
         let cfg = read_vault_json(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
         let vmk = cfg
             .unlock_master(password)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         cfg.verify_mac(&*vmk).map_err(|e| AgentError::Vault(e.to_string()))?;
         self.vmk = Some(vmk);
-        self.attach_database()?;
+        if let Err(e) = self.attach_database() {
+            self.lock();
+            return Err(e);
+        }
         Ok(new_recovery)
     }
 

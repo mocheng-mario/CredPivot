@@ -9,6 +9,7 @@ struct BwLogin {
     username: Option<String>,
     password: Option<String>,
     uris: Option<Vec<BwUri>>,
+    totp: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -32,7 +33,12 @@ struct BwExportRoot {
 
 fn parse_bitwarden_items(json: &str) -> Result<Vec<BwItem>> {
     if let Ok(root) = serde_json::from_str::<BwExportRoot>(json) {
-        return Ok(root.items.unwrap_or_default());
+        return match root.items {
+            Some(items) => Ok(items),
+            None => Err(CoreError::format(
+                "Bitwarden 导出须包含 items 数组；空对象不是有效导出",
+            )),
+        };
     }
     serde_json::from_str(json).map_err(|e| CoreError::format(e.to_string()))
 }
@@ -80,7 +86,8 @@ pub fn import_bitwarden_json(conn: &Connection, json: &str) -> Result<ImportRepo
             .unwrap_or_else(|| item.name.clone().unwrap_or_else(|| "imported".into()));
         let has_extra_uri = uris.len() > 1;
         let has_notes = item.notes.as_deref().is_some_and(|n| !n.trim().is_empty());
-        if has_extra_uri || has_notes {
+        let has_totp = login.totp.as_deref().is_some_and(|t| !t.trim().is_empty());
+        if has_extra_uri || has_notes || has_totp {
             report.skipped_unsupported_fields += 1;
         }
         let source_id = item.id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
