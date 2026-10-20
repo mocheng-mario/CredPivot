@@ -7,7 +7,8 @@ use tokio::net::UnixListener;
 use tokio::sync::Mutex;
 
 const SSH_AGENT_FAILURE: u8 = 5;
-const SSH_AGENT_IDENTITIES_ANSWER: u8 = 2;
+/// SSH2 agent identities answer (OpenSSH authfd.h).
+const SSH2_AGENT_IDENTITIES_ANSWER: u8 = 12;
 const SSH_AGENT_SIGN_RESPONSE: u8 = 14;
 
 const SSH_AGENTC_REQUEST_IDENTITIES: u8 = 11;
@@ -29,39 +30,52 @@ async fn handle_ssh_connection(
     stream: &mut tokio::net::UnixStream,
     vault: Arc<Mutex<VaultSession>>,
 ) -> Result<()> {
-    let mut len_buf = [0u8; 4];
-    stream.read_exact(&mut len_buf).await?;
-    let len = u32::from_be_bytes(len_buf) as usize;
-    if len > 256 * 1024 {
-        return Err(AgentError::Protocol("ssh agent message too large".into()));
-    }
-    let mut msg = vec![0u8; len];
-    stream.read_exact(&mut msg).await?;
-    let msg_type = msg.first().copied().unwrap_or(SSH_AGENT_FAILURE);
+    loop {
+        let mut len_buf = [0u8; 4];
+        let n = stream.read_exact(&mut len_buf).await;
+        if n.is_err() {
+            break;
+        }
+        let len = u32::from_be_bytes(len_buf) as usize;
+        if len > 256 * 1024 {
+            return Err(AgentError::Protocol("ssh agent message too large".into()));
+        }
+        let mut msg = vec![0u8; len];
+        stream.read_exact(&mut msg).await?;
+        let msg_type = msg.first().copied().unwrap_or(SSH_AGENT_FAILURE);
 
-    let response = match msg_type {
-        SSH_AGENTC_REQUEST_IDENTITIES => {
-            let mut v = vault.lock().await;
-            if !v.unlocked {
-                failure_packet()
-            } else {
-                v.touch_activity();
-                identities_answer(&v)?
+        let response = match msg_type {
+            SSH_AGENTC_REQUEST_IDENTITIES => {
+                let mut v = vault.lock().await;
+                if session_denied(&mut v) {
+                    failure_packet()
+                } else {
+                    v.touch_activity();
+                    identities_answer(&v)?
+                }
             }
-        }
-        SSH_AGENTC_SIGN_REQUEST => {
-            let mut v = vault.lock().await;
-            if !v.unlocked {
-                failure_packet()
-            } else {
-                v.touch_activity();
-                sign_request(&v, &msg)?
+            SSH_AGENTC_SIGN_REQUEST => {
+                let mut v = vault.lock().await;
+                if session_denied(&mut v) {
+                    failure_packet()
+                } else {
+                    v.touch_activity();
+                    sign_request(&v, &msg)?
+                }
             }
-        }
-        _ => failure_packet(),
-    };
-    stream.write_all(&response).await?;
+            _ => failure_packet(),
+        };
+        stream.write_all(&response).await?;
+    }
     Ok(())
+}
+
+fn session_denied(v: &mut VaultSession) -> bool {
+    if v.idle_expired() {
+        v.lock();
+        return true;
+    }
+    !v.unlocked
 }
 
 fn failure_packet() -> Vec<u8> {
@@ -80,7 +94,7 @@ fn identities_answer(vault: &VaultSession) -> Result<Vec<u8>> {
     let vk: VerifyingKey = vault.ssh_signing_key.verifying_key();
     let key_blob = ed25519_key_blob(&vk);
     let comment = b"credpivot-m0";
-    let mut body = vec![SSH_AGENT_IDENTITIES_ANSWER, 0, 0, 0, 1];
+    let mut body = vec![SSH2_AGENT_IDENTITIES_ANSWER, 0, 0, 0, 1];
     body.extend_from_slice(&(key_blob.len() as u32).to_be_bytes());
     body.extend_from_slice(&key_blob);
     body.extend_from_slice(&(comment.len() as u32).to_be_bytes());
@@ -103,9 +117,14 @@ fn sign_request(vault: &VaultSession, msg: &[u8]) -> Result<Vec<u8>> {
     if msg.len() < 5 {
         return Ok(failure_packet());
     }
+    let expected_blob = ed25519_key_blob(&vault.ssh_signing_key.verifying_key());
     let mut idx = 1usize;
     let key_blob_len = read_u32_be(msg, &mut idx)? as usize;
     if idx + key_blob_len > msg.len() {
+        return Ok(failure_packet());
+    }
+    let key_blob = &msg[idx..idx + key_blob_len];
+    if key_blob != expected_blob {
         return Ok(failure_packet());
     }
     idx += key_blob_len;

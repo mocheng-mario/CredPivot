@@ -5,6 +5,7 @@ mod paths;
 mod peer_auth;
 mod protocol;
 mod runtime;
+mod session_guard;
 mod single_writer;
 mod ssh_agent;
 mod vault_session;

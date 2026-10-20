@@ -161,6 +161,11 @@ fn map_extension_to_agent(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
+            origin: envelope
+                .get("origin")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
         }),
         "cancel" => Ok(AgentRequest::CancelRequest {
             request_id: envelope

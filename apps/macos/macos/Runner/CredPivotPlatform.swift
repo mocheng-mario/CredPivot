@@ -4,6 +4,10 @@ import LocalAuthentication
 import Security
 import ServiceManagement
 
+extension Notification.Name {
+  static let credPivotVaultLocked = Notification.Name("CredPivotVaultLocked")
+}
+
 final class CredPivotPlatform: NSObject {
   private let channel: FlutterMethodChannel
 
@@ -11,6 +15,22 @@ final class CredPivotPlatform: NSObject {
     channel = FlutterMethodChannel(name: "credpivot/agent", binaryMessenger: messenger)
     super.init()
     channel.setMethodCallHandler(handle)
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(vaultLockedExternally),
+      name: .credPivotVaultLocked,
+      object: nil
+    )
+  }
+
+  @objc private func vaultLockedExternally() {
+    DispatchQueue.main.async {
+      self.channel.invokeMethod("onVaultLocked", arguments: nil)
+    }
+  }
+
+  static func publishVaultLocked() {
+    NotificationCenter.default.post(name: .credPivotVaultLocked, object: nil)
   }
 
   private func agentIsUnlocked() -> Bool {
@@ -39,14 +59,23 @@ final class CredPivotPlatform: NSObject {
       result(credpivotAgentRequestJsonString(json))
     case "lockVault":
       _ = credpivotAgentRequestJsonString(#"{"type":"lock"}"#)
+      CredPivotPlatform.publishVaultLocked()
       result(nil)
     case "unlockPassword":
       guard let password = call.arguments as? String else {
         result(false)
         return
       }
-      let escaped = password.replacingOccurrences(of: "\"", with: "\\\"")
-      let body = #"{"type":"unlock_password","password":"\#(escaped)"}"#
+      guard
+        let data = try? JSONSerialization.data(withJSONObject: [
+          "type": "unlock_password",
+          "password": password,
+        ]),
+        let body = String(data: data, encoding: .utf8)
+      else {
+        result(false)
+        return
+      }
       let resp = credpivotAgentRequestJsonString(body)
       result(resp.contains("\"unlocked\":true"))
     case "authenticateTouchId":

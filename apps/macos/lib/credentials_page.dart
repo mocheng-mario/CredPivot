@@ -918,8 +918,9 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
 
   Future<void> _securityRebuild() async {
     try {
-      await AgentBridge.securityRebuild(_rebuildPassword.text, _recoveryKey.text.trim());
-      setState(() => _log = '安全重建完成');
+      final newKey = await AgentBridge.securityRebuild(_rebuildPassword.text, _recoveryKey.text.trim());
+      _recoveryKey.text = newKey;
+      setState(() => _log = '安全重建完成。请保存新的恢复密钥。');
       await _loadAll();
     } on AgentException catch (e) {
       setState(() => _log = e.message);
@@ -994,7 +995,17 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
   @override
   void didUpdateWidget(covariant SecurityCenterTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.unlocked && !oldWidget.unlocked) {
+    if (!widget.unlocked && oldWidget.unlocked) {
+      _summary = {};
+      _backupStatus = {};
+      _restorePoints = [];
+      _recoveryCodes = [];
+      _log = '';
+      _recoveryKey.clear();
+      _rebuildPassword.clear();
+      _serviceName.clear();
+      _codesText.clear();
+    } else if (widget.unlocked && !oldWidget.unlocked) {
       _loadAll();
     }
   }

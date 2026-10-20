@@ -46,6 +46,16 @@ fn revision_conflict_on_stale_update() {
 }
 
 #[test]
+fn bitwarden_export_object_format() {
+    let dir = tempdir().expect("tmpdir");
+    let material = bootstrap_vault_dir(dir.path(), "m2-pass").expect("bootstrap");
+    let conn = open_database(dir.path(), &*material.vmk).expect("open");
+    let json = r#"{"encrypted":false,"items":[{"id":"bw-2","name":"Site2","login":{"username":"b","password":"c","uris":[{"uri":"https://y.com"}]}}]}"#;
+    let report = import_bitwarden_json(&conn, json).expect("import");
+    assert_eq!(report.imported, 1);
+}
+
+#[test]
 fn bitwarden_skips_duplicate() {
     let dir = tempdir().expect("tmpdir");
     let material = bootstrap_vault_dir(dir.path(), "m2-pass").expect("bootstrap");

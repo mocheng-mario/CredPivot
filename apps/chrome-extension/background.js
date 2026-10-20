@@ -98,9 +98,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return;
       }
       if (msg.type === "fill_prepare") {
-        const tabId = sender.tab?.id ?? 0;
-        const frameId = sender.frameId ?? 0;
-        const documentId = sender.documentId ?? "";
+        const tabId = msg.tab_id ?? sender.tab?.id ?? 0;
+        const frameId = msg.frame_id ?? 0;
+        const documentId = msg.document_id ?? "";
         const resp = await sendNative({
           action: "credential.fill_prepare",
           credential_id: msg.credential_id,
@@ -116,8 +116,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const resp = await sendNative({
           action: "credential.fill_consume",
           request_id: msg.request_id,
-          frame_id: sender.frameId ?? 0,
-          document_id: sender.documentId ?? "",
+          origin: msg.origin ?? "",
+          frame_id: msg.frame_id ?? 0,
+          document_id: msg.document_id ?? "",
         });
         sendResponse(resp);
         return;

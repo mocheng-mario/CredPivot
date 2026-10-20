@@ -44,5 +44,6 @@ final class LifecycleBridge {
       return
     }
     _ = credpivotAgentRequestJsonString(#"{"type":"lock"}"#)
+    CredPivotPlatform.publishVaultLocked()
   }
 }

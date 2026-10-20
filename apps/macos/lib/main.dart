@@ -50,7 +50,21 @@ class _VaultHomePageState extends State<VaultHomePage> {
   @override
   void initState() {
     super.initState();
+    AgentBridge.installVaultLockHandler(_onVaultLockedExternally);
     _bootstrap();
+  }
+
+  void _onVaultLockedExternally() {
+    clearSensitiveAuthGrace();
+    _password.clear();
+    _recoveryKey.clear();
+    _newPassword.clear();
+    if (mounted) {
+      setState(() {
+        _status = {..._status, 'unlocked': false};
+      });
+      _refreshStatus();
+    }
   }
 
   @override

@@ -2,7 +2,7 @@ use crate::error::{CoreError, Result};
 use rusqlite::Connection;
 
 /// SQLCipher `user_version`：与迁移脚本同步递增。
-pub const SCHEMA_USER_VERSION: i32 = 6;
+pub const SCHEMA_USER_VERSION: i32 = 7;
 
 const MIGRATION_V1: &str = "
 CREATE TABLE IF NOT EXISTS vault_meta (
@@ -136,6 +136,12 @@ CREATE TABLE IF NOT EXISTS credential_groups (
 CREATE INDEX IF NOT EXISTS idx_credential_groups_scope ON credential_groups(scope);
 ";
 
+const MIGRATION_V7: &str = "
+ALTER TABLE totp_credentials ADD COLUMN totp_algorithm TEXT NOT NULL DEFAULT 'SHA1';
+ALTER TABLE totp_credentials ADD COLUMN totp_digits INTEGER NOT NULL DEFAULT 6;
+ALTER TABLE totp_credentials ADD COLUMN totp_period INTEGER NOT NULL DEFAULT 30;
+";
+
 pub fn migrate_to_latest(conn: &Connection) -> Result<()> {
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
@@ -188,6 +194,15 @@ pub fn migrate_to_latest(conn: &Connection) -> Result<()> {
         .map_err(|e| CoreError::format(e.to_string()))?;
     if version < 6 {
         conn.execute_batch(MIGRATION_V6)
+            .map_err(|e| CoreError::format(e.to_string()))?;
+        conn.pragma_update(None, "user_version", 6)
+            .map_err(|e| CoreError::format(e.to_string()))?;
+    }
+    let version: i32 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    if version < 7 {
+        conn.execute_batch(MIGRATION_V7)
             .map_err(|e| CoreError::format(e.to_string()))?;
         conn.pragma_update(None, "user_version", SCHEMA_USER_VERSION)
             .map_err(|e| CoreError::format(e.to_string()))?;

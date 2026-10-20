@@ -1,5 +1,6 @@
 use crate::error::Result;
 use crate::ipc::{handle_request, IpcState};
+use crate::session_guard::expire_idle_session;
 use crate::protocol::{AgentRequest, AgentResponse};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -27,6 +28,7 @@ pub async fn call_in_process(
     state: &Arc<Mutex<IpcState>>,
     req: AgentRequest,
 ) -> AgentResponse {
+    expire_idle_session(state).await;
     let mut st = state.lock().await;
     handle_request(&mut st, req).await
 }

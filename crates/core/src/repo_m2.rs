@@ -378,11 +378,7 @@ pub fn ensure_default_ssh_key(conn: &Connection) -> Result<SshKeyRecord> {
     let signing = SigningKey::generate(&mut OsRng);
     let seed = signing.to_bytes();
     let vk = signing.verifying_key();
-    let b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        vk.as_bytes(),
-    );
-    let public = format!("ssh-ed25519 {b64} credpivot");
+    let public = format_ssh_ed25519_openssh(vk.as_bytes(), "credpivot");
     insert_ssh_key(conn, "Default", &public, &seed, true)
 }
 
@@ -563,11 +559,7 @@ pub fn generate_ssh_key(conn: &Connection, label: &str, set_default: bool) -> Re
     let signing = SigningKey::generate(&mut OsRng);
     let seed = signing.to_bytes();
     let vk = signing.verifying_key();
-    let b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        vk.as_bytes(),
-    );
-    let public = format!("ssh-ed25519 {b64} credpivot");
+    let public = format_ssh_ed25519_openssh(vk.as_bytes(), "credpivot");
     let rec = insert_ssh_key(conn, label, &public, &seed, set_default)?;
     Ok(SshKeyListRow {
         id: rec.id,
@@ -578,6 +570,24 @@ pub fn generate_ssh_key(conn: &Connection, label: &str, set_default: bool) -> Re
     })
 }
 
+fn ssh_ed25519_wire_blob(key_bytes: &[u8; 32]) -> Vec<u8> {
+    let mut blob = Vec::new();
+    let type_name = b"ssh-ed25519";
+    blob.extend_from_slice(&(type_name.len() as u32).to_be_bytes());
+    blob.extend_from_slice(type_name);
+    blob.extend_from_slice(&(key_bytes.len() as u32).to_be_bytes());
+    blob.extend_from_slice(key_bytes);
+    blob
+}
+
+pub fn format_ssh_ed25519_openssh(key_bytes: &[u8; 32], comment: &str) -> String {
+    let b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        ssh_ed25519_wire_blob(key_bytes),
+    );
+    format!("ssh-ed25519 {b64} {comment}")
+}
+
 pub fn insert_totp(
     conn: &Connection,
     issuer: &str,
@@ -585,7 +595,8 @@ pub fn insert_totp(
     secret_base32: &str,
     group_id: Option<&str>,
 ) -> Result<String> {
-    let secret_base32 = crate::totp::normalize_totp_secret_for_storage(secret_base32)?;
+    let params = crate::totp::totp_params_for_storage(secret_base32)?;
+    let alg = crate::totp::algorithm_name(params.algorithm);
     let item_id = Uuid::new_v4().to_string();
     let totp_id = Uuid::new_v4().to_string();
     let revision = new_revision();
@@ -601,9 +612,21 @@ pub fn insert_totp(
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     tx.execute(
-        "INSERT INTO totp_credentials (id, item_id, issuer, account, secret_base32, current_revision, created_at_ms, updated_at_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
-        params![totp_id, item_id, issuer, account, secret_base32, revision, ts],
+        "INSERT INTO totp_credentials (id, item_id, issuer, account, secret_base32, totp_algorithm, totp_digits, totp_period,
+         current_revision, created_at_ms, updated_at_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
+        params![
+            totp_id,
+            item_id,
+            issuer,
+            account,
+            params.secret_base32,
+            alg,
+            params.digits,
+            params.period as i64,
+            revision,
+            ts
+        ],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
@@ -771,15 +794,34 @@ pub fn update_recovery_codes(
     })
 }
 
-pub fn totp_secret_for_id(conn: &Connection, totp_id: &str) -> Result<String> {
+pub fn totp_params_for_id(conn: &Connection, totp_id: &str) -> Result<crate::totp::TotpStoredParams> {
     conn.query_row(
-        "SELECT t.secret_base32 FROM totp_credentials t
+        "SELECT t.secret_base32, t.totp_algorithm, t.totp_digits, t.totp_period FROM totp_credentials t
          INNER JOIN items i ON i.id = t.item_id
          WHERE t.id = ?1 AND i.trashed = 0",
         params![totp_id],
-        |row| row.get(0),
+        |row| {
+            let alg_name: String = row.get(1)?;
+            let algorithm = crate::totp::algorithm_from_name(&alg_name)
+                .map_err(|e| rusqlite::Error::InvalidColumnType(1, e.to_string(), rusqlite::types::Type::Text))?;
+            Ok(crate::totp::TotpStoredParams {
+                secret_base32: row.get(0)?,
+                algorithm,
+                digits: row.get::<_, i64>(2)? as usize,
+                period: row.get::<_, i64>(3)? as u64,
+            })
+        },
     )
     .map_err(|_| CoreError::format("totp not found"))
+}
+
+pub fn totp_code_for_id(conn: &Connection, totp_id: &str) -> Result<String> {
+    let params = totp_params_for_id(conn, totp_id)?;
+    crate::totp::totp_code_from_params(&params)
+}
+
+pub fn totp_secret_for_id(conn: &Connection, totp_id: &str) -> Result<String> {
+    Ok(totp_params_for_id(conn, totp_id)?.secret_base32)
 }
 
 pub fn totp_reveal_for_id(conn: &Connection, totp_id: &str) -> Result<TotpRevealRow> {

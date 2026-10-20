@@ -13,7 +13,8 @@ use crate::credential_groups::{
 use crate::repo_m2::{
     ensure_default_ssh_key, insert_login_extended, insert_recovery_codes, list_logins,
     list_recovery_codes, load_default_ssh_key, security_summary, trash_item, totp_reveal_for_id,
-    totp_secret_for_id, update_login_credential, update_recovery_codes, generate_ssh_key,
+    totp_code_for_id, update_login_credential, update_recovery_codes,
+    generate_ssh_key,
     insert_totp_row, list_ssh_keys, list_totp_credentials, LoginListRow, RecoveryCodeRow,
     SecuritySummary, SshKeyListRow, SshKeyRecord, TotpListRow, TotpRevealRow,
 };
@@ -24,7 +25,6 @@ use crate::restore_point::{
     create_restore_point_for_risky_op, create_restore_point_if_due, mark_restore_dirty,
 };
 use std::path::Path;
-use crate::totp::totp_code_now;
 use rusqlite::Connection;
 
 /// 已解锁工作库连接（M2）。
@@ -294,8 +294,7 @@ impl VaultDatabase {
     }
 
     pub fn totp_code(&self, totp_id: &str) -> Result<String> {
-        let secret = totp_secret_for_id(&self.conn, totp_id)?;
-        totp_code_now(&secret)
+        totp_code_for_id(&self.conn, totp_id)
     }
 
     pub fn try_restore_point_if_due(

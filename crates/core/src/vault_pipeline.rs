@@ -165,28 +165,42 @@ pub fn recover_restore_point_to_dir(
     outcome
 }
 
-/// M3-5：轮换 VMK 并 rekey SQLCipher（保留 vault_id；旧本地恢复点仍对应旧 VMK）。
+/// M3-5：在独立 staging 目录完成 VMK 轮换与配置重写，校验通过后切换；生成新恢复密钥。
 pub fn security_rebuild_in_dir(
     dir: &Path,
     master_password: &str,
     recovery_key_display: &str,
-) -> Result<()> {
+) -> Result<String> {
     let cfg = read_vault_json(dir)?;
     let old_vmk = cfg.unlock_master(master_password)?;
     cfg.verify_mac(&*old_vmk)?;
     let recovery_secret = crate::recovery_key::parse_display(recovery_key_display.trim())?;
-    let mut rec_arr = [0u8; VMK_LEN];
-    rec_arr.copy_from_slice(&recovery_secret);
-    let via_recovery = cfg.unlock_recovery(&rec_arr)?;
+    let mut old_rec_arr = [0u8; VMK_LEN];
+    old_rec_arr.copy_from_slice(&recovery_secret);
+    let via_recovery = cfg.unlock_recovery(&old_rec_arr)?;
     if via_recovery.as_ref() != old_vmk.as_ref() {
         return Err(CoreError::Auth);
     }
+
+    let parent = dir
+        .parent()
+        .ok_or_else(|| CoreError::format("vault directory has no parent"))?;
+    let staging = parent.join(format!(".credpivot-rebuild-{}", Uuid::new_v4()));
+    cleanup_failed_target(&staging);
+    ensure_empty_target(&staging)?;
+    clone_vault_to_empty_dir(dir, &staging, &old_vmk)?;
+
     let mut new_vmk_arr = [0u8; VMK_LEN];
     new_vmk_arr.copy_from_slice(&crate::crypto::random_bytes(VMK_LEN));
     let new_vmk = Zeroizing::new(new_vmk_arr);
+    let (new_recovery_secret, new_recovery_display) = crate::recovery_key::generate();
+    let mut new_rec_arr = [0u8; VMK_LEN];
+    new_rec_arr.copy_from_slice(&new_recovery_secret);
+
     let vault_uuid = Uuid::parse_str(&cfg.vault_id).map_err(|_| CoreError::format("vault_id"))?;
-    local_db::rekey_database(dir, &*old_vmk, &*new_vmk, &vault_uuid)?;
-    let mut next = cfg;
+    local_db::rekey_database(&staging, &old_vmk, &new_vmk, &vault_uuid)?;
+
+    let mut next = read_vault_json(&staging)?;
     next.control_revision += 1;
     let master = KeySlot::create_master_password(
         &next.vault_id,
@@ -194,9 +208,34 @@ pub fn security_rebuild_in_dir(
         master_password,
         &*new_vmk,
     )?;
-    let recovery = KeySlot::create_recovery(&next.vault_id, next.format_major, &rec_arr, &*new_vmk)?;
+    let recovery = KeySlot::create_recovery(
+        &next.vault_id,
+        next.format_major,
+        &new_rec_arr,
+        &*new_vmk,
+    )?;
     next.key_slots = vec![master, recovery];
     next.sign(&*new_vmk)?;
-    write_vault_json_atomic(dir, &next)?;
-    Ok(())
+    write_vault_json_atomic(&staging, &next)?;
+
+    let staged_cfg = read_vault_json(&staging)?;
+    staged_cfg.verify_mac(&*new_vmk)?;
+    local_db::verify_database(&staging, &*new_vmk)?;
+    let _ = staged_cfg
+        .unlock_recovery(&new_rec_arr)
+        .map_err(|_| CoreError::format("new recovery key verification failed"))?;
+    if staged_cfg.unlock_recovery(&old_rec_arr).is_ok() {
+        cleanup_failed_target(&staging);
+        return Err(CoreError::format("old recovery key still valid after rebuild"));
+    }
+
+    let backup = parent.join(format!(".credpivot-rebuild-backup-{}", Uuid::new_v4()));
+    fs::rename(dir, &backup).map_err(|e| CoreError::io(e.to_string()))?;
+    if fs::rename(&staging, dir).is_err() {
+        let _ = fs::rename(&backup, dir);
+        cleanup_failed_target(&staging);
+        return Err(CoreError::format("failed to activate rebuilt vault"));
+    }
+    let _ = fs::remove_dir_all(&backup);
+    Ok(new_recovery_display)
 }

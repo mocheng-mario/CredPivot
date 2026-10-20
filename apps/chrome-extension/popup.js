@@ -34,8 +34,20 @@ document.getElementById("saveDemo").addEventListener("click", async () => {
 
 document.getElementById("fillDemo").addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return;
-  const origin = tab.url ? new URL(tab.url).origin : "https://example.com";
+  if (!tab?.id || !tab.url?.startsWith("http")) {
+    statusEl.textContent = "请在普通网页标签页中使用填充演示";
+    return;
+  }
+  const origin = new URL(tab.url).origin;
+  const ctx = await chrome.tabs.sendMessage(tab.id, { type: "fill_context" });
+  if (!ctx?.documentId || !ctx?.origin) {
+    statusEl.textContent = "无法读取目标页面上下文";
+    return;
+  }
+  if (ctx.origin !== origin) {
+    statusEl.textContent = "页面 origin 不一致";
+    return;
+  }
   const suggest = await chrome.runtime.sendMessage({ type: "suggest_credentials", origin });
   const candidates =
     suggest?.payload?.candidates ?? suggest?.candidates ?? [];
@@ -47,7 +59,10 @@ document.getElementById("fillDemo").addEventListener("click", async () => {
   const prep = await chrome.runtime.sendMessage({
     type: "fill_prepare",
     credential_id: credentialId,
-    origin,
+    origin: ctx.origin,
+    tab_id: tab.id,
+    frame_id: ctx.frameId ?? 0,
+    document_id: ctx.documentId,
   });
   statusEl.textContent = "prepare: " + JSON.stringify(prep);
   if (!prep?.payload?.prepared) return;
@@ -55,16 +70,26 @@ document.getElementById("fillDemo").addEventListener("click", async () => {
   const consume = await chrome.runtime.sendMessage({
     type: "fill_consume",
     request_id: requestId,
+    origin: ctx.origin,
+    tab_id: tab.id,
+    frame_id: ctx.frameId ?? 0,
+    document_id: ctx.documentId,
   });
   const secrets = consume?.payload || consume;
-  await chrome.tabs.sendMessage(
+  if (!secrets?.username && !secrets?.password) {
+    statusEl.textContent = "consume 失败: " + JSON.stringify(consume);
+    return;
+  }
+  const deliver = await chrome.tabs.sendMessage(
     tab.id,
     {
       type: "deliver_secret",
+      document_id: ctx.documentId,
+      origin: ctx.origin,
       username: secrets.username,
       password: secrets.password,
     },
-    { frameId: 0 }
+    { frameId: ctx.frameId ?? 0 }
   );
-  statusEl.textContent = "filled";
+  statusEl.textContent = deliver?.filled ? "filled" : "投递被拒绝";
 });

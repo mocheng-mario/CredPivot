@@ -23,6 +23,19 @@ struct BwItem {
     login: Option<BwLogin>,
 }
 
+/// Bitwarden 官方导出：`{ "items": [ ... ] }`
+#[derive(Debug, Deserialize)]
+struct BwExportRoot {
+    items: Option<Vec<BwItem>>,
+}
+
+fn parse_bitwarden_items(json: &str) -> Result<Vec<BwItem>> {
+    if let Ok(root) = serde_json::from_str::<BwExportRoot>(json) {
+        return Ok(root.items.unwrap_or_default());
+    }
+    serde_json::from_str(json).map_err(|e| CoreError::format(e.to_string()))
+}
+
 #[derive(Debug, serde::Serialize)]
 pub struct ImportReport {
     pub imported: u32,
@@ -31,7 +44,7 @@ pub struct ImportReport {
 }
 
 pub fn import_bitwarden_json(conn: &Connection, json: &str) -> Result<ImportReport> {
-    let items: Vec<BwItem> = serde_json::from_str(json).map_err(|e| CoreError::format(e.to_string()))?;
+    let items: Vec<BwItem> = parse_bitwarden_items(json)?;
     let mut report = ImportReport {
         imported: 0,
         skipped_duplicate: 0,

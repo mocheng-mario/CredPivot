@@ -52,19 +52,83 @@ fn percent_encode(s: &str) -> String {
     out
 }
 
-/// 入库前规范化：只保留 Base32 密钥（从 URI 提取或规范化粘贴内容）。
-pub fn normalize_totp_secret_for_storage(input: &str) -> Result<String> {
+/// 入库参数：密钥与算法/位数/周期一并保存。
+#[derive(Debug, Clone)]
+pub struct TotpStoredParams {
+    pub secret_base32: String,
+    pub algorithm: Algorithm,
+    pub digits: usize,
+    pub period: u64,
+}
+
+/// 入库前规范化：从 URI 或 Base32 提取完整 TOTP 参数。
+pub fn totp_params_for_storage(input: &str) -> Result<TotpStoredParams> {
     let trimmed = input.trim();
     if trimmed.to_lowercase().starts_with("otpauth://") {
         if let Ok(totp) = TOTP::from_url(trimmed) {
-            return Ok(totp.get_secret_base32());
+            return Ok(TotpStoredParams {
+                secret_base32: totp.get_secret_base32(),
+                algorithm: totp.algorithm,
+                digits: totp.digits,
+                period: totp.step,
+            });
         }
         let secret = extract_secret_from_otpauth(trimmed)?;
         validate_base32_secret(&secret)?;
-        return Ok(normalize_base32(&secret));
+        return Ok(TotpStoredParams {
+            secret_base32: normalize_base32(&secret),
+            algorithm: Algorithm::SHA1,
+            digits: 6,
+            period: 30,
+        });
     }
     validate_base32_secret(trimmed)?;
-    Ok(normalize_base32(trimmed))
+    Ok(TotpStoredParams {
+        secret_base32: normalize_base32(trimmed),
+        algorithm: Algorithm::SHA1,
+        digits: 6,
+        period: 30,
+    })
+}
+
+/// 入库前规范化：只保留 Base32 密钥（兼容旧调用）。
+pub fn normalize_totp_secret_for_storage(input: &str) -> Result<String> {
+    Ok(totp_params_for_storage(input)?.secret_base32)
+}
+
+pub fn totp_code_from_params(params: &TotpStoredParams) -> Result<String> {
+    let secret = Secret::Encoded(params.secret_base32.clone())
+        .to_bytes()
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    let totp = TOTP::new_unchecked(
+        params.algorithm,
+        params.digits,
+        1,
+        params.period,
+        secret,
+        None,
+        "".to_string(),
+    );
+    Ok(totp
+        .generate_current()
+        .map_err(|e| CoreError::format(e.to_string()))?)
+}
+
+pub fn algorithm_name(alg: Algorithm) -> &'static str {
+    match alg {
+        Algorithm::SHA1 => "SHA1",
+        Algorithm::SHA256 => "SHA256",
+        Algorithm::SHA512 => "SHA512",
+    }
+}
+
+pub fn algorithm_from_name(name: &str) -> Result<Algorithm> {
+    match name.to_uppercase().as_str() {
+        "SHA1" => Ok(Algorithm::SHA1),
+        "SHA256" => Ok(Algorithm::SHA256),
+        "SHA512" => Ok(Algorithm::SHA512),
+        other => Err(CoreError::format(format!("unsupported TOTP algorithm: {other}"))),
+    }
 }
 
 fn validate_base32_secret(raw: &str) -> Result<()> {

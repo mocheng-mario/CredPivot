@@ -46,7 +46,7 @@ pub use repo_m2::{
     ensure_default_ssh_key, insert_recovery_codes, list_logins, list_recovery_codes,
     load_default_ssh_key, security_summary, trash_item, totp_secret_for_id,
     update_login_credential, update_recovery_codes, generate_ssh_key, insert_ssh_key, insert_totp,
-    insert_totp_row,     list_ssh_keys, list_totp_credentials, LoginListRow, RecoveryCodeRow,
+    insert_totp_row,     format_ssh_ed25519_openssh, list_ssh_keys, list_totp_credentials, LoginListRow, RecoveryCodeRow,
     SecuritySummary, SshKeyListRow, SshKeyRecord, TotpListRow, TotpRevealRow,
 };
 pub use restore_point::{

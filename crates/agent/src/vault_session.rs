@@ -271,8 +271,7 @@ impl VaultSession {
     pub fn ssh_public_key_openssh(&self) -> String {
         let vk: VerifyingKey = self.ssh_signing_key.verifying_key();
         let bytes = vk.to_bytes();
-        let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-        format!("ssh-ed25519 {b64} credpivot-m2")
+        credpivot_core::format_ssh_ed25519_openssh(&bytes, "credpivot-m2")
     }
 
     pub fn save_credential(
@@ -587,7 +586,7 @@ impl VaultSession {
         Ok(())
     }
 
-    pub fn security_rebuild(&mut self, password: &str, recovery_key: &str) -> Result<()> {
+    pub fn security_rebuild(&mut self, password: &str, recovery_key: &str) -> Result<String> {
         if !self.unlocked {
             return Err(AgentError::Locked);
         }
@@ -596,7 +595,7 @@ impl VaultSession {
                 .map_err(|e| AgentError::Vault(e.to_string()))?;
         }
         self.db = None;
-        security_rebuild_in_dir(&self.vault_dir, password, recovery_key)
+        let new_recovery = security_rebuild_in_dir(&self.vault_dir, password, recovery_key)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         let cfg = read_vault_json(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
         let vmk = cfg
@@ -605,7 +604,7 @@ impl VaultSession {
         cfg.verify_mac(&*vmk).map_err(|e| AgentError::Vault(e.to_string()))?;
         self.vmk = Some(vmk);
         self.attach_database()?;
-        Ok(())
+        Ok(new_recovery)
     }
 
     pub fn backup_status(&self) -> Result<credpivot_core::BackupVerificationStatus> {

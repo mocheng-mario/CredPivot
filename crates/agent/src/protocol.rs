@@ -42,6 +42,8 @@ pub enum AgentRequest {
         request_id: String,
         frame_id: i64,
         document_id: String,
+        #[serde(default)]
+        origin: String,
     },
     CancelRequest { request_id: String },
     CredentialList {

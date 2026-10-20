@@ -5,6 +5,16 @@ import 'package:flutter/services.dart';
 class AgentBridge {
   static const _channel = MethodChannel('credpivot/agent');
 
+  /// 接收菜单栏/系统触发的锁定通知。
+  static void installVaultLockHandler(void Function() onLocked) {
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'onVaultLocked') {
+        onLocked();
+      }
+      return null;
+    });
+  }
+
   static Future<Map<String, dynamic>> request(Map<String, dynamic> body) async {
     final raw = await _channel.invokeMethod<String>('agentRequest', jsonEncode(body));
     if (raw == null) {
@@ -438,12 +448,13 @@ class AgentBridge {
     await request({'type': 'vault_migrate', 'target_dir': targetDir});
   }
 
-  static Future<void> securityRebuild(String password, String recoveryKey) async {
-    await request({
+  static Future<String> securityRebuild(String password, String recoveryKey) async {
+    final resp = await request({
       'type': 'vault_security_rebuild',
       'password': password,
       'recovery_key': recoveryKey,
     });
+    return payloadOf(resp)['new_recovery_key'] as String? ?? '';
   }
 
   static Future<void> verifyOvb(String ovbPath, String password) async {

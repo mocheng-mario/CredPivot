@@ -1,5 +1,6 @@
 use crate::error::{AgentError, Result};
 use crate::peer_auth::{authorize_peer, PeerAuthConfig};
+use crate::session_guard::expire_idle_session;
 use crate::protocol::{AgentRequest, AgentResponse};
 use crate::vault_session::{FillGrant, VaultSession};
 use serde_json::json;
@@ -51,22 +52,9 @@ async fn handle_ipc_connection(
     let req: AgentRequest = serde_json::from_slice(&buf)
         .map_err(|e| AgentError::Protocol(e.to_string()))?;
 
+    expire_idle_session(&state).await;
     let resp = {
         let mut st = state.lock().await;
-        {
-            let expired = {
-                let mut v = st.vault.lock().await;
-                if v.idle_expired() {
-                    v.lock();
-                    true
-                } else {
-                    false
-                }
-            };
-            if expired {
-                st.pending_fills.clear();
-            }
-        }
         handle_request(&mut st, req).await
     };
 
@@ -231,8 +219,12 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
-            if v.get_credential(&credential_id).is_err() {
-                return AgentResponse::err("not_found", "credential not found");
+            let cred = match v.get_credential(&credential_id) {
+                Ok(c) => c,
+                Err(_) => return AgentResponse::err("not_found", "credential not found"),
+            };
+            if cred.origin != origin {
+                return AgentResponse::err("origin_mismatch", "credential does not match page origin");
             }
             let now = now_ms();
             let grant = FillGrant {
@@ -252,6 +244,7 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
             request_id,
             frame_id,
             document_id,
+            origin,
         } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
@@ -269,12 +262,20 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
             if grant.frame_id != frame_id || grant.document_id != document_id {
                 return AgentResponse::err("frame_mismatch", "frame/document mismatch");
             }
+            if grant.origin != origin {
+                return AgentResponse::err("origin_mismatch", "origin mismatch");
+            }
             match v.get_credential(&grant.credential_id) {
-                Ok(c) => AgentResponse::ok(json!({
+                Ok(c) => {
+                    if c.origin != grant.origin {
+                        return AgentResponse::err("origin_mismatch", "credential origin mismatch");
+                    }
+                    AgentResponse::ok(json!({
                     "username": c.username,
                     "password": c.password,
                     "origin": c.origin,
-                })),
+                }))
+                }
                 Err(_) => AgentResponse::err("not_found", "credential not found"),
             }
         }
@@ -537,7 +538,10 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
             }
             v.touch_activity();
             match v.security_rebuild(&password, &recovery_key) {
-                Ok(()) => AgentResponse::ok(json!({ "rebuilt": true })),
+                Ok(new_recovery_key) => AgentResponse::ok(json!({
+                    "rebuilt": true,
+                    "new_recovery_key": new_recovery_key,
+                })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }

@@ -47,8 +47,14 @@ fn security_rebuild_rotates_vmk_but_keeps_data() {
     let vmk = material.vmk;
     let db = VaultDatabase::open(dir.path(), &*vmk).expect("open");
     db.insert_login("https://z.com", "u", "pw").expect("insert");
-    security_rebuild_in_dir(dir.path(), "m3-pass", &recovery).expect("rebuild");
+    let new_recovery = security_rebuild_in_dir(dir.path(), "m3-pass", &recovery).expect("rebuild");
+    assert!(!new_recovery.is_empty());
     assert!(VaultDatabase::open(dir.path(), &*vmk).is_err());
+    let old_rec = credpivot_core::parse_recovery_display(&recovery).expect("old rec");
+    let mut old_arr = [0u8; 32];
+    old_arr.copy_from_slice(&old_rec);
+    let cfg_after = credpivot_core::read_vault_json(dir.path()).expect("cfg");
+    assert!(cfg_after.unlock_recovery(&old_arr).is_err());
     let cfg = credpivot_core::read_vault_json(dir.path()).expect("cfg");
     let new_vmk = cfg.unlock_master("m3-pass").expect("unlock after rebuild");
     let db3 = VaultDatabase::open(dir.path(), &*new_vmk).expect("open new");
