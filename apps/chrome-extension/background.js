@@ -1,15 +1,25 @@
 const HOST_NAME = "com.credpivot.chrome.m0";
 const PROTOCOL_VERSION = 1;
+const NATIVE_REQUEST_TIMEOUT_MS = 30_000;
 
 /** @type {chrome.runtime.Port | null} */
 let nativePort = null;
 /** @type {string | null} */
 let lastNativeError = null;
-/** @type {Map<string, object>} */
+/** @type {Map<string, { resolve: Function, reject: Function, listener: Function, timer: ReturnType<typeof setTimeout> }>} */
 const inflight = new Map();
 
 function uuid() {
   return crypto.randomUUID();
+}
+
+function rejectAllInflight(reason) {
+  for (const [id, entry] of inflight) {
+    clearTimeout(entry.timer);
+    nativePort?.onMessage.removeListener(entry.listener);
+    entry.reject(reason);
+    inflight.delete(id);
+  }
 }
 
 function connectNativeIfNeeded() {
@@ -33,9 +43,7 @@ function connectNativeIfNeeded() {
       lastNativeError = msg;
     }
     nativePort = null;
-    for (const [id] of inflight) {
-      inflight.delete(id);
-    }
+    rejectAllInflight(new Error(lastNativeError || "native host disconnected"));
   });
   return nativePort;
 }
@@ -50,14 +58,24 @@ function sendNative(message) {
     }
     const requestId = message.request_id || uuid();
     message.request_id = requestId;
-    inflight.set(requestId, { createdAt: Date.now(), message });
-    nativePort.postMessage(message);
     const listener = (response) => {
-      if (response.request_id && response.request_id !== requestId) return;
+      if (!response?.request_id || response.request_id !== requestId) {
+        return;
+      }
+      const entry = inflight.get(requestId);
+      if (!entry) return;
+      clearTimeout(entry.timer);
       nativePort.onMessage.removeListener(listener);
       inflight.delete(requestId);
       resolve(response);
     };
+    const timer = setTimeout(() => {
+      nativePort?.onMessage.removeListener(listener);
+      inflight.delete(requestId);
+      reject(new Error("native request timeout"));
+    }, NATIVE_REQUEST_TIMEOUT_MS);
+    inflight.set(requestId, { resolve, reject, listener, timer });
+    nativePort.postMessage(message);
     nativePort.onMessage.addListener(listener);
   });
 }

@@ -58,6 +58,7 @@ fn read_exact_or_eof<R: Read>(r: &mut R, buf: &mut [u8]) -> Result<bool, io::Err
 }
 
 async fn forward_to_agent(envelope: Value) -> Result<Value, Box<dyn std::error::Error>> {
+    let request_id = envelope.get("request_id").cloned();
     let socket = agent_socket_path();
     if !socket.exists() {
         launch_credpivot_app();
@@ -66,6 +67,7 @@ async fn forward_to_agent(envelope: Value) -> Result<Value, Box<dyn std::error::
             return Ok(error_envelope(
                 "app_unreachable",
                 "CredPivot App is not running",
+                request_id,
             ));
         }
     }
@@ -76,7 +78,16 @@ async fn forward_to_agent(envelope: Value) -> Result<Value, Box<dyn std::error::
         .unwrap_or("unknown");
     let req = map_extension_to_agent(&envelope, action)?;
     let resp = call_agent(&socket, req).await?;
-    Ok(agent_to_extension(resp))
+    Ok(agent_to_extension(resp, request_id))
+}
+
+fn attach_request_id(mut value: Value, request_id: Option<Value>) -> Value {
+    if let Some(rid) = request_id {
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("request_id".to_string(), rid);
+        }
+    }
+    value
 }
 
 fn map_extension_to_agent(
@@ -178,8 +189,8 @@ fn map_extension_to_agent(
     }
 }
 
-fn agent_to_extension(resp: AgentResponse) -> Value {
-    match resp {
+fn agent_to_extension(resp: AgentResponse, request_id: Option<Value>) -> Value {
+    let mut out = match resp {
         AgentResponse::Ok {
             protocol_version,
             payload,
@@ -198,16 +209,24 @@ fn agent_to_extension(resp: AgentResponse) -> Value {
             "code": code,
             "message": message,
         }),
+    };
+    if let Some(rid) = request_id {
+        if let Some(obj) = out.as_object_mut() {
+            obj.insert("request_id".to_string(), rid);
+        }
     }
+    out
 }
 
-fn error_envelope(code: &str, message: &str) -> Value {
-    json!({
-        "ok": false,
-        "protocol_version": PROTOCOL_VERSION,
-        "code": code,
-        "message": message,
-    })
+fn error_envelope(code: &str, message: &str, request_id: Option<Value>) -> Value {
+    agent_to_extension(
+        AgentResponse::Err {
+            protocol_version: PROTOCOL_VERSION,
+            code: code.to_string(),
+            message: message.to_string(),
+        },
+        request_id,
+    )
 }
 
 fn write_native_message(stdout: &mut io::Stdout, value: &Value) -> io::Result<()> {

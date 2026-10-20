@@ -162,6 +162,7 @@ impl VaultSession {
         self.unlocked = false;
         self.vmk = None;
         self.db = None;
+        self.ssh_signing_key = SigningKey::generate(&mut OsRng);
     }
 
     pub fn create_vault(&mut self, password: &str) -> Result<String> {
@@ -177,8 +178,11 @@ impl VaultSession {
         let material = bootstrap_vault_dir(&self.vault_dir, password)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         self.vmk = Some(material.vmk);
+        if let Err(e) = self.attach_database() {
+            self.vmk = None;
+            return Err(AgentError::Vault(e.to_string()));
+        }
         self.unlocked = true;
-        self.attach_database()?;
         self.touch_activity();
         Ok(material.recovery_display)
     }
@@ -194,18 +198,17 @@ impl VaultSession {
         cfg.verify_mac(&*vmk)
             .map_err(|_| AgentError::Vault("control mac failed".into()))?;
         self.vmk = Some(vmk);
+        if let Err(e) = self.attach_database() {
+            self.vmk = None;
+            return Err(e);
+        }
         self.unlocked = true;
-        self.attach_database()?;
         self.touch_activity();
         Ok(())
     }
 
-    pub fn unlock_touch_id_token(&mut self, token: &[u8]) -> bool {
-        if self.touch_id_wrapped_token.as_deref() == Some(token) && self.vault_exists() {
-            self.unlocked = true;
-            self.touch_activity();
-            return true;
-        }
+    /// 门槛令牌不等于 Vault 解锁：无 VMK/数据库时不标记为已解锁。
+    pub fn unlock_touch_id_token(&mut self, _token: &[u8]) -> bool {
         false
     }
 
@@ -217,9 +220,15 @@ impl VaultSession {
             create_restore_point_for_risky_op(&self.vault_dir, &**vmk, db.conn())
                 .map_err(|e| AgentError::Vault(e.to_string()))?;
         }
+        let prior_vmk = self.vmk.clone();
         self.db = None;
-        change_master_password_in_dir(&self.vault_dir, old, new)
-            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        if let Err(e) = change_master_password_in_dir(&self.vault_dir, old, new) {
+            if let Some(vmk) = prior_vmk {
+                self.vmk = Some(vmk);
+                let _ = self.attach_database();
+            }
+            return Err(AgentError::Vault(e.to_string()));
+        }
         let cfg = read_vault_json(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
         let vmk = cfg
             .unlock_master(new)

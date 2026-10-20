@@ -807,9 +807,10 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
 // —— 安全中心（恢复码 / 备份）——
 
 class SecurityCenterTab extends StatefulWidget {
-  const SecurityCenterTab({super.key, required this.unlocked});
+  const SecurityCenterTab({super.key, required this.unlocked, this.onVaultSwitched});
 
   final bool unlocked;
+  final VoidCallback? onVaultSwitched;
 
   @override
   State<SecurityCenterTab> createState() => _SecurityCenterTabState();
@@ -897,8 +898,10 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
     final ts = point['created_at_ms'] as int? ?? 0;
     try {
       await AgentBridge.recoverRestorePoint(ts, target);
+      await AgentBridge.lockVault();
       await AgentBridge.vaultOpenDir(target);
-      setState(() => _log = '已恢复到空目录：$target');
+      widget.onVaultSwitched?.call();
+      setState(() => _log = '已恢复到：$target。工作库已切换，请重新解锁。');
     } on AgentException catch (e) {
       setState(() => _log = e.message);
     }
@@ -975,8 +978,10 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
         password: _rebuildPassword.text.isNotEmpty ? _rebuildPassword.text : null,
         recoveryKey: _recoveryKey.text.trim().isNotEmpty ? _recoveryKey.text.trim() : null,
       );
+      await AgentBridge.lockVault();
       await AgentBridge.vaultOpenDir(target);
-      setState(() => _log = 'OVB 已恢复：$target');
+      widget.onVaultSwitched?.call();
+      setState(() => _log = 'OVB 已恢复到：$target。工作库已切换，请重新解锁。');
     } on AgentException catch (e) {
       setState(() => _log = e.message);
     }

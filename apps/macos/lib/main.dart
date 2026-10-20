@@ -459,7 +459,13 @@ class _VaultHomePageState extends State<VaultHomePage> {
           ),
           ),
           CredentialsTab(unlocked: _unlocked),
-          SecurityCenterTab(unlocked: _unlocked),
+          SecurityCenterTab(
+            unlocked: _unlocked,
+            onVaultSwitched: () {
+              _onVaultLockedExternally();
+              _refreshStatus();
+            },
+          ),
         ],
       ),
     ),
