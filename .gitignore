@@ -39,4 +39,4 @@ apps/macos/macos/Runner/credpivot-askpass
 apps/macos/macos/Runner/credpivot-chrome-extension
 
 # CredPivot runtime (local)
-.credpivot/
+.credpivot/.cache/
