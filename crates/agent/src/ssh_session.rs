@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const SSH_SESSION_TTL_MS: u128 = 5 * 60 * 1000;
 const MAX_PASSWORD_PROMPTS: u8 = 6;
-const MAX_OTP_PROMPTS: u8 = 4;
+const MAX_OTP_PROMPTS: u8 = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SshSessionGrant {
@@ -86,10 +86,16 @@ fn looks_like_otp(p: &str) -> bool {
         || p.contains("one-time")
         || p.contains("one time")
         || p.contains("otp")
+        || p.contains("mfa")
         || p.contains("authenticator")
         || p.contains("2fa")
         || p.contains("two-factor")
         || p.contains("token:")
+        || p.contains("验证码")
+        || p.contains("动态口令")
+        || p.contains("动态码")
+        || p.contains("二次验证")
+        || p.contains("双因素")
         || (p.contains("code") && !p.contains("passcode") && p.contains("enter"))
 }
 
@@ -97,6 +103,8 @@ fn looks_like_password(p: &str) -> bool {
     p.contains("password")
         || p.contains("passwd")
         || p.contains("'s password")
+        || p.contains("密码")
+        || p.contains("口令")
 }
 
 pub fn prepare_session(
@@ -200,6 +208,14 @@ mod tests {
     fn otp_prompt() {
         assert_eq!(
             classify_askpass_prompt("Enter verification code:"),
+            AskpassKind::Otp
+        );
+    }
+
+    #[test]
+    fn otp_prompt_chinese_mfa() {
+        assert_eq!(
+            classify_askpass_prompt("请输入 MFA 验证码（第 1/3 次）："),
             AskpassKind::Otp
         );
     }
