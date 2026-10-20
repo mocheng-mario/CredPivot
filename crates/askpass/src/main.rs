@@ -45,7 +45,6 @@ fn run() -> Result<(), String> {
             let mut out = io::stdout().lock();
             out.write_all(secret.as_bytes())
                 .map_err(|e| e.to_string())?;
-            out.write_all(b"\n").map_err(|e| e.to_string())?;
             Ok(())
         }
         AgentResponse::Err { message, .. } => Err(message),

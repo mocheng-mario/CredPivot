@@ -25,6 +25,7 @@ impl AgentRuntime {
     pub async fn start() -> Result<Self> {
         let lock = SingleWriterLock::acquire()?;
         ensure_runtime_dir()?;
+        crate::peer_auth::bootstrap_trusted_askpass_env();
         crate::diagnostics::init();
 
         remove_stale_socket(&agent_socket_path())?;

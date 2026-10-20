@@ -139,27 +139,6 @@ async fn handle_ipc_connection(
     stream: &mut tokio::net::UnixStream,
     state: Arc<Mutex<IpcState>>,
 ) -> Result<()> {
-    let peer_pid = peer_pid(stream)?;
-    let (from_native_host, from_askpass) = {
-        let cfg = state.lock().await.peer_auth.clone();
-        authorize_peer(peer_pid, &cfg)?;
-        #[cfg(target_os = "macos")]
-        {
-            let path = peer_executable_path(peer_pid)?;
-            let nh = peer_is_native_host_executable(&path, &cfg);
-            let ap = peer_is_askpass_executable(&path);
-            (nh, ap)
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            (false, false)
-        }
-    };
-    let peer = RequestPeerContext {
-        from_native_host,
-        from_askpass,
-    };
-
     let mut len_buf = [0u8; 4];
     stream.read_exact(&mut len_buf).await?;
     let len = u32::from_le_bytes(len_buf) as usize;
@@ -171,17 +150,59 @@ async fn handle_ipc_connection(
     let req: AgentRequest = serde_json::from_slice(&buf)
         .map_err(|e| AgentError::Protocol(e.to_string()))?;
 
+    let peer_pid = peer_pid(stream)?;
+    let peer = match peer_context_for_pid(peer_pid, &state).await {
+        Ok(p) => p,
+        Err(e) => {
+            return write_ipc_response(
+                stream,
+                AgentResponse::err("peer_denied", e.to_string()),
+            )
+            .await;
+        }
+    };
+
     expire_idle_session(&state).await;
     let resp = {
         let mut st = state.lock().await;
         handle_request(&mut st, req, peer).await
     };
 
+    write_ipc_response(stream, resp).await
+}
+
+async fn write_ipc_response(
+    stream: &mut tokio::net::UnixStream,
+    resp: AgentResponse,
+) -> Result<()> {
     let body = serde_json::to_vec(&resp).map_err(|e| AgentError::Protocol(e.to_string()))?;
     let frame_len = (body.len() as u32).to_le_bytes();
     stream.write_all(&frame_len).await?;
     stream.write_all(&body).await?;
     Ok(())
+}
+
+async fn peer_context_for_pid(
+    peer_pid: u32,
+    state: &Arc<Mutex<IpcState>>,
+) -> std::result::Result<RequestPeerContext, AgentError> {
+    let cfg = state.lock().await.peer_auth.clone();
+    authorize_peer(peer_pid, &cfg)?;
+    #[cfg(target_os = "macos")]
+    {
+        let path = peer_executable_path(peer_pid)?;
+        let from_native_host = peer_is_native_host_executable(&path, &cfg);
+        let from_askpass = peer_is_askpass_executable(&path);
+        Ok(RequestPeerContext {
+            from_native_host,
+            from_askpass,
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = peer_pid;
+        Ok(RequestPeerContext::default())
+    }
 }
 
 pub async fn handle_request(

@@ -21,6 +21,14 @@ pub fn materialized_askpass_path() -> PathBuf {
     runtime_dir().join("credpivot-askpass")
 }
 
+pub fn materialized_askpass_digest_path() -> PathBuf {
+    runtime_dir().join("askpass.sha256")
+}
+
+pub fn materialized_askpass_trusted_ref_path() -> PathBuf {
+    runtime_dir().join("askpass_trusted.path")
+}
+
 /// Chrome 扩展连接时由 native-host 写入，App 前台后触发指纹门槛。
 pub fn extension_gate_pending_path() -> PathBuf {
     runtime_dir().join("extension_gate.pending")

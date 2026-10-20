@@ -1213,7 +1213,23 @@ enum SshAskpassLauncher {
     }
     try FileManager.default.copyItem(atPath: src, toPath: installedURL.path)
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedURL.path)
+    try writeAskpassTrustArtifacts(sourcePath: src)
     return installedURL.path
+  }
+
+  private static func writeAskpassTrustArtifacts(sourcePath: String) throws {
+    let data = try Data(contentsOf: URL(fileURLWithPath: sourcePath))
+    let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    try digest.write(
+      to: credPivotDir.appendingPathComponent("askpass.sha256"),
+      atomically: true,
+      encoding: .utf8
+    )
+    try sourcePath.write(
+      to: credPivotDir.appendingPathComponent("askpass_trusted.path"),
+      atomically: true,
+      encoding: .utf8
+    )
   }
 
   static func openInTerminal(
@@ -1234,12 +1250,9 @@ enum SshAskpassLauncher {
     let sshTarget = TerminalLauncher.sshShellCommand(host: host, port: port, user: user)
     let qAskpass = TerminalLauncher.shellQuoteForPlan(askpassPath)
     let qSession = TerminalLauncher.shellQuoteForPlan(sessionId)
-    let shellCmd = """
-    export SSH_ASKPASS=\(qAskpass)
-    export SSH_ASKPASS_REQUIRE=force
-    export CREDPIVOT_SESSION_ID=\(qSession)
-    exec \(sshTarget)
-    """
+    // 单行命令：Terminal/iTerm 的 AppleScript 无法可靠传递多行。
+    let shellCmd =
+      "export SSH_ASKPASS=\(qAskpass); export SSH_ASKPASS_REQUIRE=force; export CREDPIVOT_SESSION_ID=\(qSession); exec \(sshTarget)"
     if let err = TerminalLauncher.launchShellCommand(
       appPath: appPath,
       command: shellCmd,
