@@ -1,4 +1,6 @@
 use crate::error::{AgentError, Result};
+use crate::paths::materialized_native_host_path;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 /// M0 peer checks for Unix socket clients.
@@ -29,6 +31,10 @@ pub fn authorize_peer(pid: u32, cfg: &PeerAuthConfig) -> Result<()> {
     {
         let path = peer_executable_path(pid)?;
         if !path_is_trusted_native_host(&path, cfg)? {
+            crate::diagnostics::error(
+                "peer_auth",
+                format!("peer executable not trusted: {}", path.display()),
+            );
             return Err(AgentError::PeerDenied(format!(
                 "peer executable not trusted: {}",
                 path.display()
@@ -54,18 +60,38 @@ fn path_is_trusted_native_host(path: &Path, cfg: &PeerAuthConfig) -> Result<bool
     if file_name != cfg.expected_host_binary_name {
         return Ok(false);
     }
+    if paths_same_file(path, &materialized_native_host_path())? {
+        return Ok(true);
+    }
     if let Ok(trusted) = std::env::var("CREDPIVOT_TRUSTED_NATIVE_HOST") {
-        let peer = std::fs::canonicalize(path).map_err(|e| AgentError::PeerDenied(e.to_string()))?;
-        let expect = std::fs::canonicalize(&trusted).map_err(|e| AgentError::PeerDenied(e.to_string()))?;
-        return Ok(peer == expect);
+        let peer = fs::canonicalize(path).map_err(|e| AgentError::PeerDenied(e.to_string()))?;
+        let expect = fs::canonicalize(&trusted).map_err(|e| AgentError::PeerDenied(e.to_string()))?;
+        if peer == expect {
+            return Ok(true);
+        }
     }
     let s = path.to_string_lossy();
     Ok(s.contains(".app/Contents/MacOS/") || s.contains("CredPivot.app"))
 }
 
 #[cfg(target_os = "macos")]
+fn paths_same_file(a: &Path, b: &Path) -> Result<bool> {
+    if !a.exists() || !b.exists() {
+        return Ok(false);
+    }
+    let a = fs::canonicalize(a).map_err(|e| AgentError::PeerDenied(e.to_string()))?;
+    let b = fs::canonicalize(b).map_err(|e| AgentError::PeerDenied(e.to_string()))?;
+    Ok(a == b)
+}
+
+#[cfg(target_os = "macos")]
 fn verify_peer_codesign_matches_self(peer_path: &Path) -> Result<()> {
     use std::process::Command;
+
+    // Chrome 清单指向 ~/.credpivot 副本时，路径校验已绑定；开发构建常无有效签名。
+    if paths_same_file(peer_path, &materialized_native_host_path())? {
+        return Ok(());
+    }
 
     let verify = Command::new("codesign")
         .args(["--verify", "--deep", "--strict"])

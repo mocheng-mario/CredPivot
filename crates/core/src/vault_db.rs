@@ -287,8 +287,13 @@ impl VaultDatabase {
         list_ssh_keys(&self.conn)
     }
 
-    pub fn generate_ssh(&self, label: &str, set_default: bool) -> Result<SshKeyListRow> {
-        let row = generate_ssh_key(&self.conn, label, set_default)?;
+    pub fn generate_ssh(
+        &self,
+        label: &str,
+        set_default: bool,
+        group_id: Option<&str>,
+    ) -> Result<SshKeyListRow> {
+        let row = generate_ssh_key(&self.conn, label, set_default, group_id)?;
         mark_restore_dirty(&self.conn)?;
         Ok(row)
     }

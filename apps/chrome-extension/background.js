@@ -1,4 +1,7 @@
+import { runFillOnTab } from "./fill_flow.js";
+
 const HOST_NAME = "com.credpivot.chrome.m0";
+const NATIVE_IDLE_DISCONNECT_MS = 5 * 60 * 1000;
 const PROTOCOL_VERSION = 1;
 const NATIVE_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -67,6 +70,7 @@ function sendNative(message) {
       clearTimeout(entry.timer);
       nativePort.onMessage.removeListener(listener);
       inflight.delete(requestId);
+      touchNativeActivity();
       resolve(response);
     };
     const timer = setTimeout(() => {
@@ -75,6 +79,7 @@ function sendNative(message) {
       reject(new Error("native request timeout"));
     }, NATIVE_REQUEST_TIMEOUT_MS);
     inflight.set(requestId, { resolve, reject, listener, timer });
+    touchNativeActivity();
     nativePort.postMessage(message);
     nativePort.onMessage.addListener(listener);
   });
@@ -141,6 +146,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse(resp);
         return;
       }
+      if (msg.type === "fill_active_tab") {
+        const tabId = msg.tab_id;
+        if (!tabId) {
+          sendResponse({ ok: false, error: "缺少 tab_id" });
+          return;
+        }
+        const result = await runFillOnTab(tabId, sendNative);
+        sendResponse(result);
+        return;
+      }
       sendResponse({ ok: false, error: "unknown message" });
     } catch (e) {
       sendResponse({
@@ -154,10 +169,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
+let lastNativeActivity = Date.now();
+
+function touchNativeActivity() {
+  lastNativeActivity = Date.now();
+}
+
+// 仅在长时间空闲时断开，避免 popup 关闭后立刻掉线。
 setInterval(() => {
   if (!nativePort) return;
-  if (inflight.size === 0) {
-    nativePort.disconnect();
-    nativePort = null;
-  }
-}, 30_000);
+  if (inflight.size > 0) return;
+  if (Date.now() - lastNativeActivity < NATIVE_IDLE_DISCONNECT_MS) return;
+  nativePort.disconnect();
+  nativePort = null;
+}, 60_000);

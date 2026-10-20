@@ -37,9 +37,17 @@ fn run_native_messaging_loop() -> Result<(), Box<dyn std::error::Error>> {
         let mut msg = vec![0u8; len];
         read_exact_or_eof(&mut handle, &mut msg)?;
         let value: Value = serde_json::from_slice(&msg)?;
-        let response = tokio::runtime::Runtime::new()?.block_on(async {
-            forward_to_agent(value).await
-        })?;
+        let request_id = value.get("request_id").cloned();
+        let response = tokio::runtime::Runtime::new()?
+            .block_on(async {
+                match forward_to_agent(value).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        let msg = e.to_string();
+                        error_envelope("forward_failed", &msg, request_id)
+                    }
+                }
+            });
         write_native_message(&mut stdout, &response)?;
     }
     Ok(())
@@ -79,15 +87,6 @@ async fn forward_to_agent(envelope: Value) -> Result<Value, Box<dyn std::error::
     let req = map_extension_to_agent(&envelope, action)?;
     let resp = call_agent(&socket, req).await?;
     Ok(agent_to_extension(resp, request_id))
-}
-
-fn attach_request_id(mut value: Value, request_id: Option<Value>) -> Value {
-    if let Some(rid) = request_id {
-        if let Some(obj) = value.as_object_mut() {
-            obj.insert("request_id".to_string(), rid);
-        }
-    }
-    value
 }
 
 fn map_extension_to_agent(

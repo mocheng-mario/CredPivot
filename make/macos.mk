@@ -15,8 +15,13 @@ macos-sync-artifacts: rust-ffi rust-host
 	cp $(RUST_LIB_FFI) $(MACOS_RUNNER)/
 	cp $(RUST_HOST_BIN) $(MACOS_RUNNER)/credpivot-native-host
 	chmod +x $(MACOS_RUNNER)/credpivot-native-host
+	rm -rf $(MACOS_RUNNER)/credpivot-chrome-extension
+	cp -R $(CHROME_EXT_DIR) $(MACOS_RUNNER)/credpivot-chrome-extension
 	@mkdir -p $(HOME)/.credpivot
 	@echo "$(RUST_HOST_BIN)" > $(HOME)/.credpivot/native_host_binary.path
+	@echo "$(CHROME_EXT_DIR)" > $(HOME)/.credpivot/chrome_extension_dir.path
+	rm -rf $(HOME)/.credpivot/chrome-extension
+	cp -R $(CHROME_EXT_DIR) $(HOME)/.credpivot/chrome-extension
 	@if [ -f $(MACOS_APP_DIR)/macos/Runner.xcodeproj/project.pbxproj ]; then \
 		$(ROOT)/scripts/patch-macos-xcode.sh; \
 	fi

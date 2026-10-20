@@ -1,5 +1,6 @@
 import Cocoa
 import FlutterMacOS
+import UniformTypeIdentifiers
 import LocalAuthentication
 import Security
 import ServiceManagement
@@ -111,6 +112,10 @@ final class CredPivotPlatform: NSObject {
     case "installChromeHost":
       let extId = call.arguments as? String
       result(ChromeHostInstaller.install(extensionId: extId))
+    case "revealChromeExtensionDir":
+      result(ChromeHostInstaller.revealExtensionDirectory())
+    case "openChromeExtensionsPage":
+      result(ChromeHostInstaller.openChromeExtensionsPage())
     case "appendSshIdentityAgent":
       if !agentIsUnlocked() {
         result([
@@ -170,13 +175,19 @@ final class CredPivotPlatform: NSObject {
       ConcealedPasteboard.copyConcealed(secret, clearAfterSeconds: 30)
       result(nil)
     case "getTerminalPreference":
-      result(TerminalLauncher.current() ?? "")
+      result(TerminalLauncher.preferencePayload())
+    case "pickTerminalApplication":
+      if let picked = TerminalLauncher.pickApplication() {
+        result(picked)
+      } else {
+        result(nil)
+      }
     case "setTerminalPreference":
       guard let id = call.arguments as? String else {
         result(FlutterError(code: "bad_args", message: "terminal id required", details: nil))
         return
       }
-      TerminalLauncher.set(id)
+      TerminalLauncher.setLegacyPreset(id)
       result(nil)
     case "openSshInTerminal":
       guard let args = call.arguments as? [String: Any],
@@ -265,7 +276,7 @@ final class TouchIdGate {
       return legacy
     }
     let token = UUID().uuidString
-    KeychainLoginStore.writeBiometricProtected(
+    _ = KeychainLoginStore.writeBiometricProtected(
       service: keychainService,
       account: keychainAccount,
       value: token
@@ -365,13 +376,19 @@ enum ChromeHostInstaller {
   }()
 
   static func status() -> [String: Any] {
+    let stored = storedExtensionId() ?? ""
+    let manifestId = manifestExtensionId()
     var out: [String: Any] = [
       "host_name": hostName,
       "manifest_path": manifestURL.path,
       "manifest_exists": FileManager.default.fileExists(atPath: manifestURL.path),
       "installed_host_path": installedHostPath.path,
       "installed_host_exists": FileManager.default.fileExists(atPath: installedHostPath.path),
-      "stored_extension_id": storedExtensionId() ?? "",
+      "stored_extension_id": stored,
+      "manifest_extension_id": manifestId ?? "",
+      "host_id_matches_manifest": manifestId == nil || stored.isEmpty || manifestId == stored,
+      "extension_dir_path": extensionDirectoryPath() ?? "",
+      "extension_dir_exists": extensionDirectoryPath() != nil,
     ]
     if let data = try? Data(contentsOf: manifestURL),
        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -379,6 +396,72 @@ enum ChromeHostInstaller {
       out["manifest_host_binary"] = json["path"]
     }
     return out
+  }
+
+  /// 供「加载已解压的扩展」使用；不固定扩展 ID，仅提供当前构建附带的目录。
+  static func extensionDirectoryPath() -> String? {
+    let manifestName = "manifest.json"
+    if let bundled = Bundle.main.resourceURL?.appendingPathComponent("credpivot-chrome-extension", isDirectory: true) {
+      if FileManager.default.fileExists(atPath: bundled.appendingPathComponent(manifestName).path) {
+        return bundled.path
+      }
+    }
+    let cached = credPivotDir.appendingPathComponent("chrome-extension", isDirectory: true)
+    if FileManager.default.fileExists(atPath: cached.appendingPathComponent(manifestName).path) {
+      return cached.path
+    }
+    let pathFile = credPivotDir.appendingPathComponent("chrome_extension_dir.path")
+    if let raw = try? String(contentsOf: pathFile, encoding: .utf8) {
+      let p = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+      if FileManager.default.fileExists(atPath: URL(fileURLWithPath: p).appendingPathComponent(manifestName).path) {
+        return p
+      }
+    }
+    return nil
+  }
+
+  static func manifestExtensionId() -> String? {
+    guard let data = try? Data(contentsOf: manifestURL),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let origins = json["allowed_origins"] as? [String],
+          let first = origins.first
+    else { return nil }
+    return extensionIdFromOrigin(first)
+  }
+
+  private static func extensionIdFromOrigin(_ origin: String) -> String? {
+    let prefix = "chrome-extension://"
+    guard origin.hasPrefix(prefix) else { return nil }
+    var s = String(origin.dropFirst(prefix.count))
+    if s.hasSuffix("/") {
+      s = String(s.dropLast())
+    }
+    return s.isEmpty ? nil : s
+  }
+
+  static func revealExtensionDirectory() -> [String: Any] {
+    guard let path = extensionDirectoryPath() else {
+      return [
+        "ok": false,
+        "message": "未找到扩展目录。请先在本机执行 make macos-sync-artifacts 或 make macos-build。",
+      ]
+    }
+    NSWorkspace.shared.selectFile(
+      URL(fileURLWithPath: path).appendingPathComponent("manifest.json").path,
+      inFileViewerRootedAtPath: path
+    )
+    return ["ok": true, "message": "已在 Finder 中显示扩展目录", "path": path]
+  }
+
+  static func openChromeExtensionsPage() -> [String: Any] {
+    guard let url = URL(string: "chrome://extensions") else {
+      return ["ok": false, "message": "无法构造 chrome://extensions"]
+    }
+    NSWorkspace.shared.open(url)
+    return [
+      "ok": true,
+      "message": "已尝试打开 Chrome 扩展页。若未跳转，请在 Chrome 地址栏手动输入 chrome://extensions",
+    ]
   }
 
   private static func resolveSourceHostBinary() -> String? {
@@ -432,6 +515,16 @@ enum ChromeHostInstaller {
     return s
   }
 
+  /// Agent 对端校验与 Chrome 清单中的 host 路径一致（优先 ~/.credpivot 副本）。
+  static func applyTrustedNativeHostEnv() {
+    let path = FileManager.default.fileExists(atPath: installedHostPath.path)
+      ? installedHostPath.path
+      : Bundle.main.path(forResource: "credpivot-native-host", ofType: nil)
+    if let path, !path.isEmpty {
+      setenv("CREDPIVOT_TRUSTED_NATIVE_HOST", path, 1)
+    }
+  }
+
   static func install(extensionId: String?) -> [String: Any] {
     let candidate = extensionId ?? storedExtensionId() ?? ""
     let extId = normalizeExtensionId(candidate)
@@ -464,6 +557,7 @@ enum ChromeHostInstaller {
       try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
       let data = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted])
       try data.write(to: manifestURL)
+      applyTrustedNativeHostEnv()
       return [
         "ok": true,
         "message": "已安装 Native Host。请完全退出 Chrome 后重开，再在扩展里点「连接 App」。",
@@ -643,37 +737,125 @@ enum ConcealedPasteboard {
 }
 
 enum TerminalLauncher {
-  private static let prefKey = "credpivot.terminal.app"
+  private static let appPathKey = "credpivot.terminal.app_path"
+  private static let legacyIdKey = "credpivot.terminal.app"
 
-  static func current() -> String? {
-    UserDefaults.standard.string(forKey: prefKey)
+  static func preferencePayload() -> [String: String] {
+    if let path = currentAppPath(), !path.isEmpty {
+      let name = FileManager.default.displayName(atPath: path)
+      return ["path": path, "name": name]
+    }
+    return ["path": "", "name": ""]
   }
 
-  static func set(_ id: String) {
-    UserDefaults.standard.set(id, forKey: prefKey)
+  static func currentAppPath() -> String? {
+    UserDefaults.standard.string(forKey: appPathKey)
+  }
+
+  /// 旧版预设 id（terminal/iterm/warp），首次选择 .app 后不再使用。
+  static func setLegacyPreset(_ id: String) {
+    UserDefaults.standard.set(id, forKey: legacyIdKey)
+    if id == "terminal" {
+      setAppPath("/System/Applications/Utilities/Terminal.app")
+    } else if id == "iterm" {
+      setAppPath("/Applications/iTerm.app")
+    } else if id == "warp" {
+      setAppPath("/Applications/Warp.app")
+    }
+  }
+
+  static func setAppPath(_ path: String) {
+    UserDefaults.standard.set(path, forKey: appPathKey)
+    UserDefaults.standard.removeObject(forKey: legacyIdKey)
+  }
+
+  static func pickApplication() -> [String: String]? {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    panel.allowedContentTypes = [UTType.application]
+    panel.message = "选择用于 SSH 连接的终端应用（如 Terminal、iTerm、Tabby、Warp 等）"
+    panel.prompt = "选择"
+    guard panel.runModal() == .OK, let url = panel.url else {
+      return nil
+    }
+    let path = url.path
+    setAppPath(path)
+    return ["path": path, "name": url.deletingPathExtension().lastPathComponent]
   }
 
   /// 成功返回 nil；失败返回错误文案。
   static func openSsh(host: String, port: Int, user: String) -> String? {
-    guard let app = current(), !app.isEmpty else {
-      return "未选择终端应用，请先点「终端设置」选择 Terminal / iTerm 等"
+    guard let appPath = currentAppPath(), !appPath.isEmpty else {
+      return "未选择终端应用：请在「凭据 → 服务器」点「终端设置」选择 .app"
+    }
+    if !FileManager.default.fileExists(atPath: appPath) {
+      return "终端应用不存在：\(appPath)"
     }
     let portArg = port == 22 ? "" : " -p \(port)"
     let sshCmd = "ssh\(portArg) \(shellQuote(user))@\(shellQuote(host))"
-    switch app {
-    case "terminal":
+    let bundleId = Bundle(path: appPath)?.bundleIdentifier ?? ""
+    let appFile = (appPath as NSString).lastPathComponent.lowercased()
+
+    switch bundleId {
+    case "com.apple.Terminal":
       let script = "tell application \"Terminal\" to do script \"\(escapeAppleScript(sshCmd))\""
       return runOsascript(script)
-    case "iterm":
+    case "com.googlecode.iterm2":
       let script =
         "tell application \"iTerm\" to create window with default profile command \"\(escapeAppleScript(sshCmd))\""
       return runOsascript(script)
-    case "warp":
-      let url = "warp://action/new_tab?command=\(sshCmd.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sshCmd)"
+    case "dev.warp.Warp-Stable", "dev.warp.Warp":
+      let enc = sshCmd.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sshCmd
+      let url = "warp://action/new_tab?command=\(enc)"
       NSWorkspace.shared.open(URL(string: url)!)
       return nil
     default:
-      return "未知终端类型: \(app)"
+      break
+    }
+
+    if appFile.contains("tabby") || bundleId.lowercased().contains("tabby") {
+      if let err = launchTabby(appPath: appPath, user: user, host: host, port: port) {
+        return err
+      }
+      return nil
+    }
+
+    return launchGenericApp(appPath: appPath, sshCmd: sshCmd)
+  }
+
+  private static func launchTabby(appPath: String, user: String, host: String, port: Int) -> String? {
+    let cli = "\(appPath)/Contents/MacOS/Tabby"
+    let sshTarget = port == 22 ? "\(user)@\(host)" : "\(user)@\(host):\(port)"
+    if FileManager.default.fileExists(atPath: cli) {
+      return runProcess(executable: cli, arguments: ["run", "ssh", sshTarget])
+    }
+    let uri = port == 22 ? "ssh://\(user)@\(host)" : "ssh://\(user)@\(host):\(port)"
+    return runProcess(executable: "/usr/bin/open", arguments: ["-a", appPath, "--args", uri])
+  }
+
+  private static func launchGenericApp(appPath: String, sshCmd: String) -> String? {
+    // 多数终端接受：open -na App.app --args $SHELL -lic "ssh ..."
+    return runProcess(
+      executable: "/usr/bin/open",
+      arguments: ["-na", appPath, "--args", "/bin/zsh", "-lic", sshCmd]
+    )
+  }
+
+  private static func runProcess(executable: String, arguments: [String]) -> String? {
+    let proc = Process()
+    proc.executableURL = URL(fileURLWithPath: executable)
+    proc.arguments = arguments
+    do {
+      try proc.run()
+      proc.waitUntilExit()
+      if proc.terminationStatus != 0 {
+        return "启动终端失败（退出码 \(proc.terminationStatus)）"
+      }
+      return nil
+    } catch {
+      return error.localizedDescription
     }
   }
 

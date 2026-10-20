@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'agent_bridge.dart';
 import 'credential_confirm.dart';
 import 'credential_list_tile.dart';
+import 'terminal_settings.dart';
 import 'touch_id_gate.dart';
 
 /// 服务器 / 堡垒机：关联登录、MFA、SSH 的一站式入口。
@@ -37,7 +38,9 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
       _status = '共 ${_items.length} 个服务器配置';
       setState(() {});
     } on AgentException catch (e) {
-      setState(() => _status = AgentBridge.friendlyMessage(e));
+      setState(
+        () => _status = '${AgentBridge.friendlyMessage(e)}\n（详情见「诊断」标签中的 Agent 日志）',
+      );
     }
   }
 
@@ -58,6 +61,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     final labelCtl = TextEditingController(text: existing?['label']?.toString() ?? '');
     final hostCtl = TextEditingController(text: existing?['host']?.toString() ?? '');
     final portCtl = TextEditingController(text: '${existing?['port'] ?? 22}');
+    final manualUserCtl = TextEditingController(text: existing?['manual_username']?.toString() ?? '');
     var linkedLogin = existing?['linked_login_id'] as String?;
     var linkedTotp = existing?['linked_totp_id'] as String?;
     var linkedSsh = existing?['linked_ssh_key_id'] as String?;
@@ -86,7 +90,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                   value: (linkedLogin == null || (linkedLogin?.isEmpty ?? true)) ? null : linkedLogin,
                   decoration: const InputDecoration(labelText: '关联登录密码'),
                   items: [
-                    const DropdownMenuItem(value: null, child: Text('（不关联）')),
+                    const DropdownMenuItem(value: null, child: Text('（不关联，使用下方手动用户名）')),
                     ..._logins.map(
                       (c) => DropdownMenuItem(
                         value: c['id'] as String,
@@ -95,6 +99,16 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                     ),
                   ],
                   onChanged: (v) => setLocal(() => linkedLogin = v),
+                ),
+                TextField(
+                  controller: manualUserCtl,
+                  enabled: linkedLogin == null || (linkedLogin?.isEmpty ?? true),
+                  decoration: InputDecoration(
+                    labelText: '手动 SSH 用户名',
+                    hintText: linkedLogin == null || (linkedLogin?.isEmpty ?? true)
+                        ? '未关联登录时必填'
+                        : '已关联登录，用户名取自凭据',
+                  ),
                 ),
                 DropdownButtonFormField<String?>(
                   value: (linkedTotp == null || (linkedTotp?.isEmpty ?? true)) ? null : linkedTotp,
@@ -138,6 +152,12 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     if (isEdit && !await requireTouchId(context, reason: '保存服务器配置')) return;
 
     final port = int.tryParse(portCtl.text.trim()) ?? 22;
+    final noLinkedLogin = linkedLogin == null || (linkedLogin?.isEmpty ?? true);
+    final manualUser = manualUserCtl.text.trim();
+    if (noLinkedLogin && manualUser.isEmpty) {
+      setState(() => _status = '未关联登录密码时，请填写手动 SSH 用户名');
+      return;
+    }
     try {
       if (isEdit) {
         await AgentBridge.updateServerProfile(
@@ -146,6 +166,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
           label: labelCtl.text.trim(),
           host: hostCtl.text.trim(),
           port: port,
+          manualUsername: noLinkedLogin ? manualUser : '',
           linkedLoginId: linkedLogin,
           linkedTotpId: linkedTotp,
           linkedSshKeyId: linkedSsh,
@@ -155,6 +176,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
           label: labelCtl.text.trim().isEmpty ? hostCtl.text.trim() : labelCtl.text.trim(),
           host: hostCtl.text.trim(),
           port: port,
+          manualUsername: noLinkedLogin ? manualUser : '',
           linkedLoginId: linkedLogin,
           linkedTotpId: linkedTotp,
           linkedSshKeyId: linkedSsh,
@@ -198,6 +220,47 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     }
   }
 
+  Future<String?> _resolveSshUsername(Map<String, dynamic> row) async {
+    final loginId = row['linked_login_id'] as String?;
+    if (loginId != null && loginId.isNotEmpty) {
+      final u = await _loginUsername(loginId);
+      if (u != null && u.isNotEmpty) return u;
+    }
+    final manual = row['manual_username']?.toString().trim() ?? '';
+    return manual.isEmpty ? null : manual;
+  }
+
+  Future<void> _openInTerminal() async {
+    final row = _selected;
+    if (row == null) return;
+    final host = row['host']?.toString().trim() ?? '';
+    if (host.isEmpty) {
+      setState(() => _status = '主机地址为空');
+      return;
+    }
+    final username = await _resolveSshUsername(row);
+    if (username == null || username.isEmpty) {
+      setState(() => _status = '请关联登录凭据，或在编辑里填写「手动 SSH 用户名」');
+      return;
+    }
+    if (!await ensureTerminalConfigured(context)) {
+      setState(() => _status = '请先选择终端应用（终端设置）');
+      return;
+    }
+    final port = row['port'] is int ? row['port'] as int : int.tryParse('${row['port']}') ?? 22;
+    final err = await AgentBridge.openSshInTerminal(host: host, port: port, username: username);
+    if (err != null && err.isNotEmpty) {
+      setState(() => _status = err);
+      return;
+    }
+    if (mounted) {
+      final term = await loadTerminalApplication();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已在 ${terminalDisplayName(term)} 中打开 SSH')),
+      );
+    }
+  }
+
   Future<void> _copyPassword() async {
     final loginId = _selected?['linked_login_id'] as String?;
     if (loginId == null || loginId.isEmpty) {
@@ -236,8 +299,12 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
   Future<void> _copySshHint() async {
     final host = _selected?['host']?.toString() ?? '';
     final port = _selected?['port'] ?? 22;
-    final user = await _loginUsername(_selected?['linked_login_id'] as String?);
-    final u = user ?? 'user';
+    final user = _selected == null ? null : await _resolveSshUsername(_selected!);
+    if (user == null || user.isEmpty) {
+      setState(() => _status = '无法生成 SSH 命令：缺少用户名');
+      return;
+    }
+    final u = user;
     final line = port == 22 ? 'ssh $u@$host' : 'ssh -p $port $u@$host';
     await Clipboard.setData(ClipboardData(text: line));
     if (mounted) {
@@ -252,10 +319,21 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          FilledButton.icon(
-            onPressed: () => _addOrEdit(),
-            icon: const Icon(Icons.add),
-            label: const Text('添加服务器 / 堡垒机'),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => _addOrEdit(),
+                  icon: const Icon(Icons.add),
+                  label: const Text('添加服务器 / 堡垒机'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: () => showTerminalPickerDialog(context),
+                child: const Text('终端设置'),
+              ),
+            ],
           ),
           if (_status.isNotEmpty) Text(_status, style: Theme.of(context).textTheme.bodySmall),
           Expanded(
@@ -276,9 +354,11 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                         _totps,
                         'issuer',
                       );
+                      final manualUser = row['manual_username']?.toString().trim() ?? '';
                       final sub = [
                         '${row['host']}:${row['port']}',
                         if (loginLbl != null) '登录: $loginLbl',
+                        if (loginLbl == null && manualUser.isNotEmpty) '用户: $manualUser',
                         if (totpLbl != null) 'MFA: $totpLbl',
                       ].join(' · ');
                       return selectableCredentialTile(
@@ -296,6 +376,11 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
               spacing: 8,
               runSpacing: 8,
               children: [
+                FilledButton.icon(
+                  onPressed: _openInTerminal,
+                  icon: const Icon(Icons.terminal),
+                  label: const Text('打开终端连接'),
+                ),
                 OutlinedButton(onPressed: _copySshHint, child: const Text('复制 SSH 命令')),
                 OutlinedButton(onPressed: _copyPassword, child: const Text('复制密码')),
                 FilledButton.tonal(onPressed: _copyMfa, child: const Text('复制 MFA')),

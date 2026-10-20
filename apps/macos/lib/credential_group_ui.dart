@@ -74,6 +74,54 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
   );
 }
 
+/// 将已有凭据（items.item_id）移入/移出分组。
+Future<void> showMoveItemToGroupDialog(
+  BuildContext context, {
+  required String scope,
+  required String itemId,
+  String? currentGroupId,
+}) async {
+  var groups = await loadCredentialGroups(scope);
+  String? selected = (currentGroupId == null || currentGroupId!.isEmpty) ? null : currentGroupId;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setLocal) => AlertDialog(
+        title: const Text('移到分组'),
+        content: DropdownButtonFormField<String?>(
+          value: selected,
+          decoration: const InputDecoration(labelText: '目标分组'),
+          items: [
+            const DropdownMenuItem(value: null, child: Text('（未分组）')),
+            ...groups.map(
+              (g) => DropdownMenuItem(
+                value: g['id'] as String,
+                child: Text(g['name']?.toString() ?? ''),
+              ),
+            ),
+          ],
+          onChanged: (v) => setLocal(() => selected = v),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('保存')),
+        ],
+      ),
+    ),
+  );
+  if (ok != true) return;
+  try {
+    await AgentBridge.setItemGroup(itemId, selected);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('分组已更新')));
+    }
+  } on AgentException catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+}
+
 Widget buildGroupFilterBar({
   required List<Map<String, dynamic>> groups,
   required String? selectedGroupId,

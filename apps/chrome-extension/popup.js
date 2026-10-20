@@ -7,7 +7,7 @@ async function handshake() {
     return;
   }
   const st = await chrome.runtime.sendMessage({ type: "agent_status" });
-  const payload = st?.payload ?? st?.ok?.payload ?? {};
+  const payload = st?.payload ?? {};
   const unlocked = payload.unlocked === true;
   const attached = payload.database_attached === true;
   const count = payload.credential_count ?? 0;
@@ -15,6 +15,7 @@ async function handshake() {
     `Agent 已连接\n` +
     `Vault: ${unlocked ? (attached ? "已解锁（可写库）" : "已解锁（须主密码写库）") : "已锁定"}\n` +
     `凭据数: ${count}\n` +
+    `（连接由后台保持，可关闭本窗口）\n` +
     JSON.stringify(payload, null, 2);
 }
 
@@ -34,62 +35,19 @@ document.getElementById("saveDemo").addEventListener("click", async () => {
 
 document.getElementById("fillDemo").addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !tab.url?.startsWith("http")) {
-    statusEl.textContent = "请在普通网页标签页中使用填充演示";
+  if (!tab?.id) {
+    statusEl.textContent = "无活动标签页";
     return;
   }
-  const origin = new URL(tab.url).origin;
-  const ctx = await chrome.tabs.sendMessage(tab.id, { type: "fill_context" });
-  if (!ctx?.documentId || !ctx?.origin) {
-    statusEl.textContent = "无法读取目标页面上下文";
-    return;
-  }
-  if (ctx.origin !== origin) {
-    statusEl.textContent = "页面 origin 不一致";
-    return;
-  }
-  const suggest = await chrome.runtime.sendMessage({ type: "suggest_credentials", origin });
-  const candidates =
-    suggest?.payload?.candidates ?? suggest?.candidates ?? [];
-  const credentialId = candidates[0]?.id;
-  if (!credentialId) {
-    statusEl.textContent = "该站点无已保存凭据，请先「保存演示」";
-    return;
-  }
-  const prep = await chrome.runtime.sendMessage({
-    type: "fill_prepare",
-    credential_id: credentialId,
-    origin: ctx.origin,
+  statusEl.textContent = "填充进行中…（可关闭本窗口，后台会继续）";
+  const result = await chrome.runtime.sendMessage({
+    type: "fill_active_tab",
     tab_id: tab.id,
-    frame_id: ctx.frameId ?? 0,
-    document_id: ctx.documentId,
   });
-  statusEl.textContent = "prepare: " + JSON.stringify(prep);
-  if (!prep?.payload?.prepared) return;
-  const requestId = prep.payload?.request_id || prep.request_id;
-  const consume = await chrome.runtime.sendMessage({
-    type: "fill_consume",
-    request_id: requestId,
-    origin: ctx.origin,
-    tab_id: tab.id,
-    frame_id: ctx.frameId ?? 0,
-    document_id: ctx.documentId,
-  });
-  const secrets = consume?.payload || consume;
-  if (!secrets?.username && !secrets?.password) {
-    statusEl.textContent = "consume 失败: " + JSON.stringify(consume);
-    return;
-  }
-  const deliver = await chrome.tabs.sendMessage(
-    tab.id,
-    {
-      type: "deliver_secret",
-      document_id: ctx.documentId,
-      origin: ctx.origin,
-      username: secrets.username,
-      password: secrets.password,
-    },
-    { frameId: ctx.frameId ?? 0 }
-  );
-  statusEl.textContent = deliver?.filled ? "filled" : "投递被拒绝";
+  statusEl.textContent = result?.ok
+    ? `已填充：${result.origin}`
+    : JSON.stringify(result, null, 2);
 });
+
+// 打开 popup 时自动探测一次状态
+handshake().catch(() => {});

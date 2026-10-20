@@ -19,9 +19,7 @@ class AppDelegate: FlutterAppDelegate {
     LifecycleBridge.shared.start()
 
     if let controller = mainFlutterWindow?.contentViewController as? FlutterViewController {
-      if let host = Bundle.main.path(forResource: "credpivot-native-host", ofType: nil) {
-        setenv("CREDPIVOT_TRUSTED_NATIVE_HOST", host, 1)
-      }
+      ChromeHostInstaller.applyTrustedNativeHostEnv()
       platform = CredPivotPlatform(messenger: controller.engine.binaryMessenger)
       let code = CredPivotRustFFI.start()
       if code != 0 {

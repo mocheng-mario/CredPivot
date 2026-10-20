@@ -1,6 +1,9 @@
 # 仓库根目录（本文件位于 make/ 下）
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 
+# 与 Runner MACOSX_DEPLOYMENT_TARGET 一致，避免 SQLCipher 对象文件 SDK 版本与链接目标不一致。
+export MACOSX_DEPLOYMENT_TARGET ?= 15.0
+
 CARGO ?= cargo
 FLUTTER ?= flutter
 CARGO_TARGET_DIR ?= $(ROOT)/target

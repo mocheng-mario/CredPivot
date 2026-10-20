@@ -674,6 +674,19 @@ class _TotpPanelState extends State<_TotpPanel> {
                 OutlinedButton(onPressed: _showOtpauthUri, child: const Text('otpauth URI')),
                 OutlinedButton(onPressed: _showSecret, child: const Text('密钥')),
                 OutlinedButton(
+                  onPressed: () {
+                    final itemId = _selected!['item_id'] as String?;
+                    if (itemId == null) return;
+                    showMoveItemToGroupDialog(
+                      context,
+                      scope: 'totp',
+                      itemId: itemId,
+                      currentGroupId: _selected!['group_id'] as String?,
+                    ).then((_) => _refresh());
+                  },
+                  child: const Text('移到分组'),
+                ),
+                OutlinedButton(
                   onPressed: () => _deleteTotp(_selected!),
                   child: const Text('删除'),
                 ),
@@ -692,6 +705,9 @@ class _SshKeysPanel extends StatefulWidget {
 
 class _SshKeysPanelState extends State<_SshKeysPanel> {
   List<Map<String, dynamic>> _items = [];
+  List<Map<String, dynamic>> _groups = [];
+  String? _filterGroupId;
+  Map<String, dynamic>? _selected;
   String _status = '';
 
   @override
@@ -703,6 +719,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
   Future<void> _refresh() async {
     try {
       _items = await AgentBridge.listSshKeys();
+      _groups = await loadCredentialGroups('ssh');
       if (_items.isEmpty) {
         await AgentBridge.generateSshKey(label: 'Default', setDefault: true);
         _items = await AgentBridge.listSshKeys();
@@ -717,6 +734,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
   Future<void> _generate() async {
     final labelCtl = TextEditingController(text: 'Key ${_items.length + 1}');
     bool setDefault = false;
+    var groupId = _filterGroupId;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -725,6 +743,20 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              DropdownButtonFormField<String?>(
+                value: (groupId == null || (groupId?.isEmpty ?? true)) ? null : groupId,
+                decoration: const InputDecoration(labelText: '分组'),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('（未分组）')),
+                  ..._groups.map(
+                    (g) => DropdownMenuItem(
+                      value: g['id'] as String,
+                      child: Text(g['name']?.toString() ?? ''),
+                    ),
+                  ),
+                ],
+                onChanged: (v) => setLocal(() => groupId = v),
+              ),
               TextField(controller: labelCtl, decoration: const InputDecoration(labelText: '标签')),
               CheckboxListTile(
                 value: setDefault,
@@ -751,11 +783,21 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
       return;
     }
     try {
-      await AgentBridge.generateSshKey(label: labelCtl.text.trim(), setDefault: setDefault);
+      await AgentBridge.generateSshKey(
+        label: labelCtl.text.trim(),
+        setDefault: setDefault,
+        groupId: groupId,
+      );
       await _refresh();
     } on AgentException catch (e) {
       setState(() => _status = e.message);
     }
+  }
+
+  void _copyPublicKey(Map<String, dynamic> row) {
+    final pub = row['public_openssh']?.toString() ?? '';
+    Clipboard.setData(ClipboardData(text: pub));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('公钥已复制')));
   }
 
   @override
@@ -771,31 +813,68 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
             label: const Text('生成 SSH 密钥'),
           ),
           if (_status.isNotEmpty) Text(_status, style: Theme.of(context).textTheme.bodySmall),
-          Expanded(
-            child: ListView.builder(
-              itemCount: _items.length,
-              itemBuilder: (_, i) {
-                final row = _items[i];
-                final pub = row['public_openssh']?.toString() ?? '';
-                return ListTile(
-                  title: Text(row['label']?.toString() ?? 'SSH'),
-                  subtitle: Text(
-                    pub.length > 48 ? '${pub.substring(0, 48)}…' : pub,
-                    maxLines: 2,
-                  ),
-                  trailing: row['is_default'] == true
-                      ? const Chip(label: Text('默认'))
-                      : null,
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: pub));
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('公钥已复制')));
-                  },
-                );
-              },
-            ),
+          buildGroupFilterBar(
+            groups: _groups,
+            selectedGroupId: _filterGroupId,
+            onChanged: (v) => setState(() => _filterGroupId = v),
+            onManage: () => showManageGroupsDialog(context, 'ssh').then((_) => _refresh()),
           ),
+          Expanded(
+            child: _items.isEmpty
+                ? const Center(child: Text('暂无 SSH 密钥'))
+                : ListView(
+                    children: buildGroupedListTiles(
+                      groups: _groups,
+                      items: _items.where((row) {
+                        if (_filterGroupId == null) return true;
+                        return row['group_id'] == _filterGroupId;
+                      }).toList(),
+                      tileBuilder: (row) {
+                        final pub = row['public_openssh']?.toString() ?? '';
+                        final selected = _selected?['id'] == row['id'];
+                        return selectableCredentialTile(
+                          context: context,
+                          selected: selected,
+                          title: Text(row['label']?.toString() ?? 'SSH'),
+                          subtitle: Text(
+                            pub.length > 48 ? '${pub.substring(0, 48)}…' : pub,
+                            maxLines: 2,
+                          ),
+                          trailing: row['is_default'] == true
+                              ? const Chip(label: Text('默认'))
+                              : null,
+                          onTap: () => setState(() => _selected = row),
+                        );
+                      },
+                    ),
+                  ),
+          ),
+          if (_selected != null)
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonal(
+                  onPressed: () => _copyPublicKey(_selected!),
+                  child: const Text('复制公钥'),
+                ),
+                OutlinedButton(
+                  onPressed: () {
+                    final itemId = _selected!['item_id'] as String?;
+                    if (itemId == null) return;
+                    showMoveItemToGroupDialog(
+                      context,
+                      scope: 'ssh',
+                      itemId: itemId,
+                      currentGroupId: _selected!['group_id'] as String?,
+                    ).then((_) => _refresh());
+                  },
+                  child: const Text('移到分组'),
+                ),
+              ],
+            ),
           const Text(
-            '点击条目复制公钥；在「保险库」页可配置 SSH IdentityAgent。',
+            '选中密钥后可复制公钥或调整分组；在「保险库」页可配置 SSH IdentityAgent。',
             style: TextStyle(fontSize: 11, color: Colors.black54),
           ),
         ],

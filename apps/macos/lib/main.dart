@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 
 import 'agent_bridge.dart';
 import 'build_stamp.dart';
+import 'chrome_setup_tab.dart';
+import 'diagnostics_tab.dart';
 import 'credentials_page.dart';
 import 'touch_id_gate.dart';
 import 'memory_format.dart';
@@ -125,14 +127,14 @@ class _VaultHomePageState extends State<VaultHomePage> {
         );
       }
       _chromeExtensionId.text = await AgentBridge.getChromeExtensionId();
-      if (_chromeExtensionId.text.isNotEmpty) {
-        final r = await AgentBridge.installChromeHost(_chromeExtensionId.text);
+      final chrome = await AgentBridge.chromeHostStatus();
+      final id = _chromeExtensionId.text.trim();
+      if (id.isNotEmpty &&
+          (chrome['manifest_exists'] != true || chrome['installed_host_exists'] != true)) {
+        final r = await AgentBridge.installChromeHost(id);
         if (r['ok'] != true) {
           _appendLog('Chrome Host: ${r['message']}');
         }
-      }
-      if (_chromeExtensionId.text.trim().isEmpty) {
-        _chromeExtensionId.text = 'kclmbggfjdokgcmgdofhhkpadklbjcii';
       }
       await _refreshStatus();
     } catch (e) {
@@ -328,14 +330,16 @@ class _VaultHomePageState extends State<VaultHomePage> {
         : (_unlocked ? '已解锁' : '已锁定');
     final format = _status['format']?.toString() ?? 'm2';
     return DefaultTabController(
-      length: 3,
+      length: 5,
       child: Scaffold(
       appBar: AppBar(
         title: Text('CredPivot ${format.toUpperCase()}'),
         bottom: const TabBar(tabs: [
           Tab(text: '保险库'),
           Tab(text: '凭据'),
+          Tab(text: 'Chrome'),
           Tab(text: '安全中心'),
+          Tab(text: '诊断'),
         ]),
         actions: [
           Padding(
@@ -391,14 +395,6 @@ class _VaultHomePageState extends State<VaultHomePage> {
                   labelText: '恢复密钥（仅 OVB 恢复）',
                 ),
               ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _chromeExtensionId,
-                decoration: const InputDecoration(
-                  labelText: 'Chrome 扩展 ID',
-                  hintText: '例如 kclmbggfjdokgcmgdofhhkpadklbjcii',
-                ),
-              ),
               const SizedBox(height: 12),
               AbsorbPointer(
                 absorbing: _busy,
@@ -440,7 +436,6 @@ class _VaultHomePageState extends State<VaultHomePage> {
                     child: const Text('SSH IdentityAgent'),
                   ),
                   OutlinedButton(onPressed: _removeSshIdentityAgent, child: const Text('撤销 SSH')),
-                  OutlinedButton(onPressed: _installChromeHost, child: const Text('安装 Chrome Native Host')),
                   OutlinedButton(onPressed: _restartAgent, child: const Text('重启 Agent')),
                   OutlinedButton(onPressed: _relaunchApp, child: const Text('重新打开应用')),
                 ],
@@ -455,7 +450,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
                 padding: EdgeInsets.only(top: 8),
                 child: Text(
                   'M2：CPVC1 + SQLCipher 登录凭据已入库（须主密码解锁）。'
-                  ' Chrome 需填写扩展 ID 并安装 Host；保存前请保持本 App 已启动 Agent。',
+                  ' Chrome 配置见「Chrome」标签；保存前请保持本 App 已启动 Agent。',
                   style: TextStyle(fontSize: 12, color: Colors.black54),
                 ),
               ),
@@ -463,6 +458,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
           ),
           ),
           CredentialsTab(unlocked: _unlocked),
+          ChromeSetupTab(extensionIdController: _chromeExtensionId, busy: _busy),
           SecurityCenterTab(
             unlocked: _unlocked,
             onVaultSwitched: () {
@@ -470,6 +466,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
               _refreshStatus();
             },
           ),
+          const DiagnosticsTab(),
         ],
       ),
     ),
@@ -487,18 +484,6 @@ class _VaultHomePageState extends State<VaultHomePage> {
     await _run('SSH', () async {
       final r = await AgentBridge.appendSshIdentityAgent();
       _appendLog('${r['message']}\n${r['configPath'] ?? ''}');
-    });
-  }
-
-  Future<void> _installChromeHost() async {
-    final id = _chromeExtensionId.text.trim();
-    if (id.isEmpty) {
-      _appendLog('请填写 Chrome 扩展 ID');
-      return;
-    }
-    await _run('Chrome Host', () async {
-      final r = await AgentBridge.installChromeHost(id);
-      _appendLog('${r['message']}\n${r['manifest_path'] ?? ''}');
     });
   }
 

@@ -162,6 +162,22 @@ class AgentBridge {
     return {'ok': false, 'message': '未知返回: $raw'};
   }
 
+  static Future<Map<String, dynamic>> revealChromeExtensionDir() async {
+    final raw = await _channel.invokeMethod<dynamic>('revealChromeExtensionDir');
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+    return {'ok': false, 'message': '未知返回: $raw'};
+  }
+
+  static Future<Map<String, dynamic>> openChromeExtensionsPage() async {
+    final raw = await _channel.invokeMethod<dynamic>('openChromeExtensionsPage');
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+    return {'ok': false, 'message': '未知返回: $raw'};
+  }
+
   static Future<Map<String, dynamic>> appendSshIdentityAgent() async {
     final raw = await _channel.invokeMethod<dynamic>('appendSshIdentityAgent');
     if (raw is Map) {
@@ -218,11 +234,29 @@ class AgentBridge {
     });
   }
 
-  static Future<String?> getTerminalPreference() =>
-      _channel.invokeMethod<String>('getTerminalPreference');
+  static Future<Map<String, dynamic>> fetchDiagnosticLog({int maxLines = 400}) async {
+    final resp = await request({
+      'type': 'diagnostic_log_tail',
+      'max_lines': maxLines,
+    });
+    return payloadOf(resp);
+  }
 
-  static Future<void> setTerminalPreference(String terminalId) =>
-      _channel.invokeMethod('setTerminalPreference', terminalId);
+  static Future<Map<String, dynamic>> getTerminalApplication() async {
+    final raw = await _channel.invokeMethod<dynamic>('getTerminalPreference');
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+    return {'path': '', 'name': ''};
+  }
+
+  static Future<Map<String, dynamic>?> pickTerminalApplication() async {
+    final raw = await _channel.invokeMethod<dynamic>('pickTerminalApplication');
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+    return null;
+  }
 
   static Future<String?> openSshInTerminal({
     required String host,
@@ -384,11 +418,13 @@ class AgentBridge {
   static Future<Map<String, dynamic>> generateSshKey({
     required String label,
     bool setDefault = false,
+    String? groupId,
   }) async {
     final resp = await request({
       'type': 'ssh_key_generate',
       'label': label,
       'set_default': setDefault,
+      if (groupId != null && groupId.isNotEmpty) 'group_id': groupId,
     });
     return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
   }

@@ -25,6 +25,7 @@ impl AgentRuntime {
     pub async fn start() -> Result<Self> {
         let lock = SingleWriterLock::acquire()?;
         ensure_runtime_dir()?;
+        crate::diagnostics::init();
 
         remove_stale_socket(&agent_socket_path())?;
         remove_stale_socket(&ssh_agent_socket_path())?;

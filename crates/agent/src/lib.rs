@@ -1,4 +1,5 @@
 mod client;
+mod diagnostics;
 mod error;
 mod ipc;
 mod paths;
@@ -11,12 +12,13 @@ mod ssh_agent;
 mod vault_session;
 
 pub use client::{call_agent, call_in_process};
+pub use diagnostics::{init as init_diagnostics, log_file_path, tail_lines as diagnostic_log_tail};
 pub use error::{AgentError, Result};
 pub use ipc::{handle_request, IpcState};
 pub use peer_auth::PeerAuthConfig;
 pub use paths::{
-    agent_socket_path, ensure_runtime_dir, runtime_dir, ssh_agent_socket_path,
-    single_writer_lock_path,
+    agent_socket_path, ensure_runtime_dir, materialized_native_host_path, runtime_dir,
+    ssh_agent_socket_path, single_writer_lock_path,
 };
 pub use protocol::{AgentRequest, AgentResponse, MIN_COMPATIBLE_PROTOCOL, PROTOCOL_VERSION};
 pub use runtime::AgentRuntime;

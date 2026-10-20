@@ -122,6 +122,8 @@ pub enum AgentRequest {
     SshKeyGenerate {
         label: String,
         set_default: Option<bool>,
+        #[serde(default)]
+        group_id: Option<String>,
     },
     VaultCreate { password: String },
     VaultChangePassword {
@@ -167,6 +169,14 @@ pub enum AgentRequest {
         password: String,
     },
     VaultVerifyRecoveryKey { recovery_key: String },
+    DiagnosticLogTail {
+        #[serde(default = "default_log_tail_lines")]
+        max_lines: usize,
+    },
+}
+
+fn default_log_tail_lines() -> usize {
+    400
 }
 
 fn default_ssh_port() -> u16 {
@@ -196,10 +206,12 @@ impl AgentResponse {
     }
 
     pub fn err(code: &str, message: impl Into<String>) -> Self {
+        let message = message.into();
+        crate::diagnostics::error("agent", format!("code={code} {message}"));
         Self::Err {
             protocol_version: PROTOCOL_VERSION,
             code: code.into(),
-            message: message.into(),
+            message,
         }
     }
 }

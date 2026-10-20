@@ -379,7 +379,7 @@ pub fn ensure_default_ssh_key(conn: &Connection) -> Result<SshKeyRecord> {
     let seed = signing.to_bytes();
     let vk = signing.verifying_key();
     let public = format_ssh_ed25519_openssh(vk.as_bytes(), "credpivot");
-    insert_ssh_key(conn, "Default", &public, &seed, true)
+    insert_ssh_key(conn, "Default", &public, &seed, true, None)
 }
 
 pub fn insert_ssh_key(
@@ -388,6 +388,7 @@ pub fn insert_ssh_key(
     public_openssh: &str,
     seed: &[u8; 32],
     is_default: bool,
+    group_id: Option<&str>,
 ) -> Result<SshKeyRecord> {
     let item_id = Uuid::new_v4().to_string();
     let key_id = Uuid::new_v4().to_string();
@@ -404,9 +405,9 @@ pub fn insert_ssh_key(
         .map_err(|e| CoreError::format(e.to_string()))?;
     }
     tx.execute(
-        "INSERT INTO items (id, kind, title, trashed, current_revision, created_at_ms, updated_at_ms)
-         VALUES (?1, 'ssh_key', ?2, 0, ?3, ?4, ?4)",
-        params![item_id, label, revision, ts],
+        "INSERT INTO items (id, kind, title, trashed, group_id, current_revision, created_at_ms, updated_at_ms)
+         VALUES (?1, 'ssh_key', ?2, 0, ?3, ?4, ?5, ?5)",
+        params![item_id, label, group_id, revision, ts],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     tx.execute(
@@ -494,6 +495,7 @@ pub struct SshKeyListRow {
     pub label: String,
     pub public_openssh: String,
     pub is_default: bool,
+    pub group_id: Option<String>,
 }
 
 pub fn list_totp_credentials(conn: &Connection) -> Result<Vec<TotpListRow>> {
@@ -528,7 +530,7 @@ pub fn list_totp_credentials(conn: &Connection) -> Result<Vec<TotpListRow>> {
 pub fn list_ssh_keys(conn: &Connection) -> Result<Vec<SshKeyListRow>> {
     let mut stmt = conn
         .prepare(
-            "SELECT s.id, s.item_id, s.label, s.public_openssh, s.is_default
+            "SELECT s.id, s.item_id, s.label, s.public_openssh, s.is_default, i.group_id
              FROM ssh_keys s
              INNER JOIN items i ON i.id = s.item_id
              WHERE i.trashed = 0
@@ -543,6 +545,7 @@ pub fn list_ssh_keys(conn: &Connection) -> Result<Vec<SshKeyListRow>> {
                 label: row.get(2)?,
                 public_openssh: row.get(3)?,
                 is_default: row.get::<_, i64>(4)? != 0,
+                group_id: row.get(5)?,
             })
         })
         .map_err(|e| CoreError::format(e.to_string()))?;
@@ -553,20 +556,26 @@ pub fn list_ssh_keys(conn: &Connection) -> Result<Vec<SshKeyListRow>> {
     Ok(out)
 }
 
-pub fn generate_ssh_key(conn: &Connection, label: &str, set_default: bool) -> Result<SshKeyListRow> {
+pub fn generate_ssh_key(
+    conn: &Connection,
+    label: &str,
+    set_default: bool,
+    group_id: Option<&str>,
+) -> Result<SshKeyListRow> {
     use ed25519_dalek::SigningKey;
     use rand::rngs::OsRng;
     let signing = SigningKey::generate(&mut OsRng);
     let seed = signing.to_bytes();
     let vk = signing.verifying_key();
     let public = format_ssh_ed25519_openssh(vk.as_bytes(), "credpivot");
-    let rec = insert_ssh_key(conn, label, &public, &seed, set_default)?;
+    let rec = insert_ssh_key(conn, label, &public, &seed, set_default, group_id)?;
     Ok(SshKeyListRow {
         id: rec.id,
         item_id: rec.item_id,
         label: rec.label,
         public_openssh: rec.public_openssh,
         is_default: rec.is_default,
+        group_id: group_id.map(|s| s.to_string()),
     })
 }
 

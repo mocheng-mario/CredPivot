@@ -11,6 +11,11 @@ pub fn agent_socket_path() -> PathBuf {
     runtime_dir().join("agent.sock")
 }
 
+/// Chrome Native Messaging 清单默认指向的 host 副本（与 App 包内二进制一致）。
+pub fn materialized_native_host_path() -> PathBuf {
+    runtime_dir().join("credpivot-native-host")
+}
+
 pub fn ssh_agent_socket_path() -> PathBuf {
     runtime_dir().join("ssh.sock")
 }

@@ -223,7 +223,7 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
                 Ok(c) => c,
                 Err(_) => return AgentResponse::err("not_found", "credential not found"),
             };
-            if cred.origin != origin {
+            if !VaultSession::origin_matches_credential_page(&cred.origin, &origin) {
                 return AgentResponse::err("origin_mismatch", "credential does not match page origin");
             }
             let now = now_ms();
@@ -267,7 +267,7 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
             }
             match v.get_credential(&grant.credential_id) {
                 Ok(c) => {
-                    if c.origin != grant.origin {
+                    if !VaultSession::origin_matches_credential_page(&c.origin, &grant.origin) {
                         return AgentResponse::err("origin_mismatch", "credential origin mismatch");
                     }
                     AgentResponse::ok(json!({
@@ -441,14 +441,22 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }
-        AgentRequest::SshKeyGenerate { label, set_default } => {
+        AgentRequest::SshKeyGenerate {
+            label,
+            set_default,
+            group_id,
+        } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
             let def = set_default.unwrap_or(false);
-            match v.generate_ssh_key(&label, def) {
+            match v.generate_ssh_key(
+                &label,
+                def,
+                group_id.as_deref().and_then(|s| opt_nonempty(s)),
+            ) {
                 Ok(row) => AgentResponse::ok(json!({ "item": row })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
@@ -696,6 +704,14 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
                     }
                 }
             }
+        }
+        AgentRequest::DiagnosticLogTail { max_lines } => {
+            let lines = max_lines.clamp(1, 2000);
+            let text = crate::diagnostics::tail_lines(lines);
+            AgentResponse::ok(json!({
+                "path": crate::diagnostics::log_file_path().to_string_lossy(),
+                "text": text,
+            }))
         }
     }
 }

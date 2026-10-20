@@ -38,7 +38,7 @@ pub use ovb1::{build_ovb_file, decrypt_snapshot, parse_ovb_file, parse_ovb_with_
 pub use password_change::change_master_password;
 pub use recovery_key::{format_display, generate as generate_recovery_key, parse_display as parse_recovery_display};
 pub use local_db::{open_database, sqlcipher_sidecar_paths, verify_database, SQLCIPHER_M1_LABEL};
-pub use migrate::SCHEMA_USER_VERSION;
+pub use migrate::{migrate_to_latest, SCHEMA_USER_VERSION};
 pub use bitwarden_import::{import_bitwarden_json, ImportReport};
 pub use repo::{
     count_login_credentials, get_login_secret, insert_login_credential, list_login_by_origin,

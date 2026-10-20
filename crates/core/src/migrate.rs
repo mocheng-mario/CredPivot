@@ -2,7 +2,7 @@ use crate::error::{CoreError, Result};
 use rusqlite::Connection;
 
 /// SQLCipher `user_version`：与迁移脚本同步递增。
-pub const SCHEMA_USER_VERSION: i32 = 7;
+pub const SCHEMA_USER_VERSION: i32 = 8;
 
 const MIGRATION_V1: &str = "
 CREATE TABLE IF NOT EXISTS vault_meta (
@@ -142,6 +142,40 @@ ALTER TABLE totp_credentials ADD COLUMN totp_digits INTEGER NOT NULL DEFAULT 6;
 ALTER TABLE totp_credentials ADD COLUMN totp_period INTEGER NOT NULL DEFAULT 30;
 ";
 
+/// 早期开发库在 V5 可能已创建不含 `manual_username` 的 `server_login_profiles`（CREATE IF NOT EXISTS 不会补列）。
+fn repair_server_login_profiles_columns(conn: &Connection) -> Result<()> {
+    ensure_column(
+        conn,
+        "server_login_profiles",
+        "manual_username",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_column(conn, "server_login_profiles", "linked_ssh_key_id", "TEXT")?;
+    Ok(())
+}
+
+fn ensure_column(conn: &Connection, table: &str, column: &str, definition: &str) -> Result<()> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    let mut exists = false;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    for name in rows {
+        if name.as_deref() == Ok(column) {
+            exists = true;
+            break;
+        }
+    }
+    if !exists {
+        let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {definition}");
+        conn.execute(&sql, [])
+            .map_err(|e| CoreError::format(e.to_string()))?;
+    }
+    Ok(())
+}
+
 pub fn migrate_to_latest(conn: &Connection) -> Result<()> {
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
@@ -204,6 +238,14 @@ pub fn migrate_to_latest(conn: &Connection) -> Result<()> {
     if version < 7 {
         conn.execute_batch(MIGRATION_V7)
             .map_err(|e| CoreError::format(e.to_string()))?;
+        conn.pragma_update(None, "user_version", 7)
+            .map_err(|e| CoreError::format(e.to_string()))?;
+    }
+    let version: i32 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|e| CoreError::format(e.to_string()))?;
+    if version < 8 {
+        repair_server_login_profiles_columns(conn)?;
         conn.pragma_update(None, "user_version", SCHEMA_USER_VERSION)
             .map_err(|e| CoreError::format(e.to_string()))?;
     }

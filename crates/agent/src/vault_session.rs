@@ -1,5 +1,4 @@
 use crate::error::{AgentError, Result};
-use base64::Engine;
 use credpivot_core::{
     bootstrap_vault_dir, change_master_password_in_dir, clone_vault_to_empty_dir,
     create_restore_point_for_risky_op, export_ovb_from_dir, list_restore_points,
@@ -46,6 +45,27 @@ pub struct FillGrant {
     pub frame_id: i64,
     pub document_id: String,
     pub expires_at_ms: u128,
+}
+
+fn normalize_origin_key(origin: &str) -> String {
+    origin.trim().trim_end_matches('/').to_string()
+}
+
+fn origin_match_variants(origin: &str) -> Vec<String> {
+    let base = normalize_origin_key(origin);
+    let mut out = vec![base.clone()];
+    if let Some(rest) = base.strip_prefix("https://www.") {
+        out.push(format!("https://{}", rest));
+    } else if let Some(rest) = base.strip_prefix("http://www.") {
+        out.push(format!("http://{}", rest));
+    } else if let Some(rest) = base.strip_prefix("https://") {
+        out.push(format!("https://www.{}", rest));
+    } else if let Some(rest) = base.strip_prefix("http://") {
+        out.push(format!("http://www.{}", rest));
+    }
+    out.sort();
+    out.dedup();
+    out
 }
 
 impl VaultSession {
@@ -316,9 +336,16 @@ impl VaultSession {
             .db
             .as_ref()
             .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
-        let list = db
-            .list_by_origin(origin)
-            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        let mut list = Vec::new();
+        for variant in origin_match_variants(origin) {
+            let chunk = db
+                .list_by_origin(&variant)
+                .map_err(|e| AgentError::Vault(e.to_string()))?;
+            if !chunk.is_empty() {
+                list = chunk;
+                break;
+            }
+        }
         Ok(list
             .into_iter()
             .map(|c| FakeCredential {
@@ -328,6 +355,12 @@ impl VaultSession {
                 password: String::new(),
             })
             .collect())
+    }
+
+    pub fn origin_matches_credential_page(cred_origin: &str, page_origin: &str) -> bool {
+        let a = origin_match_variants(cred_origin);
+        let b = origin_match_variants(page_origin);
+        a.iter().any(|x| b.contains(x))
     }
 
     pub fn list_credentials(&self, query: Option<&str>, limit: u32) -> Result<Vec<credpivot_core::LoginListRow>> {
@@ -514,10 +547,15 @@ impl VaultSession {
         db.list_ssh().map_err(|e| AgentError::Vault(e.to_string()))
     }
 
-    pub fn generate_ssh_key(&mut self, label: &str, set_default: bool) -> Result<credpivot_core::SshKeyListRow> {
+    pub fn generate_ssh_key(
+        &mut self,
+        label: &str,
+        set_default: bool,
+        group_id: Option<&str>,
+    ) -> Result<credpivot_core::SshKeyListRow> {
         let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
         let row = db
-            .generate_ssh(label, set_default)
+            .generate_ssh(label, set_default, group_id)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         if set_default {
             self.sync_ssh_from_db()?;
