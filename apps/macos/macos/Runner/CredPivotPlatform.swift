@@ -82,7 +82,7 @@ final class CredPivotPlatform: NSObject {
       result(resp.contains("\"unlocked\":true"))
     case "authenticateTouchId":
       let reason = (call.arguments as? String) ?? "CredPivot 需要验证您的身份"
-      TouchIdGate.shared.authenticateBiometricOnly(reason: reason) { ok in
+      TouchIdGate.shared.authenticateSensitiveOperation(reason: reason) { ok in
         DispatchQueue.main.async {
           result(ok)
         }
@@ -339,80 +339,28 @@ final class TouchIdGate {
   private let keychainService = "com.credpivot.macos.touchid.m0"
   private let keychainAccount = "vmk-wrapper-token"
 
-  /// Chrome 扩展门槛：先 Touch ID；用户点「使用密码」时 `userFallback`，再弹系统登录密码。
+  /// Chrome 扩展与 App 敏感操作使用相同的系统身份验证，避免手动切换认证上下文。
   func authenticateForExtensionGate(reason: String, completion: @escaping (Bool) -> Void) {
-    let epoch = TouchIdGate.authenticationEpoch
-    let finish: (Bool) -> Void = { ok in
-      DispatchQueue.main.async {
-        guard epoch == TouchIdGate.authenticationEpoch else {
-          completion(false)
-          return
-        }
-        completion(ok)
-      }
-    }
-    let run = {
-      let bio = LAContext()
-      bio.localizedFallbackTitle = "使用密码"
-      var bioErr: NSError?
-      if bio.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &bioErr) {
-        bio.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, error in
-          if success {
-            finish(true)
-            return
-          }
-          if let la = error as? LAError {
-            switch la.code {
-            case .userFallback:
-              self.evaluateMacLoginPassword(reason: reason, completion: finish)
-              return
-            case .userCancel, .systemCancel, .appCancel:
-              finish(false)
-              return
-            default:
-              break
-            }
-          }
-          finish(false)
-        }
-        return
-      }
-      self.evaluateMacLoginPassword(reason: reason, completion: finish)
-    }
-    if Thread.isMainThread {
-      run()
-    } else {
-      DispatchQueue.main.async { run() }
-    }
+    authenticateSensitiveOperation(reason: reason, completion: completion)
   }
 
-  private func evaluateMacLoginPassword(reason: String, completion: @escaping (Bool) -> Void) {
-    let ctx = LAContext()
-    var err: NSError?
-    guard ctx.canEvaluatePolicy(.deviceOwnerAuthentication, error: &err) else {
-      completion(false)
-      return
-    }
-    ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, _ in
-      DispatchQueue.main.async { completion(success) }
-    }
-  }
-
-  /// 敏感操作门槛：仅 Touch ID，不访问钥匙串（避免二次输入登录密码）。
-  func authenticateBiometricOnly(reason: String, completion: @escaping (Bool) -> Void) {
+  /// 敏感操作门槛：由系统处理 Touch ID 与 Mac 登录密码回退，不访问钥匙串。
+  func authenticateSensitiveOperation(reason: String, completion: @escaping (Bool) -> Void) {
     let context = LAContext()
     var error: NSError?
-    guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
+    guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
       completion(false)
       return
     }
     let epoch = TouchIdGate.beginAuthentication()
     context.evaluatePolicy(
-      .deviceOwnerAuthenticationWithBiometrics,
+      .deviceOwnerAuthentication,
       localizedReason: reason
     ) { success, _ in
-      let valid = TouchIdGate.endAuthentication(epoch)
-      completion(valid && success)
+      DispatchQueue.main.async {
+        let valid = TouchIdGate.endAuthentication(epoch)
+        completion(valid && success)
+      }
     }
   }
 
