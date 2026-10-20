@@ -136,31 +136,32 @@ fn path_is_trusted_askpass(path: &Path) -> Result<bool> {
 }
 
 #[cfg(target_os = "macos")]
-fn expected_materialized_askpass_sha256() -> Result<String> {
-    if let Ok(trusted) = std::env::var("CREDPIVOT_TRUSTED_ASKPASS") {
-        let path = PathBuf::from(trusted);
-        if path.exists() {
-            if paths_same_file(&path, &materialized_askpass_path())? {
-                return Err(AgentError::PeerDenied(
-                    "trusted reference must be App bundle binary, not ~/.credpivot copy".into(),
-                ));
-            }
-            return sha256_file(&path);
-        }
+fn read_stored_askpass_digest() -> Option<String> {
+    let body = fs::read_to_string(materialized_askpass_digest_path()).ok()?;
+    let digest = body.trim().to_ascii_lowercase();
+    if digest.len() == 64 && digest.chars().all(|c| c.is_ascii_hexdigit()) {
+        Some(digest)
+    } else {
+        None
     }
-    let digest_path = materialized_askpass_digest_path();
-    let body = fs::read_to_string(&digest_path).map_err(|_| {
-        AgentError::PeerDenied(
-            "trusted askpass not configured; open CredPivot and retry one-click SSH".into(),
-        )
-    })?;
-    let digest = body.trim();
-    if digest.len() != 64 || !digest.chars().all(|c| c.is_ascii_hexdigit()) {
+}
+
+#[cfg(target_os = "macos")]
+fn trusted_bundle_askpass_sha256() -> Result<String> {
+    let trusted = std::env::var("CREDPIVOT_TRUSTED_ASKPASS")
+        .map(PathBuf::from)
+        .map_err(|_| AgentError::PeerDenied("trusted askpass not configured".into()))?;
+    if !trusted.exists() {
         return Err(AgentError::PeerDenied(
-            "invalid askpass.sha256; reinstall askpass from CredPivot App".into(),
+            "trusted askpass path missing; reinstall from CredPivot App".into(),
         ));
     }
-    Ok(digest.to_ascii_lowercase())
+    if paths_same_file(&trusted, &materialized_askpass_path())? {
+        return Err(AgentError::PeerDenied(
+            "trusted reference must be App bundle binary, not ~/.credpivot copy".into(),
+        ));
+    }
+    sha256_file(&trusted)
 }
 
 #[cfg(target_os = "macos")]
@@ -168,14 +169,30 @@ fn verify_materialized_askpass_digest(peer_path: &Path) -> Result<()> {
     if !paths_same_file(peer_path, &materialized_askpass_path())? {
         return Ok(());
     }
-    let expected = expected_materialized_askpass_sha256()?;
     let actual = sha256_file(peer_path)?;
-    if expected != actual {
+
+    // 安装时写入的摘要与副本一致（优先，避免开发期 bundle 与 ~/.credpivot 短暂不一致）
+    if read_stored_askpass_digest().as_deref() == Some(actual.as_str()) {
+        return Ok(());
+    }
+
+    if let Ok(expected) = trusted_bundle_askpass_sha256() {
+        if expected == actual {
+            let _ = fs::write(materialized_askpass_digest_path(), format!("{actual}\n"));
+            return Ok(());
+        }
+    }
+
+    if read_stored_askpass_digest().is_some() {
         return Err(AgentError::PeerDenied(
-            "materialized askpass does not match trusted digest".into(),
+            "materialized askpass out of date; click one-click SSH again or run make macos-sync-artifacts"
+                .into(),
         ));
     }
-    Ok(())
+
+    Err(AgentError::PeerDenied(
+        "materialized askpass does not match trusted digest; reopen CredPivot App after build".into(),
+    ))
 }
 
 /// Agent 启动时补齐可信 askpass 路径（与 Swift `applyTrustedAskpassEnv` 互补）。

@@ -1238,26 +1238,47 @@ enum SshAskpassLauncher {
     credPivotDir.appendingPathComponent(expectScriptName)
   }
 
-  static func materializeExpectScript() throws -> String {
-    try FileManager.default.createDirectory(at: credPivotDir, withIntermediateDirectories: true)
-    let dst = expectScriptURL
+  private static func resolveSourceExpectScript() -> String? {
     if let bundled = Bundle.main.path(forResource: "ssh-expect-pass", ofType: "exp") {
-      let srcData = try Data(contentsOf: URL(fileURLWithPath: bundled))
-      let dstData = try? Data(contentsOf: dst)
-      if dstData != srcData {
-        if FileManager.default.fileExists(atPath: dst.path) {
-          try FileManager.default.removeItem(at: dst)
-        }
-        try FileManager.default.copyItem(atPath: bundled, toPath: dst.path)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dst.path)
+      return bundled
+    }
+    let pathFile = credPivotDir.appendingPathComponent("expect_script.source.path")
+    if let raw = try? String(contentsOf: pathFile, encoding: .utf8) {
+      let p = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+      if FileManager.default.fileExists(atPath: p) {
+        return p
       }
-    } else if !FileManager.default.fileExists(atPath: dst.path) {
+    }
+    if FileManager.default.fileExists(atPath: expectScriptURL.path) {
+      return expectScriptURL.path
+    }
+    return nil
+  }
+
+  /// 每次从 App 包（或开发期源路径）覆盖 `~/.credpivot/ssh-expect-pass.exp`。
+  static func materializeExpectScript() throws -> String {
+    guard let src = resolveSourceExpectScript() else {
       throw NSError(
         domain: "CredPivot",
         code: 2,
-        userInfo: [NSLocalizedDescriptionKey: "内置 SSH expect 脚本缺失，请 make macos-build"]
+        userInfo: [NSLocalizedDescriptionKey: "内置 SSH expect 脚本缺失，请先 make macos-build"]
       )
     }
+    let srcData = try Data(contentsOf: URL(fileURLWithPath: src))
+    let srcText = String(data: srcData, encoding: .utf8) ?? ""
+    if !srcText.contains("credpivot-expect-version: 2") {
+      throw NSError(
+        domain: "CredPivot",
+        code: 3,
+        userInfo: [NSLocalizedDescriptionKey: "SSH expect 脚本版本过旧，请 make macos-sync-artifacts 后重开 App"]
+      )
+    }
+    try FileManager.default.createDirectory(at: credPivotDir, withIntermediateDirectories: true)
+    let dst = expectScriptURL
+    if FileManager.default.fileExists(atPath: dst.path) {
+      try FileManager.default.removeItem(at: dst)
+    }
+    try FileManager.default.copyItem(atPath: src, toPath: dst.path)
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dst.path)
     return dst.path
   }

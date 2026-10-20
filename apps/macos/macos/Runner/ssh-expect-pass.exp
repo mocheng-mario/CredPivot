@@ -1,4 +1,5 @@
 #!/usr/bin/expect -f
+# credpivot-expect-version: 2
 # CredPivot SSH 自动认证（PTY + Agent 会话取密，不落盘明文密码）
 
 set username ""
@@ -43,9 +44,14 @@ if {$port ne "" && ![string is integer -strict $port]} {
 
 proc fetch_secret {kind} {
     global session_id askpass_bin
-    set env(CREDPIVOT_SESSION_ID) $session_id
-    set env(CREDPIVOT_FORCE_KIND) $kind
-    if {[catch {exec $askpass_bin} result]} {
+    if {$session_id eq "" || $askpass_bin eq ""} {
+        send_user "\r\nCredPivot: 内部错误：缺少 session_id 或 askpass 路径。\r\n"
+        return ""
+    }
+    # expect 下 `set env(...)` 对 `exec` 子进程不一定生效，用 env 显式传入。
+    if {[catch {
+        exec /usr/bin/env CREDPIVOT_SESSION_ID=$session_id CREDPIVOT_FORCE_KIND=$kind $askpass_bin
+    } result]} {
         send_user "\r\nCredPivot: 无法从 Agent 获取 $kind（$result）。\r\n"
         return ""
     }
@@ -98,7 +104,17 @@ proc send_password {} {
     send -- "$pw\r"
 }
 
+set otp_tries 0
+set max_otp_tries 6
+
 proc send_otp {} {
+    global otp_tries max_otp_tries
+    if {$otp_tries >= $max_otp_tries} {
+        send_user "\r\nCredPivot: MFA 尝试次数已达上限，请手动输入。\r\n"
+        interact
+        return
+    }
+    incr otp_tries
     set code [fetch_secret "otp"]
     if {$code eq ""} {
         send_user "\r\nCredPivot: MFA 验证码获取失败，请手动输入。\r\n"
@@ -122,13 +138,23 @@ while {1} {
         -nocase -re {passphrase:\s*$} {
             send_password
         }
-        -nocase -re {verification code|one-time code|otp code|mfa code} {
+        # glob：须同时含「请输入」与 MFA 关键词，避免 banner 里单独的 mfa/2fa 误触发
+        -gl "*请输入*验证码*" {
             send_otp
         }
-        -re {请输入 MFA 验证码} {
+        -gl "*请输入*MFA*" {
             send_otp
         }
-        -re {请输入验证码} {
+        -gl "*请输入*mfa*" {
+            send_otp
+        }
+        -gl "*请输入*otp*" {
+            send_otp
+        }
+        -gl "*请输入*2fa*" {
+            send_otp
+        }
+        -re -nocase {please enter.*(mfa|otp|2fa|verification code)} {
             send_otp
         }
         -re {Permission denied \(publickey,password\)} {

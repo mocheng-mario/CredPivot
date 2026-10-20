@@ -81,22 +81,18 @@ fn looks_like_passphrase(p: &str) -> bool {
     p.contains("passphrase") || p.contains("pass phrase")
 }
 
+/// MFA/OTP 提示关键词（须像输入提示，避免误匹配登录后 banner）。
 fn looks_like_otp(p: &str) -> bool {
-    p.contains("verification code")
-        || p.contains("one-time")
-        || p.contains("one time")
-        || p.contains("otp")
-        || p.contains("mfa")
-        || p.contains("authenticator")
-        || p.contains("2fa")
-        || p.contains("two-factor")
-        || p.contains("token:")
-        || p.contains("验证码")
-        || p.contains("动态口令")
-        || p.contains("动态码")
-        || p.contains("二次验证")
-        || p.contains("双因素")
-        || (p.contains("code") && !p.contains("passcode") && p.contains("enter"))
+    let has_kw = p.contains("mfa") || p.contains("otp") || p.contains("2fa") || p.contains("验证码");
+    if !has_kw {
+        return false;
+    }
+    let promptish = p.contains("请输入")
+        || p.contains("enter")
+        || p.contains("verification code")
+        || p.contains('：')
+        || p.contains(':');
+    has_kw && promptish
 }
 
 fn looks_like_password(p: &str) -> bool {
@@ -215,7 +211,7 @@ mod tests {
     #[test]
     fn otp_prompt() {
         assert_eq!(
-            classify_askpass_prompt("Enter verification code:"),
+            classify_askpass_prompt("Enter OTP code:"),
             AskpassKind::Otp
         );
     }
@@ -225,6 +221,14 @@ mod tests {
         assert_eq!(
             classify_askpass_prompt("请输入 MFA 验证码（第 1/3 次）："),
             AskpassKind::Otp
+        );
+    }
+
+    #[test]
+    fn otp_not_banner_noise() {
+        assert_eq!(
+            classify_askpass_prompt("Your account has 2FA enabled. Welcome!"),
+            AskpassKind::Deny
         );
     }
 }
