@@ -8,6 +8,7 @@ import 'agent_bridge.dart';
 import 'credential_confirm.dart';
 import 'credential_group_ui.dart';
 import 'credential_list_tile.dart';
+import 'linked_refs.dart';
 import 'credential_otpauth.dart';
 import 'server_login_page.dart';
 import 'touch_id_gate.dart';
@@ -131,6 +132,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
       final q = _search.text.trim();
       _items = await AgentBridge.listCredentials(q.isEmpty ? null : q);
       _groups = await loadCredentialGroups('login');
+      _filterGroupId = dropdownValueIfPresent(_filterGroupId, _groups);
       _status = '共 ${_items.length} 条登录';
     } on AgentException catch (e) {
       _status = AgentBridge.friendlyMessage(e);
@@ -141,11 +143,21 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
 
   Future<void> _addOrEdit({Map<String, dynamic>? existing}) async {
     final isEdit = existing != null;
+    List<Map<String, dynamic>> totps = [];
+    try {
+      totps = await AgentBridge.listTotp();
+    } on AgentException catch (e) {
+      setState(() => _status = AgentBridge.friendlyMessage(e));
+      return;
+    }
     final nameCtl = TextEditingController(text: existing?['display_name']?.toString() ?? '');
     final originCtl = TextEditingController(text: existing?['origin']?.toString() ?? 'https://');
     final userCtl = TextEditingController(text: existing?['username']?.toString() ?? '');
     final passCtl = TextEditingController();
-    var groupId = existing?['group_id'] as String?;
+    final rawGroupId = existing?['group_id'] as String?;
+    var groupId = dropdownValueIfPresent(rawGroupId, _groups);
+    final rawTotp = existing?['linked_totp_id'] as String?;
+    var linkedTotp = dropdownValueIfPresent(rawTotp, totps);
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -160,7 +172,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                 decoration: const InputDecoration(labelText: '名称', hintText: '例如：公司 VPN 账号'),
               ),
               DropdownButtonFormField<String?>(
-                value: (groupId == null || (groupId?.isEmpty ?? true)) ? null : groupId,
+                value: groupId,
                 decoration: const InputDecoration(labelText: '分组'),
                 items: [
                   const DropdownMenuItem(value: null, child: Text('（未分组）')),
@@ -185,6 +197,23 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                   labelText: isEdit ? '新密码（留空则不修改）' : '密码',
                 ),
               ),
+              DropdownButtonFormField<String?>(
+                value: linkedTotp,
+                decoration: const InputDecoration(
+                  labelText: '关联 MFA / TOTP',
+                  helperText: '浏览器扩展「填充 MFA」需要在此关联',
+                ),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('（不关联）')),
+                  ...totps.map(
+                    (t) => DropdownMenuItem(
+                      value: t['id'] as String,
+                      child: Text('${t['issuer']} : ${t['account']}'),
+                    ),
+                  ),
+                ],
+                onChanged: (v) => setLocal(() => linkedTotp = v),
+              ),
             ],
           ),
         ),
@@ -199,6 +228,11 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
     if (isEdit) {
       if (!await requireTouchId(context, reason: '保存登录凭据修改')) return;
     }
+    if (staleLinkWasCleared(rawTotp, linkedTotp) && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('关联的 MFA 已删除，保存后将清除该关联。')),
+      );
+    }
     try {
       final origin = originCtl.text.trim();
       final user = userCtl.text.trim();
@@ -212,7 +246,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
           displayName: displayName,
           groupId: groupId,
           connectionHost: existing['connection_host']?.toString() ?? '',
-          linkedTotpId: existing['linked_totp_id'] as String?,
+          linkedTotpId: linkedTotp,
           password: passCtl.text.isEmpty ? null : passCtl.text,
         );
       } else {
@@ -222,6 +256,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
           password: passCtl.text,
           displayName: displayName,
           groupId: groupId,
+          linkedTotpId: linkedTotp,
         );
       }
       await _refresh();
@@ -327,6 +362,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                     )) {
                       return;
                     }
+                    if (!await requireTouchId(context, reason: '删除登录密码')) return;
                     final itemId = _selected!['item_id'] as String?;
                     if (itemId == null) return;
                     await AgentBridge.trashCredential(itemId);
@@ -367,6 +403,7 @@ class _TotpPanelState extends State<_TotpPanel> {
     try {
       _items = await AgentBridge.listTotp();
       _groups = await loadCredentialGroups('totp');
+      _filterGroupId = dropdownValueIfPresent(_filterGroupId, _groups);
       _status = '共 ${_items.length} 个 TOTP';
       setState(() {});
     } on AgentException catch (e) {
@@ -392,7 +429,7 @@ class _TotpPanelState extends State<_TotpPanel> {
     final accountCtl = TextEditingController();
     final secretCtl = TextEditingController();
     final uriCtl = TextEditingController();
-    var groupId = _filterGroupId;
+    var groupId = dropdownValueIfPresent(_filterGroupId, _groups);
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -403,7 +440,7 @@ class _TotpPanelState extends State<_TotpPanel> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String?>(
-                value: (groupId == null || (groupId?.isEmpty ?? true)) ? null : groupId,
+                value: groupId,
                 decoration: const InputDecoration(labelText: '分组'),
                 items: [
                   const DropdownMenuItem(value: null, child: Text('（未分组）')),
@@ -720,6 +757,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
     try {
       _items = await AgentBridge.listSshKeys();
       _groups = await loadCredentialGroups('ssh');
+      _filterGroupId = dropdownValueIfPresent(_filterGroupId, _groups);
       if (_items.isEmpty) {
         await AgentBridge.generateSshKey(label: 'Default', setDefault: true);
         _items = await AgentBridge.listSshKeys();
@@ -734,7 +772,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
   Future<void> _generate() async {
     final labelCtl = TextEditingController(text: 'Key ${_items.length + 1}');
     bool setDefault = false;
-    var groupId = _filterGroupId;
+    var groupId = dropdownValueIfPresent(_filterGroupId, _groups);
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -744,7 +782,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String?>(
-                value: (groupId == null || (groupId?.isEmpty ?? true)) ? null : groupId,
+                value: groupId,
                 decoration: const InputDecoration(labelText: '分组'),
                 items: [
                   const DropdownMenuItem(value: null, child: Text('（未分组）')),

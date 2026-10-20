@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CredPivot",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "description": "Requires CredPivot Mac App, native host manifest, and unlocked vault (master password).",
   "permissions": ["nativeMessaging", "storage", "scripting", "tabs"],
   "host_permissions": ["<all_urls>"],

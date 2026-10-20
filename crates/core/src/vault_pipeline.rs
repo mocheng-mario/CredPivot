@@ -236,6 +236,31 @@ pub fn security_rebuild_in_dir(
         cleanup_failed_target(&staging);
         return Err(CoreError::format("failed to activate rebuilt vault"));
     }
+    preserve_restore_points_from_backup(&backup, dir)?;
     let _ = fs::remove_dir_all(&backup);
     Ok(new_recovery_display)
+}
+
+fn preserve_restore_points_from_backup(backup: &Path, active: &Path) -> Result<()> {
+    use crate::restore_point::RESTORE_POINTS_DIR;
+    let src = backup.join(RESTORE_POINTS_DIR);
+    if !src.is_dir() {
+        return Ok(());
+    }
+    let dst = active.join(RESTORE_POINTS_DIR);
+    std::fs::create_dir_all(&dst).map_err(|e| CoreError::io(e.to_string()))?;
+    for entry in std::fs::read_dir(&src).map_err(|e| CoreError::io(e.to_string()))? {
+        let entry = entry.map_err(|e| CoreError::io(e.to_string()))?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = entry.file_name();
+        let target = dst.join(name);
+        if target.exists() {
+            continue;
+        }
+        std::fs::rename(&path, &target).map_err(|e| CoreError::io(e.to_string()))?;
+    }
+    Ok(())
 }

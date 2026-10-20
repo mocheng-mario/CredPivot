@@ -107,7 +107,7 @@ pub fn import_bitwarden_json(conn: &Connection, json: &str) -> Result<ImportRepo
     Ok(report)
 }
 
-/// 与浏览器填充查询一致：仅保留 scheme + host（无路径）。
+/// 与浏览器填充查询一致：保留 scheme + host（含端口），去掉路径与查询。
 fn normalize_login_origin(uri: &str) -> String {
     let s = uri.trim();
     let (scheme, rest) = if let Some(r) = s.strip_prefix("https://") {
@@ -117,13 +117,41 @@ fn normalize_login_origin(uri: &str) -> String {
     } else {
         return s.to_string();
     };
-    let authority = rest.split('/').next().unwrap_or(rest);
-    let host = authority
+    let authority = rest
+        .split('/')
+        .next()
+        .unwrap_or(rest)
+        .split('?')
+        .next()
+        .unwrap_or(rest);
+    let authority = authority
         .rsplit('@')
         .next()
-        .unwrap_or(authority)
-        .split(':')
-        .next()
         .unwrap_or(authority);
+    let (host, port) = split_authority_host_port(authority);
+    if let Some(p) = port {
+        if !p.is_empty() {
+            return format!("{scheme}://{host}:{p}");
+        }
+    }
     format!("{scheme}://{host}")
+}
+
+fn split_authority_host_port(authority: &str) -> (String, Option<String>) {
+    if authority.starts_with('[') {
+        if let Some(end) = authority.find(']') {
+            let host = authority[..=end].to_string();
+            let tail = authority[end + 1..].strip_prefix(':').unwrap_or("");
+            if !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) {
+                return (host, Some(tail.to_string()));
+            }
+            return (host, None);
+        }
+    }
+    if let Some((host, port)) = authority.rsplit_once(':') {
+        if !host.is_empty() && port.chars().all(|c| c.is_ascii_digit()) {
+            return (host.to_string(), Some(port.to_string()));
+        }
+    }
+    (authority.to_string(), None)
 }

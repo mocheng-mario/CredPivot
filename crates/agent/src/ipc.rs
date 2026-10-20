@@ -1,5 +1,11 @@
+use crate::extension_gate::{
+    clear_persisted_extension_gate, extension_gate_idle_secs, persist_extension_gate_until,
+    read_persisted_extension_gate_until,
+};
 use crate::error::{AgentError, Result};
-use crate::peer_auth::{authorize_peer, PeerAuthConfig};
+use crate::peer_auth::{
+    authorize_peer, peer_executable_path, peer_is_native_host_executable, PeerAuthConfig,
+};
 use crate::session_guard::expire_idle_session;
 use crate::protocol::{AgentRequest, AgentResponse};
 use crate::vault_session::{FillGrant, VaultSession};
@@ -13,10 +19,78 @@ use tokio::sync::Mutex;
 
 const FILL_TTL_MS: u128 = 60_000;
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RequestPeerContext {
+    /// Chrome Native Messaging host 经 Unix socket 发起的请求。
+    pub from_native_host: bool,
+}
+
 pub struct IpcState {
     pub vault: Arc<Mutex<VaultSession>>,
     pub pending_fills: HashMap<String, FillGrant>,
     pub peer_auth: PeerAuthConfig,
+    /// 扩展经 native-host 访问敏感数据的截止时间（毫秒）。
+    pub extension_gate_expires_ms: u128,
+    /// 最近一次扩展（native-host）敏感操作时间（毫秒）。
+    pub extension_gate_last_native_ms: u128,
+}
+
+fn extension_gate_active(st: &IpcState) -> bool {
+    now_ms() <= st.extension_gate_expires_ms
+}
+
+fn maybe_expire_extension_gate_idle(st: &mut IpcState) {
+    if st.extension_gate_expires_ms == 0 {
+        return;
+    }
+    let idle_ms = extension_gate_idle_secs() as u128 * 1000;
+    let last = st.extension_gate_last_native_ms;
+    if last > 0 && now_ms() > last + idle_ms {
+        st.extension_gate_expires_ms = 0;
+        clear_persisted_extension_gate();
+    }
+}
+
+fn grant_extension_gate(st: &mut IpcState, ttl_secs: u64) {
+    let ttl = ttl_secs.max(1);
+    let until = now_ms() + ttl as u128 * 1000;
+    st.extension_gate_expires_ms = until;
+    st.extension_gate_last_native_ms = now_ms();
+    let _ = persist_extension_gate_until(until);
+}
+
+fn touch_extension_gate_native_activity(st: &mut IpcState) {
+    if !extension_gate_active(st) {
+        return;
+    }
+    st.extension_gate_last_native_ms = now_ms();
+    let extend = now_ms() + extension_gate_idle_secs() as u128 * 1000;
+    if extend > st.extension_gate_expires_ms {
+        st.extension_gate_expires_ms = extend;
+        let _ = persist_extension_gate_until(extend);
+    }
+}
+
+pub fn load_extension_gate_into_state(st: &mut IpcState) {
+    let until = read_persisted_extension_gate_until();
+    if until > now_ms() {
+        st.extension_gate_expires_ms = until;
+        if st.extension_gate_last_native_ms == 0 {
+            st.extension_gate_last_native_ms = now_ms();
+        }
+    }
+}
+
+fn req_requires_extension_gate(req: &AgentRequest) -> bool {
+    matches!(
+        req,
+        AgentRequest::CredentialSave { .. }
+            | AgentRequest::CredentialSuggest { .. }
+            | AgentRequest::CredentialFillPrepare { .. }
+            | AgentRequest::CredentialFillConsume { .. }
+            | AgentRequest::CredentialGet { .. }
+            | AgentRequest::TotpCode { .. }
+    )
 }
 
 pub async fn serve_ipc(listener: UnixListener, state: Arc<Mutex<IpcState>>) -> Result<()> {
@@ -36,10 +110,22 @@ async fn handle_ipc_connection(
     state: Arc<Mutex<IpcState>>,
 ) -> Result<()> {
     let peer_pid = peer_pid(stream)?;
-    {
+    let from_native_host = {
         let cfg = state.lock().await.peer_auth.clone();
         authorize_peer(peer_pid, &cfg)?;
-    }
+        #[cfg(target_os = "macos")]
+        {
+            let path = peer_executable_path(peer_pid)?;
+            peer_is_native_host_executable(&path, &cfg)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
+    };
+    let peer = RequestPeerContext {
+        from_native_host,
+    };
 
     let mut len_buf = [0u8; 4];
     stream.read_exact(&mut len_buf).await?;
@@ -55,7 +141,7 @@ async fn handle_ipc_connection(
     expire_idle_session(&state).await;
     let resp = {
         let mut st = state.lock().await;
-        handle_request(&mut st, req).await
+        handle_request(&mut st, req, peer).await
     };
 
     let body = serde_json::to_vec(&resp).map_err(|e| AgentError::Protocol(e.to_string()))?;
@@ -65,22 +151,83 @@ async fn handle_ipc_connection(
     Ok(())
 }
 
-pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentResponse {
+pub async fn handle_request(
+    st: &mut IpcState,
+    req: AgentRequest,
+    peer: RequestPeerContext,
+) -> AgentResponse {
     {
         let mut v = st.vault.lock().await;
         if v.unlocked {
             let _ = v.try_restore_point_if_due();
         }
     }
-    match req {
+    maybe_expire_extension_gate_idle(st);
+    if peer.from_native_host && req_requires_extension_gate(&req) {
+        if !extension_gate_active(st) {
+            let _ = crate::paths::touch_extension_gate_pending_if_absent();
+            return AgentResponse::err(
+                "extension_gate_required",
+                "请在 CredPivot App 中完成指纹确认后重试",
+            );
+        }
+    }
+    let bump_gate_activity = peer.from_native_host && req_requires_extension_gate(&req);
+    let resp = match req {
         AgentRequest::Ping => AgentResponse::ok(json!({ "pong": true })),
+        AgentRequest::ExtensionConnect => {
+            let v = st.vault.lock().await;
+            let unlocked = v.unlocked;
+            let gate = extension_gate_active(st);
+            if unlocked && !gate {
+                let _ = crate::paths::touch_extension_gate_pending_if_absent();
+                return AgentResponse::err(
+                    "extension_gate_required",
+                    "请在 CredPivot App 中完成指纹或系统密码确认",
+                );
+            }
+            AgentResponse::ok(json!({
+                "connected": true,
+                "unlocked": unlocked,
+                "extension_gate_active": gate,
+                "extension_gate_idle_secs": extension_gate_idle_secs(),
+            }))
+        }
+        AgentRequest::ExtensionGateGrant { ttl_secs } => {
+            if peer.from_native_host {
+                return AgentResponse::err("peer_denied", "extension gate grant from app only");
+            }
+            let idle = extension_gate_idle_secs();
+            let ttl = if ttl_secs == 0 { idle } else { ttl_secs };
+            grant_extension_gate(st, ttl);
+            let _ = crate::paths::clear_extension_gate_pending();
+            AgentResponse::ok(json!({
+                "extension_gate_active": true,
+                "expires_in_secs": ttl,
+                "idle_secs": idle,
+            }))
+        }
         AgentRequest::Status => {
             let v = st.vault.lock().await;
-            AgentResponse::ok(v.vault_status_json())
+            let mut payload = v.vault_status_json();
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert(
+                    "extension_gate_active".into(),
+                    json!(extension_gate_active(st)),
+                );
+                obj.insert(
+                    "extension_gate_idle_secs".into(),
+                    json!(extension_gate_idle_secs()),
+                );
+            }
+            AgentResponse::ok(payload)
         }
         AgentRequest::Lock => {
             st.vault.lock().await.lock();
             st.pending_fills.clear();
+            st.extension_gate_expires_ms = 0;
+            st.extension_gate_last_native_ms = 0;
+            clear_persisted_extension_gate();
             AgentResponse::ok(json!({ "locked": true }))
         }
         AgentRequest::UnlockPassword { password } => {
@@ -270,10 +417,16 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
                     if !VaultSession::origin_matches_credential_page(&c.origin, &grant.origin) {
                         return AgentResponse::err("origin_mismatch", "credential origin mismatch");
                     }
+                    let totp_code = c
+                        .linked_totp_id
+                        .as_deref()
+                        .and_then(|id| v.totp_code(id).ok());
                     AgentResponse::ok(json!({
                     "username": c.username,
                     "password": c.password,
                     "origin": c.origin,
+                    "linked_totp_id": c.linked_totp_id,
+                    "totp_code": totp_code,
                 }))
                 }
                 Err(_) => AgentResponse::err("not_found", "credential not found"),
@@ -713,7 +866,11 @@ pub async fn handle_request(st: &mut IpcState, req: AgentRequest) -> AgentRespon
                 "text": text,
             }))
         }
+    };
+    if bump_gate_activity && matches!(&resp, AgentResponse::Ok { .. }) {
+        touch_extension_gate_native_activity(st);
     }
+    resp
 }
 
 fn opt_nonempty(s: &str) -> Option<&str> {

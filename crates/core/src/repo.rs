@@ -10,6 +10,7 @@ pub struct LoginCredentialSummary {
     pub item_id: String,
     pub origin: String,
     pub username: String,
+    pub linked_totp_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -86,7 +87,7 @@ pub fn insert_login_credential_in_tx(
 pub fn list_login_by_origin(conn: &Connection, origin: &str) -> Result<Vec<LoginCredentialSummary>> {
     let mut stmt = conn
         .prepare(
-            "SELECT c.id, c.item_id, c.origin, c.username
+            "SELECT c.id, c.item_id, c.origin, c.username, c.linked_totp_id
              FROM login_credentials c
              INNER JOIN items i ON i.id = c.item_id
              WHERE c.origin = ?1 AND i.trashed = 0
@@ -100,6 +101,7 @@ pub fn list_login_by_origin(conn: &Connection, origin: &str) -> Result<Vec<Login
                 item_id: row.get(1)?,
                 origin: row.get(2)?,
                 username: row.get(3)?,
+                linked_totp_id: row.get(4)?,
             })
         })
         .map_err(|e| CoreError::format(e.to_string()))?;

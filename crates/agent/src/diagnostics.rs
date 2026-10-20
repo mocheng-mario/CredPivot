@@ -24,10 +24,7 @@ fn write_line(level: &str, target: &str, message: &str) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
     let line = format!("{ts}\t{level}\t{target}\t{message}\n");
     let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
     f.write_all(line.as_bytes())?;

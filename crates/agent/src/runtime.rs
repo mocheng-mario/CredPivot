@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::ipc::{serve_ipc, IpcState};
+use crate::ipc::{load_extension_gate_into_state, serve_ipc, IpcState};
 use crate::paths::{agent_socket_path, ensure_runtime_dir, ssh_agent_socket_path};
 use crate::peer_auth::PeerAuthConfig;
 use crate::session_guard::expire_idle_session;
@@ -25,6 +25,7 @@ impl AgentRuntime {
     pub async fn start() -> Result<Self> {
         let lock = SingleWriterLock::acquire()?;
         ensure_runtime_dir()?;
+        let _ = crate::ssh_expect::ensure_ssh_expect_script();
         crate::diagnostics::init();
 
         remove_stale_socket(&agent_socket_path())?;
@@ -34,11 +35,15 @@ impl AgentRuntime {
         let ssh_listener = UnixListener::bind(ssh_agent_socket_path())?;
 
         let vault = Arc::new(Mutex::new(VaultSession::new()));
-        let state = Arc::new(Mutex::new(IpcState {
+        let mut ipc_state = IpcState {
             vault: vault.clone(),
             pending_fills: std::collections::HashMap::new(),
             peer_auth: PeerAuthConfig::default(),
-        }));
+            extension_gate_expires_ms: 0,
+            extension_gate_last_native_ms: 0,
+        };
+        load_extension_gate_into_state(&mut ipc_state);
+        let state = Arc::new(Mutex::new(ipc_state));
 
         let ipc_state = state.clone();
         let ipc_task = tokio::spawn(async move {

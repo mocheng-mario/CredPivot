@@ -22,6 +22,10 @@ macos-sync-artifacts: rust-ffi rust-host
 	@echo "$(CHROME_EXT_DIR)" > $(HOME)/.credpivot/chrome_extension_dir.path
 	rm -rf $(HOME)/.credpivot/chrome-extension
 	cp -R $(CHROME_EXT_DIR) $(HOME)/.credpivot/chrome-extension
+	cp $(ROOT)/assets/ssh-expect-pass.exp $(MACOS_RUNNER)/ssh-expect-pass.exp
+	chmod 755 $(MACOS_RUNNER)/ssh-expect-pass.exp
+	cp $(ROOT)/assets/ssh-expect-pass.exp $(HOME)/.credpivot/ssh-expect-pass.exp
+	chmod 755 $(HOME)/.credpivot/ssh-expect-pass.exp
 	@if [ -f $(MACOS_APP_DIR)/macos/Runner.xcodeproj/project.pbxproj ]; then \
 		$(ROOT)/scripts/patch-macos-xcode.sh; \
 	fi

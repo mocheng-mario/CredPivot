@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'agent_bridge.dart';
+import 'linked_refs.dart';
 
 /// 凭据子模块 scope：login | totp | ssh | server
 Future<List<Map<String, dynamic>>> loadCredentialGroups(String scope) async {
@@ -82,7 +83,7 @@ Future<void> showMoveItemToGroupDialog(
   String? currentGroupId,
 }) async {
   var groups = await loadCredentialGroups(scope);
-  String? selected = (currentGroupId == null || currentGroupId!.isEmpty) ? null : currentGroupId;
+  String? selected = dropdownValueIfPresent(currentGroupId, groups);
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
@@ -132,7 +133,7 @@ Widget buildGroupFilterBar({
     children: [
       Expanded(
         child: DropdownButtonFormField<String?>(
-          value: selectedGroupId,
+          value: dropdownValueIfPresent(selectedGroupId, groups),
           decoration: const InputDecoration(labelText: '分组筛选', isDense: true),
           items: [
             const DropdownMenuItem(value: null, child: Text('全部')),

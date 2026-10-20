@@ -1,5 +1,6 @@
 use credpivot_agent::{
-    handle_request, AgentRequest, AgentResponse, IpcState, PeerAuthConfig, VaultSession,
+    handle_request, AgentRequest, AgentResponse, IpcState, PeerAuthConfig, RequestPeerContext,
+    VaultSession,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,6 +15,8 @@ fn test_state() -> (IpcState, tempfile::TempDir) {
         vault: Arc::new(Mutex::new(vault)),
         pending_fills: HashMap::new(),
         peer_auth: PeerAuthConfig::default(),
+        extension_gate_expires_ms: 0,
+        extension_gate_last_native_ms: 0,
     };
     (state, dir)
 }
@@ -41,6 +44,7 @@ async fn locked_vault_rejects_sensitive_agent_ops() {
                 linked_totp_id: None,
                 group_id: None,
             },
+            RequestPeerContext::default(),
         )
         .await,
     );
@@ -54,6 +58,7 @@ async fn unlock_then_save_then_lock_blocks_again() {
         AgentRequest::VaultCreate {
             password: "test-vault-pass".into(),
         },
+        RequestPeerContext::default(),
     )
     .await;
     assert!(matches!(create, AgentResponse::Ok { .. }));
@@ -70,11 +75,17 @@ async fn unlock_then_save_then_lock_blocks_again() {
             linked_totp_id: None,
             group_id: None,
         },
+        RequestPeerContext::default(),
     )
     .await;
     assert!(matches!(save, AgentResponse::Ok { .. }));
 
-    let lock = handle_request(&mut st, AgentRequest::Lock).await;
+    let lock = handle_request(
+        &mut st,
+        AgentRequest::Lock,
+        RequestPeerContext::default(),
+    )
+    .await;
     assert!(matches!(lock, AgentResponse::Ok { .. }));
 
     assert_err_locked(
@@ -90,6 +101,7 @@ async fn unlock_then_save_then_lock_blocks_again() {
                 linked_totp_id: None,
                 group_id: None,
             },
+            RequestPeerContext::default(),
         )
         .await,
     );
@@ -98,7 +110,12 @@ async fn unlock_then_save_then_lock_blocks_again() {
 #[tokio::test]
 async fn status_reports_locked_without_unlock() {
     let (mut st, _dir) = test_state();
-    let resp = handle_request(&mut st, AgentRequest::Status).await;
+    let resp = handle_request(
+        &mut st,
+        AgentRequest::Status,
+        RequestPeerContext::default(),
+    )
+    .await;
     let AgentResponse::Ok { payload, .. } = resp else {
         panic!("expected ok status");
     };

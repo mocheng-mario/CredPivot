@@ -9,6 +9,13 @@ pub const MIN_COMPATIBLE_PROTOCOL: u32 = 1;
 pub enum AgentRequest {
     Ping,
     Status,
+    /// 扩展「连接」：Vault 已解锁时要求先通过 extension gate（指纹/系统密码）。
+    ExtensionConnect,
+    /// App 内指纹通过后授予 Chrome 扩展短时访问（秒）。
+    ExtensionGateGrant {
+        #[serde(default = "default_extension_gate_ttl")]
+        ttl_secs: u64,
+    },
     Lock,
     UnlockPassword { password: String },
     UnlockTouchIdToken { token: String },
@@ -181,6 +188,10 @@ fn default_log_tail_lines() -> usize {
 
 fn default_ssh_port() -> u16 {
     22
+}
+
+fn default_extension_gate_ttl() -> u64 {
+    300
 }
 
 #[derive(Debug, Serialize, Deserialize)]

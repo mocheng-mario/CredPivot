@@ -1,46 +1,79 @@
 /** 在 service worker 中执行，popup 关闭后仍可完成填充。 */
 
-export async function runFillOnTab(tabId, sendNative) {
-  const tab = await chrome.tabs.get(tabId);
-  if (!tab?.url || !tab.url.startsWith("http")) {
-    return { ok: false, error: "请在普通 http(s) 网页标签页中使用填充" };
+function gateHint(resp) {
+  if (!resp) return null;
+  const code = resp.code ?? (resp.ok === false ? resp.code : null);
+  if (code === "extension_gate_required") {
+    return resp.message || "请在 CredPivot App 中完成指纹确认后重试";
   }
-  const origin = new URL(tab.url).origin;
+  return null;
+}
 
+async function loadPageContext(tabId, origin) {
   let ctx;
   try {
     ctx = await chrome.tabs.sendMessage(tabId, { type: "fill_context" });
   } catch (e) {
     return {
-      ok: false,
-      error: "无法与页面通信（请刷新该页后重试）",
-      detail: String(e),
+      error: {
+        ok: false,
+        error: "无法与页面通信（请刷新该页后重试）",
+        detail: String(e),
+      },
     };
   }
   if (!ctx?.documentId || !ctx?.origin) {
-    return { ok: false, error: "无法读取目标页面上下文" };
+    return { error: { ok: false, error: "无法读取目标页面上下文" } };
   }
   if (ctx.origin !== origin) {
-    return { ok: false, error: "页面 origin 不一致" };
+    return { error: { ok: false, error: "页面 origin 不一致" } };
   }
+  return { ctx };
+}
 
+async function suggestFirstCredential(origin, sendNative) {
   const suggest = await sendNative({
     action: "credential.suggest_for_origin",
-    origin: ctx.origin,
+    origin,
   });
+  const gate = gateHint(suggest);
+  if (gate) {
+    return { error: { ok: false, error: gate, raw: suggest, needs_gate: true } };
+  }
   if (!suggest?.ok) {
-    return { ok: false, error: suggest?.message || suggest?.code || "suggest 失败", raw: suggest };
+    return {
+      error: {
+        ok: false,
+        error: suggest?.message || suggest?.code || "suggest 失败",
+        raw: suggest,
+      },
+    };
   }
   const candidates = suggest?.payload?.candidates ?? [];
   const credentialId = candidates[0]?.id;
   if (!credentialId) {
     return {
-      ok: false,
-      error: "当前站点无匹配的登录凭据（origin 须与保存时一致）",
-      origin: ctx.origin,
+      error: {
+        ok: false,
+        error: "当前站点无匹配的登录凭据（origin 须与保存时一致）",
+        origin,
+      },
     };
   }
+  return { credentialId: candidates[0].id, candidate: candidates[0], candidates };
+}
 
+/** 填充 MFA 时优先选用已关联 TOTP 的登录项（同 origin 可能有多条）。 */
+function pickCredentialForOtp(suggested) {
+  const list = suggested.candidates ?? (suggested.candidate ? [suggested.candidate] : []);
+  const withTotp = list.find((c) => c?.linked_totp_id);
+  if (withTotp) {
+    return { credentialId: withTotp.id, candidate: withTotp };
+  }
+  return { credentialId: suggested.credentialId, candidate: suggested.candidate };
+}
+
+async function consumeLoginSecrets(tabId, ctx, credentialId, sendNative) {
   const prep = await sendNative({
     action: "credential.fill_prepare",
     credential_id: credentialId,
@@ -49,11 +82,16 @@ export async function runFillOnTab(tabId, sendNative) {
     frame_id: ctx.frameId ?? 0,
     document_id: ctx.documentId,
   });
+  const gate = gateHint(prep);
+  if (gate) {
+    return { error: { ok: false, error: gate, raw: prep, needs_gate: true } };
+  }
   if (!prep?.ok || !prep?.payload?.prepared) {
-    return { ok: false, error: prep?.message || prep?.code || "prepare 失败", raw: prep };
+    return {
+      error: { ok: false, error: prep?.message || prep?.code || "prepare 失败", raw: prep },
+    };
   }
   const requestId = prep.payload?.request_id || prep.request_id;
-
   const consume = await sendNative({
     action: "credential.fill_consume",
     request_id: requestId,
@@ -61,12 +99,35 @@ export async function runFillOnTab(tabId, sendNative) {
     frame_id: ctx.frameId ?? 0,
     document_id: ctx.documentId,
   });
-  if (!consume?.ok) {
-    return { ok: false, error: consume?.message || consume?.code || "consume 失败", raw: consume };
+  const gate2 = gateHint(consume);
+  if (gate2) {
+    return { error: { ok: false, error: gate2, raw: consume, needs_gate: true } };
   }
-  const secrets = consume.payload ?? consume;
+  if (!consume?.ok) {
+    return {
+      error: { ok: false, error: consume?.message || consume?.code || "consume 失败", raw: consume },
+    };
+  }
+  return { secrets: consume.payload ?? consume };
+}
+
+export async function runFillLoginOnTab(tabId, sendNative) {
+  const tab = await chrome.tabs.get(tabId);
+  if (!tab?.url || !tab.url.startsWith("http")) {
+    return { ok: false, error: "请在普通 http(s) 网页标签页中使用填充" };
+  }
+  const origin = new URL(tab.url).origin;
+  const { ctx, error } = await loadPageContext(tabId, origin);
+  if (error) return error;
+
+  const suggested = await suggestFirstCredential(ctx.origin, sendNative);
+  if (suggested.error) return suggested.error;
+
+  const consumed = await consumeLoginSecrets(tabId, ctx, suggested.credentialId, sendNative);
+  if (consumed.error) return consumed.error;
+  const secrets = consumed.secrets;
   if (!secrets?.username && !secrets?.password) {
-    return { ok: false, error: "未拿到用户名或密码", raw: consume };
+    return { ok: false, error: "未拿到用户名或密码", raw: consumed };
   }
 
   let deliver;
@@ -75,6 +136,7 @@ export async function runFillOnTab(tabId, sendNative) {
       tabId,
       {
         type: "deliver_secret",
+        mode: "login",
         document_id: ctx.documentId,
         origin: ctx.origin,
         username: secrets.username,
@@ -85,12 +147,109 @@ export async function runFillOnTab(tabId, sendNative) {
   } catch (e) {
     return { ok: false, error: "投递到页面失败", detail: String(e) };
   }
-  if (!deliver?.filled) {
+  if (!deliver?.login_filled && !deliver?.filled) {
     return {
       ok: false,
-      error: deliver?.reason || "页面上未找到可填写的输入框",
+      error: deliver?.reason || "页面上未找到账号或密码输入框",
       deliver,
     };
   }
-  return { ok: true, filled: true, origin: ctx.origin };
+  return { ok: true, filled: true, origin: ctx.origin, login_filled: true };
+}
+
+export async function runFillOtpFromVaultOnTab(tabId, sendNative) {
+  const tab = await chrome.tabs.get(tabId);
+  if (!tab?.url || !tab.url.startsWith("http")) {
+    return { ok: false, error: "请在普通 http(s) 网页标签页中使用填充" };
+  }
+  const origin = new URL(tab.url).origin;
+  const { ctx, error } = await loadPageContext(tabId, origin);
+  if (error) return error;
+
+  const suggested = await suggestFirstCredential(ctx.origin, sendNative);
+  if (suggested.error) return suggested.error;
+  const forOtp = pickCredentialForOtp(suggested);
+  const totpId = forOtp.candidate?.linked_totp_id;
+  if (!totpId) {
+    return {
+      ok: false,
+      error:
+        "当前站点登录未关联 MFA。请在 CredPivot「凭据 → 登录密码」中编辑对应项并选择「关联 MFA / TOTP」（服务器页的 MFA 关联不用于浏览器填充）。",
+    };
+  }
+
+  const codeResp = await sendNative({
+    action: "credential.totp_code",
+    totp_id: totpId,
+  });
+  const gate = gateHint(codeResp);
+  if (gate) {
+    return { ok: false, error: gate, raw: codeResp, needs_gate: true };
+  }
+  if (!codeResp?.ok) {
+    return {
+      ok: false,
+      error: codeResp?.message || codeResp?.code || "读取 MFA 失败",
+      raw: codeResp,
+    };
+  }
+  const code = codeResp?.payload?.code ?? codeResp?.payload;
+  if (!code) {
+    return { ok: false, error: "MFA 验证码为空" };
+  }
+
+  let deliver;
+  try {
+    deliver = await chrome.tabs.sendMessage(
+      tabId,
+      {
+        type: "deliver_secret",
+        mode: "otp",
+        document_id: ctx.documentId,
+        origin: ctx.origin,
+        totp_code: code,
+      },
+      { frameId: ctx.frameId ?? 0 }
+    );
+  } catch (e) {
+    return { ok: false, error: "投递到页面失败", detail: String(e) };
+  }
+  if (!deliver?.otp_filled && !deliver?.filled) {
+    return {
+      ok: false,
+      error: deliver?.reason || "页面上未找到 MFA 输入框",
+      deliver,
+    };
+  }
+  return { ok: true, filled: true, origin: ctx.origin, otp_filled: true };
+}
+
+/** @deprecated 使用 runFillLoginOnTab + runFillOtpFromVaultOnTab */
+export async function runFillOnTab(tabId, sendNative) {
+  return runFillLoginOnTab(tabId, sendNative);
+}
+
+export async function runOtpFillOnTab(tabId, totpCode, sendNative) {
+  const tab = await chrome.tabs.get(tabId);
+  if (!tab?.url || !tab.url.startsWith("http")) {
+    return { ok: false, error: "请在普通 http(s) 网页标签页中使用填充" };
+  }
+  const origin = new URL(tab.url).origin;
+  const { ctx, error } = await loadPageContext(tabId, origin);
+  if (error) return error;
+  const deliver = await chrome.tabs.sendMessage(
+    tabId,
+    {
+      type: "deliver_secret",
+      mode: "otp",
+      document_id: ctx.documentId,
+      origin: ctx.origin,
+      totp_code: totpCode,
+    },
+    { frameId: ctx.frameId ?? 0 }
+  );
+  if (!deliver?.otp_filled && !deliver?.filled) {
+    return { ok: false, error: deliver?.reason || "未找到 MFA 输入框" };
+  }
+  return { ok: true };
 }

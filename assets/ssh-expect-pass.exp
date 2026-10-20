@@ -1,0 +1,155 @@
+#!/usr/bin/expect -f
+# CredPivot 内置 SSH 自动认证脚本（由 App 安装到 ~/.credpivot，勿手工修改）
+
+set username ""
+set password ""
+set hostname ""
+set port ""
+set otpcode ""
+set passfile ""
+
+proc usage {} {
+    global argv0
+    puts "Usage:"
+    puts "  $argv0 --user USER --password-file PATH --host HOST [--otp OTP] [--port PORT]"
+    puts "  $argv0 --user USER --password PASSWORD --host HOST [--otp OTP] [--port PORT]"
+}
+
+for {set i 0} {$i < [llength $argv]} {incr i} {
+    set key [lindex $argv $i]
+    switch -- $key {
+        "--user" { incr i; set username [lindex $argv $i] }
+        "--password" { incr i; set password [lindex $argv $i] }
+        "--password-file" { incr i; set passfile [lindex $argv $i] }
+        "--host" { incr i; set hostname [lindex $argv $i] }
+        "--port" { incr i; set port [lindex $argv $i] }
+        "--otp" -
+        "--otpcode" { incr i; set otpcode [lindex $argv $i] }
+        default {
+            puts "Unknown argument: $key"
+            usage
+            exit 1
+        }
+    }
+}
+
+if {$passfile ne ""} {
+    if {![file exists $passfile]} {
+        puts "Password file not found: $passfile"
+        exit 1
+    }
+    set fh [open $passfile r]
+    fconfigure $fh -translation binary
+    set password [read $fh]
+    close $fh
+    catch { file delete -force $passfile }
+}
+
+set password [string trim $password "\t\n\r "]
+
+if {$username eq "" || $password eq "" || $hostname eq ""} {
+    puts "Missing required argument."
+    usage
+    exit 1
+}
+
+if {$port ne "" && ![string is integer -strict $port]} {
+    puts "Invalid port: $port"
+    usage
+    exit 1
+}
+
+set timeout 45
+set password_tries 0
+set max_password_tries 4
+
+log_user 1
+
+if {$port eq ""} {
+    spawn ssh -tt \
+        -o StrictHostKeyChecking=accept-new \
+        -o UserKnownHostsFile=$env(HOME)/.ssh/known_hosts \
+        -o PubkeyAuthentication=no \
+        -o PasswordAuthentication=yes \
+        -o KbdInteractiveAuthentication=yes \
+        -o PreferredAuthentications=keyboard-interactive,password \
+        -o NumberOfPasswordPrompts=$max_password_tries \
+        "$username@$hostname"
+} else {
+    spawn ssh -tt \
+        -o StrictHostKeyChecking=accept-new \
+        -o UserKnownHostsFile=$env(HOME)/.ssh/known_hosts \
+        -o PubkeyAuthentication=no \
+        -o PasswordAuthentication=yes \
+        -o KbdInteractiveAuthentication=yes \
+        -o PreferredAuthentications=keyboard-interactive,password \
+        -o NumberOfPasswordPrompts=$max_password_tries \
+        -p "$port" \
+        "$username@$hostname"
+}
+
+proc send_password {} {
+    global password password_tries max_password_tries
+    if {$password_tries >= $max_password_tries} {
+        send_user "\r\nCredPivot: 密码尝试次数已达上限，请手动输入。\r\n"
+        interact
+        exit 1
+    }
+    incr password_tries
+    send -- "$password\r"
+}
+
+proc send_otp_if_any {} {
+    global otpcode
+    if {$otpcode eq ""} {
+        send_user "\r\nCredPivot: 需要 MFA/OTP，未传入 --otp，请手动输入。\r\n"
+        interact
+        return
+    }
+    send -- "$otpcode\r"
+}
+
+# 主循环：勿匹配 \"Permission denied, please try again\"（会误判为最终失败）
+while {1} {
+    expect {
+        -nocase -re {are you sure you want to continue connecting} {
+            send "yes\r"
+        }
+        -nocase "yes/no" {
+            send "yes\r"
+        }
+        -nocase -re {password:\s*$} {
+            send_password
+        }
+        -nocase -re {passphrase:\s*$} {
+            send_password
+        }
+        -nocase -re {verification code|one-time code|otp code|mfa code} {
+            send_otp_if_any
+        }
+        "请输入 MFA 验证码" {
+            send_otp_if_any
+        }
+        "请输入验证码" {
+            send_otp_if_any
+        }
+        -re {Permission denied \(publickey,password\)} {
+            send_user "\r\nCredPivot: 认证失败（公钥与密码均被拒绝）。请核对 SSH 密码或联系管理员。\r\n"
+            interact
+            exit 1
+        }
+        -re {[@%$#>]\s*$} {
+            break
+        }
+        timeout {
+            send_user "\r\nCredPivot: 等待提示超时，进入手动交互。\r\n"
+            interact
+            exit 0
+        }
+        eof {
+            exit 0
+        }
+    }
+}
+
+interact

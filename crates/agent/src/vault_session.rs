@@ -34,6 +34,8 @@ pub struct FakeCredential {
     pub origin: String,
     pub username: String,
     pub password: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub linked_totp_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -353,6 +355,7 @@ impl VaultSession {
                 origin: c.origin,
                 username: c.username,
                 password: String::new(),
+                linked_totp_id: c.linked_totp_id,
             })
             .collect())
     }
@@ -571,11 +574,18 @@ impl VaultSession {
         let rec = db
             .get_login(credential_id)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
+        let linked_totp_id = db
+            .list_logins(None, 500)
+            .map_err(|e| AgentError::Vault(e.to_string()))?
+            .into_iter()
+            .find(|r| r.id == credential_id)
+            .and_then(|r| r.linked_totp_id);
         Ok(FakeCredential {
             id: rec.id,
             origin: rec.origin,
             username: rec.username,
             password: rec.password,
+            linked_totp_id,
         })
     }
 

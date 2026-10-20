@@ -3,7 +3,9 @@ mod launch_app;
 
 use chrome_parent::verify_chrome_parent;
 use credpivot_agent::{agent_socket_path, call_agent, AgentRequest, AgentResponse, PROTOCOL_VERSION};
-use launch_app::{launch_credpivot_app, wait_for_agent_socket};
+use launch_app::{
+    launch_credpivot_app, launch_credpivot_app_for_extension_gate, wait_for_agent_socket,
+};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 
@@ -84,8 +86,15 @@ async fn forward_to_agent(envelope: Value) -> Result<Value, Box<dyn std::error::
         .get("action")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
+    // handshake 仅探测 Agent；勿在此写入 extension_gate.pending（否则每次打开 popup 都会弹指纹）。
     let req = map_extension_to_agent(&envelope, action)?;
     let resp = call_agent(&socket, req).await?;
+    if matches!(
+        &resp,
+        credpivot_agent::AgentResponse::Err { code, .. } if code == "extension_gate_required"
+    ) {
+        launch_credpivot_app_for_extension_gate();
+    }
     Ok(agent_to_extension(resp, request_id))
 }
 
@@ -94,7 +103,7 @@ fn map_extension_to_agent(
     action: &str,
 ) -> Result<AgentRequest, Box<dyn std::error::Error>> {
     match action {
-        "handshake" => Ok(AgentRequest::Ping),
+        "handshake" | "extension.connect" => Ok(AgentRequest::ExtensionConnect),
         "status" | "agent.status" => Ok(AgentRequest::Status),
         "credential.save" => Ok(AgentRequest::CredentialSave {
             request_id: envelope
@@ -180,6 +189,13 @@ fn map_extension_to_agent(
         "cancel" => Ok(AgentRequest::CancelRequest {
             request_id: envelope
                 .get("request_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+        }),
+        "credential.totp_code" => Ok(AgentRequest::TotpCode {
+            totp_id: envelope
+                .get("totp_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),

@@ -176,78 +176,77 @@ fn ensure_column(conn: &Connection, table: &str, column: &str, definition: &str)
     Ok(())
 }
 
-pub fn migrate_to_latest(conn: &Connection) -> Result<()> {
-    let version: i32 = conn
+fn current_user_version(conn: &Connection) -> Result<i32> {
+    conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(|e| CoreError::format(e.to_string()))?;
+        .map_err(|e| CoreError::format(e.to_string()))
+}
 
-    if version < 1 {
-        conn.execute_batch(MIGRATION_V1)
-            .map_err(|e| CoreError::format(e.to_string()))?;
-        conn.pragma_update(None, "user_version", 1)
-            .map_err(|e| CoreError::format(e.to_string()))?;
+fn apply_migration_step(
+    conn: &Connection,
+    target_version: i32,
+    apply: impl FnOnce(&Connection) -> Result<()>,
+) -> Result<()> {
+    if current_user_version(conn)? >= target_version {
+        return Ok(());
     }
-    let version: i32 = conn
-        .pragma_query_value(None, "user_version", |row| row.get(0))
+    conn.execute("BEGIN IMMEDIATE", [])
         .map_err(|e| CoreError::format(e.to_string()))?;
-    if version < 2 {
-        conn.execute_batch(MIGRATION_V2)
+    let outcome = (|| {
+        apply(conn)?;
+        conn
+            .pragma_update(None, "user_version", target_version)
             .map_err(|e| CoreError::format(e.to_string()))?;
-        conn.pragma_update(None, "user_version", 2)
-            .map_err(|e| CoreError::format(e.to_string()))?;
+        Ok(())
+    })();
+    if outcome.is_err() {
+        let _ = conn.execute("ROLLBACK", []);
+        return outcome;
     }
-    let version: i32 = conn
-        .pragma_query_value(None, "user_version", |row| row.get(0))
+    conn.execute("COMMIT", [])
         .map_err(|e| CoreError::format(e.to_string()))?;
-    if version < 3 {
-        conn.execute_batch(MIGRATION_V3)
+    Ok(())
+}
+
+pub fn migrate_to_latest(conn: &Connection) -> Result<()> {
+    apply_migration_step(conn, 1, |c| {
+        c.execute_batch(MIGRATION_V1)
             .map_err(|e| CoreError::format(e.to_string()))?;
-        conn.pragma_update(None, "user_version", 3)
+        Ok(())
+    })?;
+    apply_migration_step(conn, 2, |c| {
+        c.execute_batch(MIGRATION_V2)
             .map_err(|e| CoreError::format(e.to_string()))?;
-    }
-    let version: i32 = conn
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(|e| CoreError::format(e.to_string()))?;
-    if version < 4 {
-        conn.execute_batch(MIGRATION_V4)
+        Ok(())
+    })?;
+    apply_migration_step(conn, 3, |c| {
+        c.execute_batch(MIGRATION_V3)
             .map_err(|e| CoreError::format(e.to_string()))?;
-        conn.pragma_update(None, "user_version", 4)
+        Ok(())
+    })?;
+    apply_migration_step(conn, 4, |c| {
+        c.execute_batch(MIGRATION_V4)
             .map_err(|e| CoreError::format(e.to_string()))?;
-    }
-    let version: i32 = conn
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(|e| CoreError::format(e.to_string()))?;
-    if version < 5 {
-        conn.execute_batch(MIGRATION_V5)
+        Ok(())
+    })?;
+    apply_migration_step(conn, 5, |c| {
+        c.execute_batch(MIGRATION_V5)
             .map_err(|e| CoreError::format(e.to_string()))?;
-        conn.pragma_update(None, "user_version", 5)
+        Ok(())
+    })?;
+    apply_migration_step(conn, 6, |c| {
+        c.execute_batch(MIGRATION_V6)
             .map_err(|e| CoreError::format(e.to_string()))?;
-    }
-    let version: i32 = conn
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(|e| CoreError::format(e.to_string()))?;
-    if version < 6 {
-        conn.execute_batch(MIGRATION_V6)
+        Ok(())
+    })?;
+    apply_migration_step(conn, 7, |c| {
+        c.execute_batch(MIGRATION_V7)
             .map_err(|e| CoreError::format(e.to_string()))?;
-        conn.pragma_update(None, "user_version", 6)
-            .map_err(|e| CoreError::format(e.to_string()))?;
-    }
-    let version: i32 = conn
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(|e| CoreError::format(e.to_string()))?;
-    if version < 7 {
-        conn.execute_batch(MIGRATION_V7)
-            .map_err(|e| CoreError::format(e.to_string()))?;
-        conn.pragma_update(None, "user_version", 7)
-            .map_err(|e| CoreError::format(e.to_string()))?;
-    }
-    let version: i32 = conn
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(|e| CoreError::format(e.to_string()))?;
-    if version < 8 {
-        repair_server_login_profiles_columns(conn)?;
-        conn.pragma_update(None, "user_version", SCHEMA_USER_VERSION)
-            .map_err(|e| CoreError::format(e.to_string()))?;
-    }
+        Ok(())
+    })?;
+    apply_migration_step(conn, SCHEMA_USER_VERSION, |c| {
+        repair_server_login_profiles_columns(c)?;
+        Ok(())
+    })?;
     Ok(())
 }

@@ -258,6 +258,10 @@ class AgentBridge {
     return null;
   }
 
+  static Future<void> setTerminalLaunchConfig(Map<String, dynamic> config) async {
+    await _channel.invokeMethod<void>('setTerminalLaunchConfig', config);
+  }
+
   static Future<String?> openSshInTerminal({
     required String host,
     required int port,
@@ -267,6 +271,31 @@ class AgentBridge {
       'host': host,
       'port': port,
       'username': username,
+    });
+  }
+
+  /// 安装/校验内置脚本，返回 `~/.credpivot/ssh-expect-pass.exp` 路径。
+  static Future<String> materializeSshExpectScript() async {
+    final path = await _channel.invokeMethod<String>('materializeSshExpectScript');
+    if (path == null || path.isEmpty) {
+      throw AgentException('ssh_expect', '内置 SSH 脚本安装失败');
+    }
+    return path;
+  }
+
+  static Future<String?> openSshExpect({
+    required String host,
+    required int port,
+    required String username,
+    required String password,
+    String? otp,
+  }) async {
+    return await _channel.invokeMethod<String>('openSshExpect', {
+      'host': host,
+      'port': port,
+      'username': username,
+      'password': password,
+      if (otp != null && otp.isNotEmpty) 'otp': otp,
     });
   }
 

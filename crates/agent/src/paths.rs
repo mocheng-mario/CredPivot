@@ -16,6 +16,44 @@ pub fn materialized_native_host_path() -> PathBuf {
     runtime_dir().join("credpivot-native-host")
 }
 
+pub fn native_host_digest_path() -> PathBuf {
+    runtime_dir().join("native_host.sha256")
+}
+
+/// Chrome 扩展连接时由 native-host 写入，App 前台后触发指纹门槛。
+pub fn extension_gate_pending_path() -> PathBuf {
+    runtime_dir().join("extension_gate.pending")
+}
+
+pub fn touch_extension_gate_pending() -> std::io::Result<()> {
+    ensure_runtime_dir()?;
+    let path = extension_gate_pending_path();
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    fs::write(path, ms.to_string())?;
+    Ok(())
+}
+
+/// 已有 pending 时不重复写入，避免扩展轮询导致指纹弹窗关不掉。
+pub fn touch_extension_gate_pending_if_absent() -> std::io::Result<bool> {
+    let path = extension_gate_pending_path();
+    if path.exists() {
+        return Ok(false);
+    }
+    touch_extension_gate_pending()?;
+    Ok(true)
+}
+
+pub fn clear_extension_gate_pending() -> std::io::Result<()> {
+    let path = extension_gate_pending_path();
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
 pub fn ssh_agent_socket_path() -> PathBuf {
     runtime_dir().join("ssh.sock")
 }

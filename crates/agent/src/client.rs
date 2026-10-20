@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::ipc::{handle_request, IpcState};
+use crate::ipc::{handle_request, IpcState, RequestPeerContext};
 use crate::session_guard::expire_idle_session;
 use crate::protocol::{AgentRequest, AgentResponse};
 use std::sync::Arc;
@@ -30,5 +30,5 @@ pub async fn call_in_process(
 ) -> AgentResponse {
     expire_idle_session(state).await;
     let mut st = state.lock().await;
-    handle_request(&mut st, req).await
+    handle_request(&mut st, req, RequestPeerContext::default()).await
 }

@@ -1,6 +1,8 @@
 use crate::error::{AgentError, Result};
-use crate::paths::materialized_native_host_path;
+use crate::paths::{materialized_native_host_path, native_host_digest_path};
+use sha2::{Digest, Sha256};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// M0 peer checks for Unix socket clients.
@@ -21,6 +23,13 @@ impl Default for PeerAuthConfig {
                 .unwrap_or(false),
         }
     }
+}
+
+/// 对端是否为 Chrome Native Messaging 的 host 进程（非 App 内嵌 Agent）。
+pub fn peer_is_native_host_executable(path: &Path, cfg: &PeerAuthConfig) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        == Some(cfg.expected_host_binary_name.as_str())
 }
 
 pub fn authorize_peer(pid: u32, cfg: &PeerAuthConfig) -> Result<()> {
@@ -85,12 +94,63 @@ fn paths_same_file(a: &Path, b: &Path) -> Result<bool> {
 }
 
 #[cfg(target_os = "macos")]
+fn sha256_file(path: &Path) -> Result<String> {
+    let mut f = fs::File::open(path).map_err(|e| AgentError::PeerDenied(e.to_string()))?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = f.read(&mut buf).map_err(|e| AgentError::PeerDenied(e.to_string()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+#[cfg(target_os = "macos")]
+fn verify_materialized_native_host_digest(peer_path: &Path) -> Result<()> {
+    if !paths_same_file(peer_path, &materialized_native_host_path())? {
+        return Ok(());
+    }
+    let digest_path = native_host_digest_path();
+    if digest_path.exists() {
+        let expected = fs::read_to_string(&digest_path)
+            .map_err(|e| AgentError::PeerDenied(e.to_string()))?
+            .trim()
+            .to_ascii_lowercase();
+        let actual = sha256_file(peer_path)?;
+        if expected != actual {
+            return Err(AgentError::PeerDenied(
+                "materialized native-host digest mismatch".into(),
+            ));
+        }
+        return Ok(());
+    }
+    if let Ok(trusted) = std::env::var("CREDPIVOT_TRUSTED_NATIVE_HOST") {
+        let trusted_path = PathBuf::from(trusted);
+        if trusted_path.exists() {
+            let a = sha256_file(peer_path)?;
+            let b = sha256_file(&trusted_path)?;
+            if a == b {
+                return Ok(());
+            }
+            return Err(AgentError::PeerDenied(
+                "native-host binary does not match trusted reference".into(),
+            ));
+        }
+    }
+    Err(AgentError::PeerDenied(
+        "native-host digest not configured; reinstall Chrome Native Host from App".into(),
+    ))
+}
+
+#[cfg(target_os = "macos")]
 fn verify_peer_codesign_matches_self(peer_path: &Path) -> Result<()> {
     use std::process::Command;
 
-    // Chrome 清单指向 ~/.credpivot 副本时，路径校验已绑定；开发构建常无有效签名。
     if paths_same_file(peer_path, &materialized_native_host_path())? {
-        return Ok(());
+        return verify_materialized_native_host_digest(peer_path);
     }
 
     let verify = Command::new("codesign")
@@ -145,7 +205,7 @@ fn codesign_team_id(path: &Path) -> Result<Option<String>> {
 }
 
 #[cfg(target_os = "macos")]
-fn peer_executable_path(pid: u32) -> Result<PathBuf> {
+pub fn peer_executable_path(pid: u32) -> Result<PathBuf> {
     use std::os::raw::c_void;
     extern "C" {
         fn proc_pidpath(pid: i32, buffer: *mut c_void, buffer_size: u32) -> i32;

@@ -1,4 +1,8 @@
-import { runFillOnTab } from "./fill_flow.js";
+import {
+  runFillLoginOnTab,
+  runFillOtpFromVaultOnTab,
+  runOtpFillOnTab,
+} from "./fill_flow.js";
 
 const HOST_NAME = "com.credpivot.chrome.m0";
 const NATIVE_IDLE_DISCONNECT_MS = 5 * 60 * 1000;
@@ -93,7 +97,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           action: "handshake",
           protocol_version: PROTOCOL_VERSION,
         });
-        sendResponse({ ok: true, resp, lastNativeError });
+        sendResponse({
+          ok: resp?.ok === true,
+          code: resp?.code,
+          message: resp?.message,
+          payload: resp?.payload,
+          protocol_version: resp?.protocol_version,
+          lastNativeError,
+        });
         return;
       }
       if (msg.type === "agent_status") {
@@ -146,13 +157,47 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse(resp);
         return;
       }
-      if (msg.type === "fill_active_tab") {
+      if (msg.type === "totp_code") {
+        const resp = await sendNative({
+          action: "credential.totp_code",
+          totp_id: msg.totp_id,
+        });
+        if (resp?.ok && resp?.payload) {
+          const code = resp.payload.code ?? resp.payload;
+          sendResponse({ ok: true, payload: { code } });
+          return;
+        }
+        sendResponse(resp);
+        return;
+      }
+      if (msg.type === "fill_login_tab" || msg.type === "fill_active_tab") {
         const tabId = msg.tab_id;
         if (!tabId) {
           sendResponse({ ok: false, error: "缺少 tab_id" });
           return;
         }
-        const result = await runFillOnTab(tabId, sendNative);
+        const result = await runFillLoginOnTab(tabId, sendNative);
+        sendResponse(result);
+        return;
+      }
+      if (msg.type === "fill_otp_vault_tab") {
+        const tabId = msg.tab_id;
+        if (!tabId) {
+          sendResponse({ ok: false, error: "缺少 tab_id" });
+          return;
+        }
+        const result = await runFillOtpFromVaultOnTab(tabId, sendNative);
+        sendResponse(result);
+        return;
+      }
+      if (msg.type === "fill_otp_tab") {
+        const tabId = msg.tab_id;
+        const code = msg.totp_code;
+        if (!tabId || !code) {
+          sendResponse({ ok: false, error: "缺少 tab_id 或验证码" });
+          return;
+        }
+        const result = await runOtpFillOnTab(tabId, code, sendNative);
         sendResponse(result);
         return;
       }
