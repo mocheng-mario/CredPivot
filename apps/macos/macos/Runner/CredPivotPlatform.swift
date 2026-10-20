@@ -293,13 +293,13 @@ enum ExtensionGateCoordinator {
     }
     pending = true
     NSApp.activate(ignoringOtherApps: true)
-    TouchIdGate.isAuthenticating = true
+    let epoch = TouchIdGate.beginAuthentication()
     TouchIdGate.shared.authenticateForExtensionGate(reason: "允许 Chrome 扩展访问已解锁凭据") { ok in
       defer {
-        TouchIdGate.isAuthenticating = false
         pending = false
       }
-      if ok {
+      let valid = TouchIdGate.endAuthentication(epoch)
+      if valid && ok {
         _ = credpivotAgentRequestJsonString(
           #"{"type":"extension_gate_grant","ttl_secs":0}"#
         )
@@ -318,14 +318,38 @@ final class TouchIdGate {
   static let shared = TouchIdGate()
   /// 生物识别弹窗期间勿因 resign-active 误锁 Agent。
   static var isAuthenticating = false
+  /// 锁屏/睡眠时递增，使在途认证结果失效。
+  private(set) static var authenticationEpoch = 0
+
+  static func invalidateInFlightAuthentication() {
+    authenticationEpoch += 1
+    isAuthenticating = false
+  }
+
+  private static func beginAuthentication() -> UInt64 {
+    isAuthenticating = true
+    return authenticationEpoch
+  }
+
+  private static func endAuthentication(_ epoch: UInt64) -> Bool {
+    isAuthenticating = false
+    return epoch == authenticationEpoch
+  }
 
   private let keychainService = "com.credpivot.macos.touchid.m0"
   private let keychainAccount = "vmk-wrapper-token"
 
   /// Chrome 扩展门槛：先 Touch ID；用户点「使用密码」时 `userFallback`，再弹系统登录密码。
   func authenticateForExtensionGate(reason: String, completion: @escaping (Bool) -> Void) {
+    let epoch = TouchIdGate.authenticationEpoch
     let finish: (Bool) -> Void = { ok in
-      DispatchQueue.main.async { completion(ok) }
+      DispatchQueue.main.async {
+        guard epoch == TouchIdGate.authenticationEpoch else {
+          completion(false)
+          return
+        }
+        completion(ok)
+      }
     }
     let run = {
       let bio = LAContext()
@@ -382,13 +406,13 @@ final class TouchIdGate {
       completion(false)
       return
     }
-    TouchIdGate.isAuthenticating = true
+    let epoch = TouchIdGate.beginAuthentication()
     context.evaluatePolicy(
       .deviceOwnerAuthenticationWithBiometrics,
       localizedReason: reason
     ) { success, _ in
-      TouchIdGate.isAuthenticating = false
-      completion(success)
+      let valid = TouchIdGate.endAuthentication(epoch)
+      completion(valid && success)
     }
   }
 
@@ -400,13 +424,12 @@ final class TouchIdGate {
       completion(false, nil)
       return
     }
-    TouchIdGate.isAuthenticating = true
+    let epoch = TouchIdGate.beginAuthentication()
     context.evaluatePolicy(
       .deviceOwnerAuthenticationWithBiometrics,
       localizedReason: "CredPivot：Touch ID 解锁"
     ) { success, _ in
-      TouchIdGate.isAuthenticating = false
-      guard success else {
+      guard TouchIdGate.endAuthentication(epoch), success else {
         completion(false, nil)
         return
       }
@@ -680,12 +703,11 @@ enum ChromeHostInstaller {
 
   /// Agent 对端校验与 Chrome 清单中的 host 路径一致（优先 ~/.credpivot 副本）。
   static func applyTrustedNativeHostEnv() {
-    let path = FileManager.default.fileExists(atPath: installedHostPath.path)
-      ? installedHostPath.path
-      : Bundle.main.path(forResource: "credpivot-native-host", ofType: nil)
-    if let path, !path.isEmpty {
-      setenv("CREDPIVOT_TRUSTED_NATIVE_HOST", path, 1)
+    guard let bundled = Bundle.main.path(forResource: "credpivot-native-host", ofType: nil),
+          !bundled.isEmpty else {
+      return
     }
+    setenv("CREDPIVOT_TRUSTED_NATIVE_HOST", bundled, 1)
   }
 
   static func install(extensionId: String?) -> [String: Any] {
@@ -978,7 +1000,7 @@ enum TerminalLauncher {
 
   /// 供用户核对：一键连接实际执行的启动方式（不含真实密码）。
   static func describeLaunchPlan(appPath: String, shellCommand: String) -> String {
-    let scriptPath = launchScriptURL.path
+    let scriptPath = launchScriptURL(sessionId: nil).path
     _ = writeLaunchScript(shellCommand: shellCommand)
     var lines: [String] = []
     lines.append("=== CredPivot 终端启动计划 ===")
@@ -1040,7 +1062,11 @@ enum TerminalLauncher {
   }
 
   /// 在指定终端里执行一条 shell 命令（expect / ssh 等）。
-  static func launchShellCommand(appPath: String, command: String) -> String? {
+  static func launchShellCommand(
+    appPath: String,
+    command: String,
+    launchSessionId: String? = nil
+  ) -> String? {
     if !FileManager.default.fileExists(atPath: appPath) {
       return "终端应用不存在：\(appPath)"
     }
@@ -1065,13 +1091,17 @@ enum TerminalLauncher {
     }
 
     if appFile.contains("tabby") || bundleId.lowercased().contains("tabby") || tabbyCliPath(appPath: appPath) != nil {
-      if let err = launchTabbyShellCommand(appPath: appPath, command: command) {
+      if let err = launchTabbyShellCommand(
+        appPath: appPath,
+        command: command,
+        launchSessionId: launchSessionId
+      ) {
         return err
       }
       return nil
     }
 
-    if let script = writeLaunchScript(shellCommand: command) {
+    if let script = writeLaunchScript(shellCommand: command, sessionId: launchSessionId) {
       return runProcess(
         executable: "/usr/bin/open",
         arguments: ["-na", appPath, "--args", "/bin/zsh", script],
@@ -1081,33 +1111,39 @@ enum TerminalLauncher {
     return "无法写入启动脚本 ~/.credpivot/terminal_launch.sh"
   }
 
-  private static var launchScriptURL: URL {
-    FileManager.default.homeDirectoryForCurrentUser
+  private static func launchScriptURL(sessionId: String?) -> URL {
+    let name = sessionId.map { "terminal_launch_\($0).sh" } ?? launchScriptName
+    return FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".credpivot", isDirectory: true)
-      .appendingPathComponent(launchScriptName)
+      .appendingPathComponent(name)
   }
 
-  /// 将整条 shell 命令写入 `~/.credpivot/terminal_launch.sh`，供 `zsh <path>` 执行。
-  private static func writeLaunchScript(shellCommand: String) -> String? {
-    let dir = launchScriptURL.deletingLastPathComponent()
+  /// 将整条 shell 命令写入 `~/.credpivot/terminal_launch*.sh`，供 `zsh <path>` 执行。
+  private static func writeLaunchScript(shellCommand: String, sessionId: String? = nil) -> String? {
+    let url = launchScriptURL(sessionId: sessionId)
+    let dir = url.deletingLastPathComponent()
     do {
       try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
       let body = "#!/bin/zsh\n\(shellCommand)\n"
-      try body.write(to: launchScriptURL, atomically: true, encoding: .utf8)
-      try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: launchScriptURL.path)
-      return launchScriptURL.path
+      try body.write(to: url, atomically: true, encoding: .utf8)
+      try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+      return url.path
     } catch {
       return nil
     }
   }
 
   /// Tabby：`run [command...]`；`-c` 后仅传脚本路径，避免长命令被拆成多个「脚本文件」参数。
-  private static func launchTabbyShellCommand(appPath: String, command: String) -> String? {
+  private static func launchTabbyShellCommand(
+    appPath: String,
+    command: String,
+    launchSessionId: String? = nil
+  ) -> String? {
     let cli = "\(appPath)/Contents/MacOS/Tabby"
     guard FileManager.default.fileExists(atPath: cli) else {
       return "找不到 Tabby CLI：\(cli)"
     }
-    guard let script = writeLaunchScript(shellCommand: command) else {
+    guard let script = writeLaunchScript(shellCommand: command, sessionId: launchSessionId) else {
       return "无法写入 ~/.credpivot/terminal_launch.sh"
     }
     return runProcess(executable: cli, arguments: ["run", "/bin/zsh", script], waitForExit: false)
@@ -1122,10 +1158,15 @@ enum TerminalLauncher {
   static func launchShellCommandLine(
     appPath: String,
     executable: String,
-    arguments: [String]
+    arguments: [String],
+    launchSessionId: String? = nil
   ) -> String? {
     let shellCmd = ([executable] + arguments).map { shellQuote($0) }.joined(separator: " ")
-    return launchShellCommand(appPath: appPath, command: shellCmd)
+    return launchShellCommand(
+      appPath: appPath,
+      command: shellCmd,
+      launchSessionId: launchSessionId
+    )
   }
 
   private static func runProcess(
@@ -1177,7 +1218,6 @@ enum TerminalLauncher {
 
 enum SshExpectLauncher {
   private static let installedName = "ssh-expect-pass.exp"
-  private static let passwordFileName = ".ssh_expect_password"
   private static var credPivotDir: URL {
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".credpivot", isDirectory: true)
   }
@@ -1211,10 +1251,10 @@ enum SshExpectLauncher {
     return dst.path
   }
 
-  /// 密码不经 shell 引号，写入临时文件供 expect 读取（用后删除）。
-  private static func writePasswordFile(_ password: String) -> String? {
+  /// 每次连接独立密码文件；expect 读取后会删除，启动失败时由调用方清理。
+  private static func writePasswordFile(_ password: String, sessionId: String) -> String? {
     try? FileManager.default.createDirectory(at: credPivotDir, withIntermediateDirectories: true)
-    let url = credPivotDir.appendingPathComponent(passwordFileName)
+    let url = credPivotDir.appendingPathComponent("ssh-expect-\(sessionId).pw")
     do {
       try password.write(to: url, atomically: true, encoding: .utf8)
       try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
@@ -1222,6 +1262,10 @@ enum SshExpectLauncher {
     } catch {
       return nil
     }
+  }
+
+  private static func removePasswordFile(_ path: String) {
+    try? FileManager.default.removeItem(atPath: path)
   }
 
   static func openInTerminal(
@@ -1243,8 +1287,9 @@ enum SshExpectLauncher {
     guard let appPath = TerminalLauncher.currentAppPath(), !appPath.isEmpty else {
       return "未选择终端应用：请在「服务器」页配置终端"
     }
-    guard let passFile = writePasswordFile(password) else {
-      return "无法写入临时密码文件 ~/.credpivot/.ssh_expect_password"
+    let sessionId = UUID().uuidString.lowercased()
+    guard let passFile = writePasswordFile(password, sessionId: sessionId) else {
+      return "无法写入临时 SSH 密码文件"
     }
     var args = [script, "--user", user, "--password-file", passFile, "--host", host]
     if port != 22 {
@@ -1256,8 +1301,10 @@ enum SshExpectLauncher {
     if let err = TerminalLauncher.launchShellCommandLine(
       appPath: appPath,
       executable: "/usr/bin/expect",
-      arguments: args
+      arguments: args,
+      launchSessionId: sessionId
     ) {
+      removePasswordFile(passFile)
       let shellCmd = (["/usr/bin/expect"] + args).map { TerminalLauncher.shellQuoteForPlan($0) }.joined(separator: " ")
       let plan = TerminalLauncher.describeLaunchPlan(appPath: appPath, shellCommand: shellCmd)
       return "\(err)\n\n\(plan.replacingOccurrences(of: password, with: "***"))"

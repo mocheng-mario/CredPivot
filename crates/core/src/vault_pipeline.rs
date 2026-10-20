@@ -137,10 +137,12 @@ pub fn clone_vault_to_empty_dir(
 }
 
 /// M3-3：从 `restore-points/<ts>/` 恢复到新的空目录。
+/// `vault_json_source`：同 VMK 代际恢复数据时传入当前工作库的 `vault.json`，避免把主密码配置退回旧槽。
 pub fn recover_restore_point_to_dir(
     restore_point_dir: &Path,
     target_dir: &Path,
     vmk: &Zeroizing<[u8; 32]>,
+    vault_json_source: Option<&Path>,
 ) -> Result<()> {
     ensure_empty_target(target_dir)?;
     let vault_json = restore_point_dir.join("vault.json");
@@ -150,7 +152,10 @@ pub fn recover_restore_point_to_dir(
     }
     let outcome = (|| {
         fs::create_dir_all(target_dir).map_err(|e| CoreError::io(e.to_string()))?;
-        fs::copy(&vault_json, target_dir.join("vault.json"))
+        let json_src = vault_json_source
+            .filter(|p| p.is_file())
+            .unwrap_or(&vault_json);
+        fs::copy(json_src, target_dir.join("vault.json"))
             .map_err(|e| CoreError::io(e.to_string()))?;
         fs::copy(&vault_db, target_dir.join(local_db::DB_FILENAME))
             .map_err(|e| CoreError::io(e.to_string()))?;

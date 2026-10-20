@@ -98,8 +98,17 @@ impl VaultSession {
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         self.db = Some(db);
         self.sync_ssh_from_db()?;
-        self.try_restore_point_if_due()?;
+        if let Err(e) = self.try_restore_point_if_due() {
+            tracing::warn!("scheduled restore point skipped: {e}");
+        }
         Ok(())
+    }
+
+    fn abort_partial_unlock(&mut self) {
+        self.unlocked = false;
+        self.vmk = None;
+        self.db = None;
+        self.ssh_signing_key = SigningKey::generate(&mut OsRng);
     }
 
     pub fn try_restore_point_if_due(&mut self) -> Result<()> {
@@ -220,7 +229,7 @@ impl VaultSession {
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         self.vmk = Some(material.vmk);
         if let Err(e) = self.attach_database() {
-            self.vmk = None;
+            self.abort_partial_unlock();
             return Err(AgentError::Vault(e.to_string()));
         }
         self.unlocked = true;
@@ -240,7 +249,7 @@ impl VaultSession {
             .map_err(|_| AgentError::Vault("control mac failed".into()))?;
         self.vmk = Some(vmk);
         if let Err(e) = self.attach_database() {
-            self.vmk = None;
+            self.abort_partial_unlock();
             return Err(e);
         }
         self.unlocked = true;
@@ -643,7 +652,13 @@ impl VaultSession {
             .vault_dir
             .join(credpivot_core::RESTORE_POINTS_DIR)
             .join(created_at_ms.to_string());
-        recover_restore_point_to_dir(&point, Path::new(target_dir), vmk)
+        let current_json = self.vault_dir.join("vault.json");
+        recover_restore_point_to_dir(
+            &point,
+            Path::new(target_dir),
+            vmk,
+            Some(current_json.as_path()),
+        )
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         if let Some(db) = self.db.as_ref() {
             let _ = mark_local_restore_verified(db.conn());

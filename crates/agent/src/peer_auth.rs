@@ -1,5 +1,5 @@
 use crate::error::{AgentError, Result};
-use crate::paths::{materialized_native_host_path, native_host_digest_path};
+use crate::paths::materialized_native_host_path;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Read;
@@ -113,36 +113,27 @@ fn verify_materialized_native_host_digest(peer_path: &Path) -> Result<()> {
     if !paths_same_file(peer_path, &materialized_native_host_path())? {
         return Ok(());
     }
-    let digest_path = native_host_digest_path();
-    if digest_path.exists() {
-        let expected = fs::read_to_string(&digest_path)
-            .map_err(|e| AgentError::PeerDenied(e.to_string()))?
-            .trim()
-            .to_ascii_lowercase();
-        let actual = sha256_file(peer_path)?;
-        if expected != actual {
-            return Err(AgentError::PeerDenied(
-                "materialized native-host digest mismatch".into(),
-            ));
-        }
-        return Ok(());
+    let trusted = std::env::var("CREDPIVOT_TRUSTED_NATIVE_HOST")
+        .map(PathBuf::from)
+        .map_err(|_| AgentError::PeerDenied("trusted native-host not configured".into()))?;
+    if !trusted.exists() {
+        return Err(AgentError::PeerDenied(
+            "trusted native-host path missing; reinstall from CredPivot App".into(),
+        ));
     }
-    if let Ok(trusted) = std::env::var("CREDPIVOT_TRUSTED_NATIVE_HOST") {
-        let trusted_path = PathBuf::from(trusted);
-        if trusted_path.exists() {
-            let a = sha256_file(peer_path)?;
-            let b = sha256_file(&trusted_path)?;
-            if a == b {
-                return Ok(());
-            }
-            return Err(AgentError::PeerDenied(
-                "native-host binary does not match trusted reference".into(),
-            ));
-        }
+    if paths_same_file(&trusted, peer_path)? {
+        return Err(AgentError::PeerDenied(
+            "trusted reference must be App bundle binary, not ~/.credpivot copy".into(),
+        ));
     }
-    Err(AgentError::PeerDenied(
-        "native-host digest not configured; reinstall Chrome Native Host from App".into(),
-    ))
+    let expected = sha256_file(&trusted)?;
+    let actual = sha256_file(peer_path)?;
+    if expected != actual {
+        return Err(AgentError::PeerDenied(
+            "materialized native-host does not match App bundle binary".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]

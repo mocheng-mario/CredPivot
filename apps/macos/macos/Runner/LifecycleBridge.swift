@@ -28,21 +28,20 @@ final class LifecycleBridge {
   }
 
   @objc private func screenLocked() {
-    lockAgentUnlessTouchId()
+    lockAgentOnSystemEvent()
   }
 
   @objc private func screensDidSleep() {
-    lockAgentUnlessTouchId()
+    lockAgentOnSystemEvent()
   }
 
   @objc private func systemWillSleep() {
-    lockAgentUnlessTouchId()
+    lockAgentOnSystemEvent()
   }
 
-  private func lockAgentUnlessTouchId() {
-    if TouchIdGate.isAuthenticating {
-      return
-    }
+  /// 真实锁屏/睡眠必须锁定 Vault，并作废在途 Touch ID。
+  private func lockAgentOnSystemEvent() {
+    TouchIdGate.invalidateInFlightAuthentication()
     _ = credpivotAgentRequestJsonString(#"{"type":"lock"}"#)
     CredPivotPlatform.publishVaultLocked()
   }

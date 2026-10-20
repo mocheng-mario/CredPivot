@@ -75,33 +75,49 @@ pub struct TotpStoredParams {
 }
 
 /// 入库前规范化：从 URI 或 Base32 提取完整 TOTP 参数。
+pub fn validate_totp_stored_params(params: &TotpStoredParams) -> Result<()> {
+    if params.period == 0 {
+        return Err(CoreError::format("TOTP period 必须大于 0"));
+    }
+    if params.digits < 6 || params.digits > 8 {
+        return Err(CoreError::format("TOTP digits 须在 6–8 之间"));
+    }
+    Ok(())
+}
+
 pub fn totp_params_for_storage(input: &str) -> Result<TotpStoredParams> {
     let trimmed = input.trim();
     if trimmed.to_lowercase().starts_with("otpauth://") {
         if let Ok(totp) = TOTP::from_url(trimmed) {
-            return Ok(TotpStoredParams {
+            let params = TotpStoredParams {
                 secret_base32: totp.get_secret_base32(),
                 algorithm: totp.algorithm,
                 digits: totp.digits,
                 period: totp.step,
-            });
+            };
+            validate_totp_stored_params(&params)?;
+            return Ok(params);
         }
         let secret = extract_secret_from_otpauth(trimmed)?;
         validate_base32_secret(&secret)?;
-        return Ok(TotpStoredParams {
+        let params = TotpStoredParams {
             secret_base32: normalize_base32(&secret),
             algorithm: Algorithm::SHA1,
             digits: 6,
             period: 30,
-        });
+        };
+        validate_totp_stored_params(&params)?;
+        return Ok(params);
     }
     validate_base32_secret(trimmed)?;
-    Ok(TotpStoredParams {
+    let params = TotpStoredParams {
         secret_base32: normalize_base32(trimmed),
         algorithm: Algorithm::SHA1,
         digits: 6,
         period: 30,
-    })
+    };
+    validate_totp_stored_params(&params)?;
+    Ok(params)
 }
 
 /// 入库前规范化：只保留 Base32 密钥（兼容旧调用）。
@@ -110,6 +126,7 @@ pub fn normalize_totp_secret_for_storage(input: &str) -> Result<String> {
 }
 
 pub fn totp_code_from_params(params: &TotpStoredParams) -> Result<String> {
+    validate_totp_stored_params(params)?;
     let secret = Secret::Encoded(params.secret_base32.clone())
         .to_bytes()
         .map_err(|e| CoreError::format(e.to_string()))?;
@@ -195,12 +212,17 @@ fn url_decode_component(s: &str) -> String {
                 &s[i + 1..i + 3],
                 16,
             ) {
-                out.push(v as char);
+                if v.is_ascii() {
+                    out.push(char::from(v));
+                }
                 i += 3;
                 continue;
             }
         }
-        out.push(bytes[i] as char);
+        let b = bytes[i];
+        if b.is_ascii() {
+            out.push(char::from(b));
+        }
         i += 1;
     }
     out

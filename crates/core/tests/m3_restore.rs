@@ -17,7 +17,7 @@ fn restore_point_roundtrip_to_empty_dir() {
     assert!(point.join("vault.db").is_file());
 
     let target = tempdir().expect("target");
-    credpivot_core::recover_restore_point_to_dir(&point, target.path(), &vmk).expect("recover");
+    credpivot_core::recover_restore_point_to_dir(&point, target.path(), &vmk, None).expect("recover");
     let db2 = VaultDatabase::open(target.path(), &*vmk).expect("open2");
     assert_eq!(db2.login_count().expect("count"), 1);
 

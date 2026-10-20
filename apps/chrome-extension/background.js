@@ -20,6 +20,30 @@ function uuid() {
   return crypto.randomUUID();
 }
 
+/** 凭据操作只信任标签页真实 URL，不用消息自报的 origin。 */
+async function originFromSender(sender, msg) {
+  const tabId = msg?.tab_id ?? sender?.tab?.id;
+  if (tabId != null) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab?.url?.startsWith("http")) {
+        return new URL(tab.url).origin;
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+  const url = sender?.tab?.url;
+  if (url?.startsWith("http")) {
+    try {
+      return new URL(url).origin;
+    } catch (_) {
+      return null;
+    }
+  }
+  return null;
+}
+
 function rejectAllInflight(reason) {
   for (const [id, entry] of inflight) {
     clearTimeout(entry.timer);
@@ -114,17 +138,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       connectNativeIfNeeded();
       if (msg.type === "suggest_credentials") {
+        const origin = await originFromSender(sender, msg);
+        if (!origin) {
+          sendResponse({ ok: false, code: "bad_origin", message: "无法确定页面 origin" });
+          return;
+        }
         const resp = await sendNative({
           action: "credential.suggest_for_origin",
-          origin: msg.origin,
+          origin,
         });
         sendResponse(resp);
         return;
       }
       if (msg.type === "save_credential") {
+        const origin = await originFromSender(sender, msg);
+        if (!origin) {
+          sendResponse({ ok: false, code: "bad_origin", message: "无法确定页面 origin" });
+          return;
+        }
         const resp = await sendNative({
           action: "credential.save",
-          origin: msg.origin,
+          origin,
           username: msg.username,
           password: msg.password,
         });
@@ -135,10 +169,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const tabId = msg.tab_id ?? sender.tab?.id ?? 0;
         const frameId = msg.frame_id ?? 0;
         const documentId = msg.document_id ?? "";
+        const origin = await originFromSender(sender, msg);
+        if (!origin) {
+          sendResponse({ ok: false, code: "bad_origin", message: "无法确定页面 origin" });
+          return;
+        }
         const resp = await sendNative({
           action: "credential.fill_prepare",
           credential_id: msg.credential_id,
-          origin: msg.origin,
+          origin,
           tab_id: tabId,
           frame_id: frameId,
           document_id: documentId,
@@ -147,10 +186,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return;
       }
       if (msg.type === "fill_consume") {
+        const origin = (await originFromSender(sender, msg)) ?? "";
         const resp = await sendNative({
           action: "credential.fill_consume",
           request_id: msg.request_id,
-          origin: msg.origin ?? "",
+          origin,
           frame_id: msg.frame_id ?? 0,
           document_id: msg.document_id ?? "",
         });

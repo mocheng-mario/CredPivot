@@ -834,7 +834,7 @@ pub fn update_recovery_codes(
 }
 
 pub fn totp_params_for_id(conn: &Connection, totp_id: &str) -> Result<crate::totp::TotpStoredParams> {
-    conn.query_row(
+    let params = conn.query_row(
         "SELECT t.secret_base32, t.totp_algorithm, t.totp_digits, t.totp_period FROM totp_credentials t
          INNER JOIN items i ON i.id = t.item_id
          WHERE t.id = ?1 AND i.trashed = 0",
@@ -851,7 +851,9 @@ pub fn totp_params_for_id(conn: &Connection, totp_id: &str) -> Result<crate::tot
             })
         },
     )
-    .map_err(|_| CoreError::format("totp not found"))
+    .map_err(|_| CoreError::format("totp not found"))?;
+    crate::totp::validate_totp_stored_params(&params)?;
+    Ok(params)
 }
 
 pub fn totp_code_for_id(conn: &Connection, totp_id: &str) -> Result<String> {

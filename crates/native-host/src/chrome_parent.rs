@@ -20,7 +20,15 @@ pub fn verify_chrome_parent() -> Result<(), ParentCheckError> {
             .unwrap_or("")
             .to_lowercase();
         if name == "google chrome" || name == "google chrome canary" {
-            return Ok(());
+            let lower = path.to_string_lossy().to_lowercase();
+            if lower.contains("/google chrome.app/")
+                || lower.contains("/google chrome canary.app/")
+            {
+                return Ok(());
+            }
+            return Err(ParentCheckError::NotChrome(
+                "chrome executable outside expected app bundle".into(),
+            ));
         }
         return Err(ParentCheckError::NotChrome(path.display().to_string()));
     }

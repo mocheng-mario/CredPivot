@@ -82,6 +82,27 @@ pub fn load_extension_gate_into_state(st: &mut IpcState) {
     }
 }
 
+/// Chrome Native Host 不得直接调用的高危/旁路接口。
+fn native_host_request_forbidden(req: &AgentRequest) -> bool {
+    matches!(
+        req,
+        AgentRequest::TotpReveal { .. }
+            | AgentRequest::RecoveryCodesList
+            | AgentRequest::RecoveryCodesCreate { .. }
+            | AgentRequest::RecoveryCodesUpdate { .. }
+            | AgentRequest::CredentialList { .. }
+            | AgentRequest::CredentialGet { .. }
+            | AgentRequest::CredentialUpdate { .. }
+            | AgentRequest::ImportBitwarden { .. }
+            | AgentRequest::SecuritySummary
+            | AgentRequest::SshKeyList
+            | AgentRequest::SshKeyGenerate { .. }
+            | AgentRequest::SshSelectKey { .. }
+            | AgentRequest::VaultExportOvb { .. }
+            | AgentRequest::VaultChangePassword { .. }
+    )
+}
+
 fn req_requires_extension_gate(req: &AgentRequest) -> bool {
     matches!(
         req,
@@ -167,6 +188,12 @@ pub async fn handle_request(
         }
     }
     maybe_expire_extension_gate_idle(st);
+    if peer.from_native_host && native_host_request_forbidden(&req) {
+        return AgentResponse::err(
+            "forbidden",
+            "browser extension cannot invoke this agent operation",
+        );
+    }
     if peer.from_native_host && req_requires_extension_gate(&req) {
         if !extension_gate_active(st) {
             let _ = crate::paths::touch_extension_gate_pending_if_absent();
