@@ -285,28 +285,50 @@ class AgentBridge {
     });
   }
 
-  /// 安装/校验内置脚本，返回 `~/.credpivot/ssh-expect-pass.exp` 路径。
-  static Future<String> materializeSshExpectScript() async {
-    final path = await _channel.invokeMethod<String>('materializeSshExpectScript');
+  /// 安装 askpass 到 `~/.credpivot/credpivot-askpass`。
+  static Future<String> materializeSshAskpass() async {
+    final path = await _channel.invokeMethod<String>('materializeSshAskpass');
     if (path == null || path.isEmpty) {
-      throw AgentException('ssh_expect', '内置 SSH 脚本安装失败');
+      throw AgentException('ssh_askpass', 'SSH askpass 安装失败');
     }
     return path;
   }
 
-  static Future<String?> openSshExpect({
+  /// Agent 登记 SSH 会话（密码留在 Vault，由 askpass 按提示领取）。
+  static Future<String> sshSessionPrepare({
+    required String host,
+    required int port,
+    required String user,
+    required String loginCredentialId,
+    String? totpId,
+  }) async {
+    final resp = await request({
+      'type': 'ssh_session_prepare',
+      'host': host,
+      'port': port,
+      'user': user,
+      'login_credential_id': loginCredentialId,
+      if (totpId != null && totpId.isNotEmpty) 'totp_id': totpId,
+    });
+    final payload = payloadOf(resp);
+    final id = payload['session_id'] as String?;
+    if (id == null || id.isEmpty) {
+      throw AgentException('ssh_session', '无法创建 SSH 会话');
+    }
+    return id;
+  }
+
+  static Future<String?> openSshWithAskpass({
     required String host,
     required int port,
     required String username,
-    required String password,
-    String? otp,
+    required String sessionId,
   }) async {
-    return await _channel.invokeMethod<String>('openSshExpect', {
+    return await _channel.invokeMethod<String>('openSshWithAskpass', {
       'host': host,
       'port': port,
       'username': username,
-      'password': password,
-      if (otp != null && otp.isNotEmpty) 'otp': otp,
+      'sessionId': sessionId,
     });
   }
 

@@ -20,8 +20,9 @@ class AppDelegate: FlutterAppDelegate {
 
     if let controller = mainFlutterWindow?.contentViewController as? FlutterViewController {
       ChromeHostInstaller.applyTrustedNativeHostEnv()
+      SshAskpassLauncher.applyTrustedAskpassEnv()
       ExtensionGateCoordinator.start()
-      _ = try? SshExpectLauncher.materializeBuiltinScript()
+      _ = try? SshAskpassLauncher.materializeInstalledBinary()
       platform = CredPivotPlatform(messenger: controller.engine.binaryMessenger)
       let code = CredPivotRustFFI.start()
       if code != 0 {

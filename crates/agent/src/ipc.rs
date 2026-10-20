@@ -4,8 +4,11 @@ use crate::extension_gate::{
 };
 use crate::error::{AgentError, Result};
 use crate::peer_auth::{
-    authorize_peer, peer_executable_path, peer_is_native_host_executable, PeerAuthConfig,
+    authorize_peer, peer_executable_path, peer_is_askpass_executable, peer_is_native_host_executable,
+    PeerAuthConfig,
 };
+use crate::ssh_session::{prepare_session, consume_askpass_secret, SSH_SESSION_TTL_MS};
+use crate::ssh_session::SshSessionGrant;
 use crate::session_guard::expire_idle_session;
 use crate::protocol::{AgentRequest, AgentResponse};
 use crate::vault_session::{FillGrant, VaultSession};
@@ -23,11 +26,14 @@ const FILL_TTL_MS: u128 = 60_000;
 pub struct RequestPeerContext {
     /// Chrome Native Messaging host 经 Unix socket 发起的请求。
     pub from_native_host: bool,
+    /// credpivot-askpass 经 Unix socket 发起的请求。
+    pub from_askpass: bool,
 }
 
 pub struct IpcState {
     pub vault: Arc<Mutex<VaultSession>>,
     pub pending_fills: HashMap<String, FillGrant>,
+    pub pending_ssh_sessions: HashMap<String, SshSessionGrant>,
     pub peer_auth: PeerAuthConfig,
     /// 扩展经 native-host 访问敏感数据的截止时间（毫秒）。
     pub extension_gate_expires_ms: u128,
@@ -98,6 +104,8 @@ fn native_host_request_forbidden(req: &AgentRequest) -> bool {
             | AgentRequest::SshKeyList
             | AgentRequest::SshKeyGenerate { .. }
             | AgentRequest::SshSelectKey { .. }
+            | AgentRequest::SshSessionPrepare { .. }
+            | AgentRequest::SshAskpass { .. }
             | AgentRequest::VaultExportOvb { .. }
             | AgentRequest::VaultChangePassword { .. }
     )
@@ -132,21 +140,24 @@ async fn handle_ipc_connection(
     state: Arc<Mutex<IpcState>>,
 ) -> Result<()> {
     let peer_pid = peer_pid(stream)?;
-    let from_native_host = {
+    let (from_native_host, from_askpass) = {
         let cfg = state.lock().await.peer_auth.clone();
         authorize_peer(peer_pid, &cfg)?;
         #[cfg(target_os = "macos")]
         {
             let path = peer_executable_path(peer_pid)?;
-            peer_is_native_host_executable(&path, &cfg)
+            let nh = peer_is_native_host_executable(&path, &cfg);
+            let ap = peer_is_askpass_executable(&path);
+            (nh, ap)
         }
         #[cfg(not(target_os = "macos"))]
         {
-            false
+            (false, false)
         }
     };
     let peer = RequestPeerContext {
         from_native_host,
+        from_askpass,
     };
 
     let mut len_buf = [0u8; 4];
@@ -654,6 +665,61 @@ pub async fn handle_request(
             match v.select_ssh_key(&key_id) {
                 Ok(()) => AgentResponse::ok(json!({ "selected": key_id })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::SshSessionPrepare {
+            host,
+            port,
+            user,
+            login_credential_id,
+            totp_id,
+        } => {
+            if peer.from_native_host {
+                return AgentResponse::err("forbidden", "extension cannot prepare ssh session");
+            }
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            if host.trim().is_empty() || user.trim().is_empty() || login_credential_id.trim().is_empty()
+            {
+                return AgentResponse::err("bad_args", "host, user and login_credential_id required");
+            }
+            if v.get_credential(&login_credential_id).is_err() {
+                return AgentResponse::err("not_found", "login credential not found");
+            }
+            let totp = totp_id.filter(|s| !s.trim().is_empty());
+            let session_id = prepare_session(
+                &mut st.pending_ssh_sessions,
+                &host,
+                port,
+                &user,
+                &login_credential_id,
+                totp,
+            );
+            AgentResponse::ok(json!({
+                "session_id": session_id,
+                "expires_in_ms": SSH_SESSION_TTL_MS,
+            }))
+        }
+        AgentRequest::SshAskpass { session_id, prompt } => {
+            if !peer.from_askpass {
+                return AgentResponse::err("peer_denied", "ssh askpass requires credpivot-askpass peer");
+            }
+            let mut v = st.vault.lock().await;
+            if !v.unlocked {
+                return AgentResponse::err("locked", "vault locked");
+            }
+            v.touch_activity();
+            match consume_askpass_secret(
+                &mut st.pending_ssh_sessions,
+                &mut v,
+                &session_id,
+                &prompt,
+            ) {
+                Ok(secret) => AgentResponse::ok(json!({ "secret": secret })),
+                Err(e) => AgentResponse::err("askpass_denied", e.to_string()),
             }
         }
         AgentRequest::RecoveryCodesList => {

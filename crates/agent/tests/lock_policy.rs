@@ -14,6 +14,7 @@ fn test_state() -> (IpcState, tempfile::TempDir) {
     let state = IpcState {
         vault: Arc::new(Mutex::new(vault)),
         pending_fills: HashMap::new(),
+        pending_ssh_sessions: HashMap::new(),
         peer_auth: PeerAuthConfig::default(),
         extension_gate_expires_ms: 0,
         extension_gate_last_native_ms: 0,

@@ -134,6 +134,22 @@ pub enum AgentRequest {
     },
     /// 将 CredPivot SSH Agent 当前身份切换为指定库内密钥。
     SshSelectKey { key_id: String },
+    /// App 内一键 SSH：登记短时会话，供 askpass 按提示取密（不落盘）。
+    SshSessionPrepare {
+        host: String,
+        #[serde(default = "default_ssh_port")]
+        port: u16,
+        user: String,
+        login_credential_id: String,
+        #[serde(default)]
+        totp_id: Option<String>,
+    },
+    /// 仅 credpivot-askpass 经 Unix IPC 调用。
+    SshAskpass {
+        session_id: String,
+        #[serde(default)]
+        prompt: String,
+    },
     VaultCreate { password: String },
     VaultChangePassword {
         old_password: String,

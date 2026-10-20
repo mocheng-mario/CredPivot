@@ -323,6 +323,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "credpivot-askpass"
+version = "0.1.0"
+dependencies = [
+ "credpivot-agent",
+ "tokio",
+]
+
+[[package]]
 name = "credpivot-cli"
 version = "0.1.0"
 dependencies = [

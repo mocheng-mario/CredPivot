@@ -8,13 +8,16 @@ macos-pub-get:
 	cd $(MACOS_APP_DIR) && $(FLUTTER) pub get
 
 ## 将 Rust 静态库与 native-host 复制到 Runner（需先 make rust-ffi rust-host）
-macos-sync-artifacts: rust-ffi rust-host
+macos-sync-artifacts: rust-ffi rust-host rust-askpass
 	@test -f $(RUST_LIB_FFI) || (echo "missing $(RUST_LIB_FFI); run make rust-ffi" >&2; exit 1)
 	@test -f $(RUST_HOST_BIN) || (echo "missing $(RUST_HOST_BIN); run make rust-host" >&2; exit 1)
+	@test -f $(RUST_ASKPASS_BIN) || (echo "missing $(RUST_ASKPASS_BIN); run make rust-askpass" >&2; exit 1)
 	mkdir -p $(MACOS_RUNNER)
 	cp $(RUST_LIB_FFI) $(MACOS_RUNNER)/
 	cp $(RUST_HOST_BIN) $(MACOS_RUNNER)/credpivot-native-host
 	chmod +x $(MACOS_RUNNER)/credpivot-native-host
+	cp $(RUST_ASKPASS_BIN) $(MACOS_RUNNER)/credpivot-askpass
+	chmod +x $(MACOS_RUNNER)/credpivot-askpass
 	rm -rf $(MACOS_RUNNER)/credpivot-chrome-extension
 	cp -R $(CHROME_EXT_DIR) $(MACOS_RUNNER)/credpivot-chrome-extension
 	@mkdir -p $(HOME)/.credpivot
@@ -22,10 +25,7 @@ macos-sync-artifacts: rust-ffi rust-host
 	@echo "$(CHROME_EXT_DIR)" > $(HOME)/.credpivot/chrome_extension_dir.path
 	rm -rf $(HOME)/.credpivot/chrome-extension
 	cp -R $(CHROME_EXT_DIR) $(HOME)/.credpivot/chrome-extension
-	cp $(ROOT)/assets/ssh-expect-pass.exp $(MACOS_RUNNER)/ssh-expect-pass.exp
-	chmod 755 $(MACOS_RUNNER)/ssh-expect-pass.exp
-	cp $(ROOT)/assets/ssh-expect-pass.exp $(HOME)/.credpivot/ssh-expect-pass.exp
-	chmod 755 $(HOME)/.credpivot/ssh-expect-pass.exp
+	@echo "$(RUST_ASKPASS_BIN)" > $(HOME)/.credpivot/askpass_binary.path
 	@if [ -f $(MACOS_APP_DIR)/macos/Runner.xcodeproj/project.pbxproj ]; then \
 		$(ROOT)/scripts/patch-macos-xcode.sh; \
 	fi

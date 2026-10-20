@@ -16,6 +16,11 @@ pub fn materialized_native_host_path() -> PathBuf {
     runtime_dir().join("credpivot-native-host")
 }
 
+/// `SSH_ASKPASS` 默认指向的副本（须与 App 包内 credpivot-askpass 摘要一致）。
+pub fn materialized_askpass_path() -> PathBuf {
+    runtime_dir().join("credpivot-askpass")
+}
+
 /// Chrome 扩展连接时由 native-host 写入，App 前台后触发指纹门槛。
 pub fn extension_gate_pending_path() -> PathBuf {
     runtime_dir().join("extension_gate.pending")

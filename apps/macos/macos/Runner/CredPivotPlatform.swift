@@ -210,29 +210,27 @@ final class CredPivotPlatform: NSObject {
       } else {
         result(nil)
       }
-    case "materializeSshExpectScript":
+    case "materializeSshAskpass":
       do {
-        let path = try SshExpectLauncher.materializeBuiltinScript()
+        let path = try SshAskpassLauncher.materializeInstalledBinary()
         result(path)
       } catch {
-        result(FlutterError(code: "ssh_expect", message: error.localizedDescription, details: nil))
+        result(FlutterError(code: "ssh_askpass", message: error.localizedDescription, details: nil))
       }
-    case "openSshExpect":
+    case "openSshWithAskpass":
       guard let args = call.arguments as? [String: Any],
             let host = args["host"] as? String,
             let username = args["username"] as? String,
-            let password = args["password"] as? String else {
-        result(FlutterError(code: "bad_args", message: "host/username/password required", details: nil))
+            let sessionId = args["sessionId"] as? String else {
+        result(FlutterError(code: "bad_args", message: "host/username/sessionId required", details: nil))
         return
       }
       let port = args["port"] as? Int ?? 22
-      let otp = args["otp"] as? String
-      if let err = SshExpectLauncher.openInTerminal(
+      if let err = SshAskpassLauncher.openInTerminal(
         host: host,
         port: port,
         user: username,
-        password: password,
-        otp: otp
+        sessionId: sessionId
       ) {
         result(err)
       } else {
@@ -1164,8 +1162,8 @@ enum TerminalLauncher {
   }
 }
 
-enum SshExpectLauncher {
-  private static let installedName = "ssh-expect-pass.exp"
+enum SshAskpassLauncher {
+  private static let installedName = "credpivot-askpass"
   private static var credPivotDir: URL {
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".credpivot", isDirectory: true)
   }
@@ -1174,88 +1172,81 @@ enum SshExpectLauncher {
     credPivotDir.appendingPathComponent(installedName)
   }
 
-  /// 从 App 包内副本安装到 ~/.credpivot（Agent 启动时也会写入同路径）。
-  static func materializeBuiltinScript() throws -> String {
-    try FileManager.default.createDirectory(at: credPivotDir, withIntermediateDirectories: true)
-    let dst = installedURL
-    if let bundled = Bundle.main.path(forResource: "ssh-expect-pass", ofType: "exp") {
-      let srcData = try Data(contentsOf: URL(fileURLWithPath: bundled))
-      let dstData = try? Data(contentsOf: dst)
-      if dstData != srcData {
-        if FileManager.default.fileExists(atPath: dst.path) {
-          try FileManager.default.removeItem(at: dst)
-        }
-        try FileManager.default.copyItem(atPath: bundled, toPath: dst.path)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dst.path)
+  /// Agent 校验 askpass 副本时读取包内二进制路径。
+  static func applyTrustedAskpassEnv() {
+    guard let bundled = Bundle.main.path(forResource: installedName, ofType: nil),
+          !bundled.isEmpty else {
+      return
+    }
+    setenv("CREDPIVOT_TRUSTED_ASKPASS", bundled, 1)
+  }
+
+  private static func resolveSourceBinary() -> String? {
+    if let bundled = Bundle.main.path(forResource: installedName, ofType: nil) {
+      return bundled
+    }
+    let pathFile = credPivotDir.appendingPathComponent("askpass_binary.path")
+    if let raw = try? String(contentsOf: pathFile, encoding: .utf8) {
+      let p = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+      if FileManager.default.fileExists(atPath: p) {
+        return p
       }
-    } else if !FileManager.default.fileExists(atPath: dst.path) {
+    }
+    if FileManager.default.fileExists(atPath: installedURL.path) {
+      return installedURL.path
+    }
+    return nil
+  }
+
+  /// 从 App 包复制到 ~/.credpivot/credpivot-askpass（与 native-host 相同策略）。
+  static func materializeInstalledBinary() throws -> String {
+    guard let src = resolveSourceBinary() else {
       throw NSError(
         domain: "CredPivot",
-        code: 2,
-        userInfo: [NSLocalizedDescriptionKey: "内置 SSH 脚本缺失，请重新 make macos-build 并启动 App"]
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "找不到 credpivot-askpass，请先 make macos-build"]
       )
     }
-    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dst.path)
-    return dst.path
-  }
-
-  /// 每次连接独立密码文件；expect 读取后会删除，启动失败时由调用方清理。
-  private static func writePasswordFile(_ password: String, sessionId: String) -> String? {
-    try? FileManager.default.createDirectory(at: credPivotDir, withIntermediateDirectories: true)
-    let url = credPivotDir.appendingPathComponent("ssh-expect-\(sessionId).pw")
-    do {
-      try password.write(to: url, atomically: true, encoding: .utf8)
-      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-      return url.path
-    } catch {
-      return nil
+    try FileManager.default.createDirectory(at: credPivotDir, withIntermediateDirectories: true)
+    if FileManager.default.fileExists(atPath: installedURL.path) {
+      try FileManager.default.removeItem(at: installedURL)
     }
-  }
-
-  private static func removePasswordFile(_ path: String) {
-    try? FileManager.default.removeItem(atPath: path)
+    try FileManager.default.copyItem(atPath: src, toPath: installedURL.path)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedURL.path)
+    return installedURL.path
   }
 
   static func openInTerminal(
     host: String,
     port: Int,
     user: String,
-    password: String,
-    otp: String?
+    sessionId: String
   ) -> String? {
-    let script: String
+    let askpassPath: String
     do {
-      script = try materializeBuiltinScript()
+      askpassPath = try materializeInstalledBinary()
     } catch {
       return error.localizedDescription
-    }
-    if !FileManager.default.fileExists(atPath: "/usr/bin/expect") {
-      return "系统缺少 /usr/bin/expect，无法自动认证 SSH"
     }
     guard let appPath = TerminalLauncher.currentAppPath(), !appPath.isEmpty else {
       return "未选择终端应用：请在「服务器」页配置终端"
     }
-    let sessionId = UUID().uuidString.lowercased()
-    guard let passFile = writePasswordFile(password, sessionId: sessionId) else {
-      return "无法写入临时 SSH 密码文件"
-    }
-    var args = [script, "--user", user, "--password-file", passFile, "--host", host]
-    if port != 22 {
-      args.append(contentsOf: ["--port", String(port)])
-    }
-    if let otp, !otp.isEmpty {
-      args.append(contentsOf: ["--otp", otp])
-    }
-    if let err = TerminalLauncher.launchShellCommandLine(
+    let sshTarget = TerminalLauncher.sshShellCommand(host: host, port: port, user: user)
+    let qAskpass = TerminalLauncher.shellQuoteForPlan(askpassPath)
+    let qSession = TerminalLauncher.shellQuoteForPlan(sessionId)
+    let shellCmd = """
+    export SSH_ASKPASS=\(qAskpass)
+    export SSH_ASKPASS_REQUIRE=force
+    export CREDPIVOT_SESSION_ID=\(qSession)
+    exec \(sshTarget)
+    """
+    if let err = TerminalLauncher.launchShellCommand(
       appPath: appPath,
-      executable: "/usr/bin/expect",
-      arguments: args,
+      command: shellCmd,
       launchSessionId: sessionId
     ) {
-      removePasswordFile(passFile)
-      let shellCmd = (["/usr/bin/expect"] + args).map { TerminalLauncher.shellQuoteForPlan($0) }.joined(separator: " ")
       let plan = TerminalLauncher.describeLaunchPlan(appPath: appPath, shellCommand: shellCmd)
-      return "\(err)\n\n\(plan.replacingOccurrences(of: password, with: "***"))"
+      return "\(err)\n\n\(plan)"
     }
     return nil
   }

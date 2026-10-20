@@ -12,7 +12,7 @@ if ! command -v flutter >/dev/null; then
   exit 1
 fi
 
-cargo build --release -p credpivot-ffi -p credpivot-native-host
+cargo build --release -p credpivot-ffi -p credpivot-native-host -p credpivot-askpass
 
 APP_DIR="$ROOT/apps/macos"
 if [[ ! -f "$APP_DIR/macos/Runner.xcodeproj/project.pbxproj" ]]; then
@@ -23,11 +23,14 @@ fi
 
 LIB="$ROOT/target/release/libcredpivot_ffi.a"
 HOST_BIN="$ROOT/target/release/credpivot-native-host"
+ASKPASS_BIN="$ROOT/target/release/credpivot-askpass"
 RUNNER="$APP_DIR/macos/Runner"
 
 cp "$LIB" "$RUNNER/"
 cp "$HOST_BIN" "$RUNNER/credpivot-native-host"
 chmod +x "$RUNNER/credpivot-native-host"
+cp "$ASKPASS_BIN" "$RUNNER/credpivot-askpass"
+chmod +x "$RUNNER/credpivot-askpass"
 
 # 自定义 Swift 已在 apps/macos/macos/Runner/ 下；flutter create 后请确认 AppDelegate 等未被覆盖。
 

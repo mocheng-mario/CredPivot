@@ -1,5 +1,5 @@
 use crate::error::{AgentError, Result};
-use crate::paths::materialized_native_host_path;
+use crate::paths::{materialized_askpass_path, materialized_native_host_path};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Read;
@@ -30,6 +30,12 @@ pub fn peer_is_native_host_executable(path: &Path, cfg: &PeerAuthConfig) -> bool
     path.file_name()
         .and_then(|n| n.to_str())
         == Some(cfg.expected_host_binary_name.as_str())
+}
+
+pub fn peer_is_askpass_executable(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        == Some("credpivot-askpass")
 }
 
 pub fn authorize_peer(pid: u32, cfg: &PeerAuthConfig) -> Result<()> {
@@ -66,6 +72,9 @@ fn path_is_trusted_native_host(path: &Path, cfg: &PeerAuthConfig) -> Result<bool
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("");
+    if file_name == "credpivot-askpass" {
+        return path_is_trusted_askpass(path);
+    }
     if file_name != cfg.expected_host_binary_name {
         return Ok(false);
     }
@@ -109,6 +118,50 @@ fn sha256_file(path: &Path) -> Result<String> {
 }
 
 #[cfg(target_os = "macos")]
+fn path_is_trusted_askpass(path: &Path) -> Result<bool> {
+    if paths_same_file(path, &materialized_askpass_path())? {
+        return Ok(true);
+    }
+    if let Ok(trusted) = std::env::var("CREDPIVOT_TRUSTED_ASKPASS") {
+        let peer = fs::canonicalize(path).map_err(|e| AgentError::PeerDenied(e.to_string()))?;
+        let expect = fs::canonicalize(&trusted).map_err(|e| AgentError::PeerDenied(e.to_string()))?;
+        if peer == expect {
+            return Ok(true);
+        }
+    }
+    let s = path.to_string_lossy();
+    Ok(s.contains(".app/Contents/MacOS/") || s.contains("CredPivot.app"))
+}
+
+#[cfg(target_os = "macos")]
+fn verify_materialized_askpass_digest(peer_path: &Path) -> Result<()> {
+    if !paths_same_file(peer_path, &materialized_askpass_path())? {
+        return Ok(());
+    }
+    let trusted = std::env::var("CREDPIVOT_TRUSTED_ASKPASS")
+        .map(PathBuf::from)
+        .map_err(|_| AgentError::PeerDenied("trusted askpass not configured".into()))?;
+    if !trusted.exists() {
+        return Err(AgentError::PeerDenied(
+            "trusted askpass path missing; reinstall from CredPivot App".into(),
+        ));
+    }
+    if paths_same_file(&trusted, peer_path)? {
+        return Err(AgentError::PeerDenied(
+            "trusted reference must be App bundle binary, not ~/.credpivot copy".into(),
+        ));
+    }
+    let expected = sha256_file(&trusted)?;
+    let actual = sha256_file(peer_path)?;
+    if expected != actual {
+        return Err(AgentError::PeerDenied(
+            "materialized askpass does not match App bundle binary".into(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 fn verify_materialized_native_host_digest(peer_path: &Path) -> Result<()> {
     if !paths_same_file(peer_path, &materialized_native_host_path())? {
         return Ok(());
@@ -140,6 +193,9 @@ fn verify_materialized_native_host_digest(peer_path: &Path) -> Result<()> {
 fn verify_peer_codesign_matches_self(peer_path: &Path) -> Result<()> {
     use std::process::Command;
 
+    if paths_same_file(peer_path, &materialized_askpass_path())? {
+        return verify_materialized_askpass_digest(peer_path);
+    }
     if paths_same_file(peer_path, &materialized_native_host_path())? {
         return verify_materialized_native_host_digest(peer_path);
     }

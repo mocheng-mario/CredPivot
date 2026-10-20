@@ -4,6 +4,7 @@ members = [
     "crates/agent",
     "crates/core",
     "crates/native-host",
+    "crates/askpass",
     "crates/credpivot-ffi",
     "crates/ovb1-structure",
     "tools/credpivot-cli",

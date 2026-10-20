@@ -13,6 +13,9 @@ rust-agent:
 rust-host:
 	cd $(ROOT) && $(CARGO) build $(CARGO_BUILD_FLAGS) -p credpivot-native-host
 
+rust-askpass:
+	cd $(ROOT) && $(CARGO) build $(CARGO_BUILD_FLAGS) -p credpivot-askpass
+
 rust-ffi:
 	cd $(ROOT) && $(CARGO) build $(CARGO_BUILD_FLAGS) -p credpivot-ffi
 

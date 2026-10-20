@@ -329,7 +329,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     }
   }
 
-  Future<void> _openExpectAuto() async {
+  Future<void> _openSshAuto() async {
     final row = _selected;
     if (row == null) return;
     final host = row['host']?.toString().trim() ?? '';
@@ -353,41 +353,31 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     }
     if (!await requireTouchId(context, reason: '一键 SSH 自动认证')) return;
     final totpId = _resolveTotpIdForServer(row);
-    final String password;
-    String? otp;
-    try {
-      if (totpId != null && totpId.isNotEmpty) {
-        final results = await Future.wait<Object?>([
-          AgentBridge.getCredential(loginId),
-          AgentBridge.totpCode(totpId),
-        ]);
-        final detail = results[0]! as Map<String, dynamic>;
-        password = detail['password'] as String? ?? '';
-        otp = results[1] as String?;
-      } else {
-        final detail = await AgentBridge.getCredential(loginId);
-        password = detail['password'] as String? ?? '';
-      }
-    } on AgentException catch (e) {
-      setState(() => _status = AgentBridge.friendlyMessage(e));
-      return;
-    }
-    if (password.isEmpty) {
-      setState(() => _status = '关联的登录密码为空');
-      return;
-    }
     final sshErr = await _activateLinkedSshKey(row);
     if (sshErr != null) {
       setState(() => _status = sshErr);
       return;
     }
     final port = row['port'] is int ? row['port'] as int : int.tryParse('${row['port']}') ?? 22;
-    final err = await AgentBridge.openSshExpect(
+    String sessionId;
+    try {
+      sessionId = await AgentBridge.sshSessionPrepare(
+        host: host,
+        port: port,
+        user: username,
+        loginCredentialId: loginId,
+        totpId: totpId,
+      );
+      await AgentBridge.materializeSshAskpass();
+    } on AgentException catch (e) {
+      setState(() => _status = AgentBridge.friendlyMessage(e));
+      return;
+    }
+    final err = await AgentBridge.openSshWithAskpass(
       host: host,
       port: port,
       username: username,
-      password: password,
-      otp: otp,
+      sessionId: sessionId,
     );
     if (err != null && err.isNotEmpty) {
       setState(() => _status = err);
@@ -395,7 +385,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已在终端中启动 expect 自动认证连接')),
+        const SnackBar(content: Text('已在终端中启动 SSH（密钥 + Askpass）')),
       );
     }
   }
@@ -553,9 +543,9 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
               runSpacing: 8,
               children: [
                 FilledButton.icon(
-                  onPressed: _openExpectAuto,
+                  onPressed: _openSshAuto,
                   icon: const Icon(Icons.bolt),
-                  label: const Text('一键连接（密码+MFA）'),
+                  label: const Text('一键连接'),
                 ),
                 OutlinedButton.icon(
                   onPressed: _openInTerminal,

@@ -35,6 +35,7 @@ apps/macos/flutter_*.log
 # Rust 产物由 make macos-sync-artifacts 复制到 Runner，不入库
 apps/macos/macos/Runner/libcredpivot_ffi.a
 apps/macos/macos/Runner/credpivot-native-host
+apps/macos/macos/Runner/credpivot-askpass
 apps/macos/macos/Runner/credpivot-chrome-extension
 
 # CredPivot runtime (local)

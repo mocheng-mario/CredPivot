@@ -25,7 +25,6 @@ impl AgentRuntime {
     pub async fn start() -> Result<Self> {
         let lock = SingleWriterLock::acquire()?;
         ensure_runtime_dir()?;
-        let _ = crate::ssh_expect::ensure_ssh_expect_script();
         crate::diagnostics::init();
 
         remove_stale_socket(&agent_socket_path())?;
@@ -38,6 +37,7 @@ impl AgentRuntime {
         let mut ipc_state = IpcState {
             vault: vault.clone(),
             pending_fills: std::collections::HashMap::new(),
+            pending_ssh_sessions: std::collections::HashMap::new(),
             peer_auth: PeerAuthConfig::default(),
             extension_gate_expires_ms: 0,
             extension_gate_last_native_ms: 0,
@@ -99,6 +99,7 @@ impl AgentRuntime {
             st.shutting_down = true;
             st.vault.lock().await.lock();
             st.pending_fills.clear();
+            st.pending_ssh_sessions.clear();
         }
         self.ipc_task.abort();
         self.ssh_task.abort();
