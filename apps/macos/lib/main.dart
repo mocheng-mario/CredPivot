@@ -12,6 +12,7 @@ import 'credentials_page.dart';
 import 'touch_id_gate.dart';
 import 'memory_format.dart';
 import 'vault_lock_coordinator.dart';
+import 'agent_readiness.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -354,18 +355,21 @@ class _VaultHomePageState extends State<VaultHomePage> {
         ? '未创建'
         : (_unlocked ? '已解锁' : '已锁定');
     final format = _status['format']?.toString() ?? 'm2';
-    return DefaultTabController(
+    return AgentReadinessScope(
+      builder: (context, agentReady) => DefaultTabController(
       length: 5,
       child: Scaffold(
       appBar: AppBar(
         title: Text('CredPivot ${format.toUpperCase()}'),
-        bottom: const TabBar(tabs: [
-          Tab(text: '保险库'),
-          Tab(text: '凭据'),
-          Tab(text: 'Chrome'),
-          Tab(text: '安全中心'),
-          Tab(text: '诊断'),
-        ]),
+        bottom: agentReady
+            ? const TabBar(tabs: [
+                Tab(text: '保险库'),
+                Tab(text: '凭据'),
+                Tab(text: 'Chrome'),
+                Tab(text: '安全中心'),
+                Tab(text: '诊断'),
+              ])
+            : null,
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8),
@@ -382,118 +386,125 @@ class _VaultHomePageState extends State<VaultHomePage> {
           ),
         ],
       ),
-      body: TabBarView(
-        children: [
-          Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('状态', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Expanded(
-                flex: 2,
-                child: SingleChildScrollView(child: Text(_log)),
-              ),
-              Text('常驻内存约 ${formatResidentMemory(_memoryBytes)}'),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _password,
-                decoration: const InputDecoration(
-                  labelText: '主密码',
-                  hintText: '创建 / 解锁 / 导出 OVB 时使用',
+      body: agentReady
+          ? TabBarView(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text('状态', style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        flex: 2,
+                        child: SingleChildScrollView(child: Text(_log)),
+                      ),
+                      Text('常驻内存约 ${formatResidentMemory(_memoryBytes)}'),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _password,
+                        decoration: const InputDecoration(
+                          labelText: '主密码',
+                          hintText: '创建 / 解锁 / 导出 OVB 时使用',
+                        ),
+                        obscureText: true,
+                      ),
+                      if (_vaultExists && _unlocked) ...[
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _newPassword,
+                          decoration: const InputDecoration(labelText: '新主密码（改密）'),
+                          obscureText: true,
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _recoveryKey,
+                        decoration: const InputDecoration(
+                          labelText: '恢复密钥（仅 OVB 恢复）',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      AbsorbPointer(
+                        absorbing: _busy,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            if (!_vaultExists)
+                              FilledButton(onPressed: _createVault, child: const Text('创建保险库')),
+                            if (!_unlocked)
+                              OutlinedButton(onPressed: _openVaultDir, child: const Text('打开已有目录')),
+                            if (_vaultExists && !_unlocked) ...[
+                              FilledButton(onPressed: _unlock, child: const Text('主密码解锁')),
+                              FilledButton(onPressed: _unlockTouchId, child: const Text('Touch ID')),
+                            ],
+                            if (_unlocked) ...[
+                              OutlinedButton(onPressed: _lock, child: const Text('锁定')),
+                              OutlinedButton(onPressed: _changePassword, child: const Text('改主密码')),
+                              OutlinedButton(onPressed: _exportOvb, child: const Text('导出 OVB')),
+                            ],
+                            OutlinedButton(
+                              onPressed: () => _recoverOvb(useRecovery: false),
+                              child: const Text('从 OVB 恢复（主密码）'),
+                            ),
+                            OutlinedButton(
+                              onPressed: () => _recoverOvb(useRecovery: true),
+                              child: const Text('从 OVB 恢复（恢复密钥）'),
+                            ),
+                            OutlinedButton(
+                              onPressed: () => _registerLoginItem(true),
+                              child: const Text('注册登录项'),
+                            ),
+                            OutlinedButton(
+                              onPressed: () => _registerLoginItem(false),
+                              child: const Text('取消登录项'),
+                            ),
+                            OutlinedButton(
+                              onPressed: _unlocked ? _appendSshIdentityAgent : null,
+                              child: const Text('SSH IdentityAgent'),
+                            ),
+                            OutlinedButton(onPressed: _removeSshIdentityAgent, child: const Text('撤销 SSH')),
+                            OutlinedButton(onPressed: _restartAgent, child: const Text('重启 Agent')),
+                            OutlinedButton(onPressed: _relaunchApp, child: const Text('重新打开应用')),
+                          ],
+                        ),
+                      ),
+                      if (_busy)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: Text('处理中…', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                        ),
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text(
+                          'M2：CPVC1 + SQLCipher 登录凭据已入库（须主密码解锁）。'
+                          ' Chrome 配置见「Chrome」标签；保存前请保持本 App 已启动 Agent。',
+                          style: TextStyle(fontSize: 12, color: Colors.black54),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                obscureText: true,
-              ),
-              if (_vaultExists && _unlocked) ...[
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _newPassword,
-                  decoration: const InputDecoration(labelText: '新主密码（改密）'),
-                  obscureText: true,
+                CredentialsTab(unlocked: _unlocked),
+                ChromeSetupTab(extensionIdController: _chromeExtensionId, busy: _busy),
+                SecurityCenterTab(
+                  unlocked: _unlocked,
+                  onVaultSwitched: () {
+                    _onVaultLockedExternally();
+                    _refreshStatus();
+                  },
                 ),
+                const DiagnosticsTab(),
               ],
-              const SizedBox(height: 8),
-              TextField(
-                controller: _recoveryKey,
-                decoration: const InputDecoration(
-                  labelText: '恢复密钥（仅 OVB 恢复）',
-                ),
-              ),
-              const SizedBox(height: 12),
-              AbsorbPointer(
-                absorbing: _busy,
-                child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (!_vaultExists)
-                    FilledButton(onPressed: _createVault, child: const Text('创建保险库')),
-                  if (!_unlocked)
-                    OutlinedButton(onPressed: _openVaultDir, child: const Text('打开已有目录')),
-                  if (_vaultExists && !_unlocked) ...[
-                    FilledButton(onPressed: _unlock, child: const Text('主密码解锁')),
-                    FilledButton(onPressed: _unlockTouchId, child: const Text('Touch ID')),
-                  ],
-                  if (_unlocked) ...[
-                    OutlinedButton(onPressed: _lock, child: const Text('锁定')),
-                    OutlinedButton(onPressed: _changePassword, child: const Text('改主密码')),
-                    OutlinedButton(onPressed: _exportOvb, child: const Text('导出 OVB')),
-                  ],
-                  OutlinedButton(
-                    onPressed: () => _recoverOvb(useRecovery: false),
-                    child: const Text('从 OVB 恢复（主密码）'),
-                  ),
-                  OutlinedButton(
-                    onPressed: () => _recoverOvb(useRecovery: true),
-                    child: const Text('从 OVB 恢复（恢复密钥）'),
-                  ),
-                  OutlinedButton(
-                    onPressed: () => _registerLoginItem(true),
-                    child: const Text('注册登录项'),
-                  ),
-                  OutlinedButton(
-                    onPressed: () => _registerLoginItem(false),
-                    child: const Text('取消登录项'),
-                  ),
-                  OutlinedButton(
-                    onPressed: _unlocked ? _appendSshIdentityAgent : null,
-                    child: const Text('SSH IdentityAgent'),
-                  ),
-                  OutlinedButton(onPressed: _removeSshIdentityAgent, child: const Text('撤销 SSH')),
-                  OutlinedButton(onPressed: _restartAgent, child: const Text('重启 Agent')),
-                  OutlinedButton(onPressed: _relaunchApp, child: const Text('重新打开应用')),
-                ],
-              ),
-              ),
-              if (_busy)
-                const Padding(
-                  padding: EdgeInsets.only(top: 4),
-                  child: Text('处理中…', style: TextStyle(fontSize: 12, color: Colors.black54)),
-                ),
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'M2：CPVC1 + SQLCipher 登录凭据已入库（须主密码解锁）。'
-                  ' Chrome 配置见「Chrome」标签；保存前请保持本 App 已启动 Agent。',
-                  style: TextStyle(fontSize: 12, color: Colors.black54),
-                ),
-              ),
-            ],
-          ),
-          ),
-          CredentialsTab(unlocked: _unlocked),
-          ChromeSetupTab(extensionIdController: _chromeExtensionId, busy: _busy),
-          SecurityCenterTab(
-            unlocked: _unlocked,
-            onVaultSwitched: () {
-              _onVaultLockedExternally();
-              _refreshStatus();
-            },
-          ),
-          const DiagnosticsTab(),
-        ],
-      ),
+            )
+          : AgentNotReadyPane(
+              onRestartAgent: _restartAgent,
+              onRelaunchApp: _relaunchApp,
+              log: _log,
+            ),
+    ),
     ),
     );
   }

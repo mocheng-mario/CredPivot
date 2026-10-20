@@ -138,6 +138,7 @@ pub fn consume_askpass_secret(
     vault: &mut VaultSession,
     session_id: &str,
     prompt: &str,
+    force_kind: Option<&str>,
 ) -> Result<String> {
     purge_expired_sessions(map);
     let grant = map
@@ -147,7 +148,14 @@ pub fn consume_askpass_secret(
         map.remove(session_id);
         return Err(AgentError::Protocol("ssh session expired".into()));
     }
-    let kind = classify_askpass_prompt(prompt);
+    let kind = match force_kind.map(|s| s.trim().to_lowercase()) {
+        Some(k) if k == "password" => AskpassKind::Password,
+        Some(k) if k == "otp" => AskpassKind::Otp,
+        Some(_) => {
+            return Err(AgentError::Protocol("invalid force_kind".into()));
+        }
+        None => classify_askpass_prompt(prompt),
+    };
     let login_id = grant.login_credential_id.clone();
     let session_totp = grant.totp_id.clone();
     match kind {

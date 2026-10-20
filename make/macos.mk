@@ -26,6 +26,8 @@ macos-sync-artifacts: rust-ffi rust-host rust-askpass
 	rm -rf $(HOME)/.credpivot/chrome-extension
 	cp -R $(CHROME_EXT_DIR) $(HOME)/.credpivot/chrome-extension
 	@echo "$(RUST_ASKPASS_BIN)" > $(HOME)/.credpivot/askpass_binary.path
+	cp $(ROOT)/assets/ssh-expect-pass.exp $(MACOS_RUNNER)/ssh-expect-pass.exp
+	chmod 755 $(MACOS_RUNNER)/ssh-expect-pass.exp
 	@if [ -f $(MACOS_APP_DIR)/macos/Runner.xcodeproj/project.pbxproj ]; then \
 		$(ROOT)/scripts/patch-macos-xcode.sh; \
 	fi

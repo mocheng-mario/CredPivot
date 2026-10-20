@@ -385,7 +385,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已在终端中启动 SSH（密钥 + Askpass）')),
+        const SnackBar(content: Text('已在终端中启动 SSH 自动认证')),
       );
     }
   }

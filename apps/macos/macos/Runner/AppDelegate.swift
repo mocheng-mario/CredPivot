@@ -23,6 +23,7 @@ class AppDelegate: FlutterAppDelegate {
       SshAskpassLauncher.applyTrustedAskpassEnv()
       ExtensionGateCoordinator.start()
       _ = try? SshAskpassLauncher.materializeInstalledBinary()
+      _ = try? SshAskpassLauncher.materializeExpectScript()
       platform = CredPivotPlatform(messenger: controller.engine.binaryMessenger)
       let code = CredPivotRustFFI.start()
       if code != 0 {

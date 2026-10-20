@@ -23,12 +23,16 @@ fn run() -> Result<(), String> {
         .unwrap_or_default();
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    let force_kind = env::var("CREDPIVOT_FORCE_KIND")
+        .ok()
+        .filter(|s| !s.trim().is_empty());
     let resp = rt
         .block_on(call_agent(
             &agent_socket_path(),
             AgentRequest::SshAskpass {
                 session_id,
                 prompt,
+                force_kind,
             },
         ))
         .map_err(|e| e.to_string())?;

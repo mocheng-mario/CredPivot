@@ -724,7 +724,11 @@ pub async fn handle_request(
                 "expires_in_ms": SSH_SESSION_TTL_MS,
             }))
         }
-        AgentRequest::SshAskpass { session_id, prompt } => {
+        AgentRequest::SshAskpass {
+            session_id,
+            prompt,
+            force_kind,
+        } => {
             if !peer.from_askpass {
                 return AgentResponse::err("peer_denied", "ssh askpass requires credpivot-askpass peer");
             }
@@ -738,6 +742,7 @@ pub async fn handle_request(
                 &mut v,
                 &session_id,
                 &prompt,
+                force_kind.as_deref(),
             ) {
                 Ok(secret) => AgentResponse::ok(json!({ "secret": secret })),
                 Err(e) => AgentResponse::err("askpass_denied", e.to_string()),

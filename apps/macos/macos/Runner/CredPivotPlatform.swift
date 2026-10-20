@@ -1232,6 +1232,37 @@ enum SshAskpassLauncher {
     )
   }
 
+  private static let expectScriptName = "ssh-expect-pass.exp"
+
+  private static var expectScriptURL: URL {
+    credPivotDir.appendingPathComponent(expectScriptName)
+  }
+
+  static func materializeExpectScript() throws -> String {
+    try FileManager.default.createDirectory(at: credPivotDir, withIntermediateDirectories: true)
+    let dst = expectScriptURL
+    if let bundled = Bundle.main.path(forResource: "ssh-expect-pass", ofType: "exp") {
+      let srcData = try Data(contentsOf: URL(fileURLWithPath: bundled))
+      let dstData = try? Data(contentsOf: dst)
+      if dstData != srcData {
+        if FileManager.default.fileExists(atPath: dst.path) {
+          try FileManager.default.removeItem(at: dst)
+        }
+        try FileManager.default.copyItem(atPath: bundled, toPath: dst.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dst.path)
+      }
+    } else if !FileManager.default.fileExists(atPath: dst.path) {
+      throw NSError(
+        domain: "CredPivot",
+        code: 2,
+        userInfo: [NSLocalizedDescriptionKey: "内置 SSH expect 脚本缺失，请 make macos-build"]
+      )
+    }
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dst.path)
+    return dst.path
+  }
+
+  /// 一键连接：PTY + expect 处理 keyboard-interactive MFA；密码/OTP 经 askpass 向 Agent 领取。
   static func openInTerminal(
     host: String,
     port: Int,
@@ -1239,25 +1270,36 @@ enum SshAskpassLauncher {
     sessionId: String
   ) -> String? {
     let askpassPath: String
+    let expectPath: String
     do {
       askpassPath = try materializeInstalledBinary()
+      expectPath = try materializeExpectScript()
     } catch {
       return error.localizedDescription
+    }
+    if !FileManager.default.fileExists(atPath: "/usr/bin/expect") {
+      return "系统缺少 /usr/bin/expect，无法自动认证 SSH（含 MFA）"
     }
     guard let appPath = TerminalLauncher.currentAppPath(), !appPath.isEmpty else {
       return "未选择终端应用：请在「服务器」页配置终端"
     }
-    let sshTarget = TerminalLauncher.sshShellCommand(host: host, port: port, user: user)
-    let qAskpass = TerminalLauncher.shellQuoteForPlan(askpassPath)
-    let qSession = TerminalLauncher.shellQuoteForPlan(sessionId)
-    // 单行命令：Terminal/iTerm 的 AppleScript 无法可靠传递多行。
-    let shellCmd =
-      "export SSH_ASKPASS=\(qAskpass); export SSH_ASKPASS_REQUIRE=force; export CREDPIVOT_SESSION_ID=\(qSession); exec \(sshTarget)"
-    if let err = TerminalLauncher.launchShellCommand(
+    var args = [
+      expectPath,
+      "--user", user,
+      "--host", host,
+      "--session-id", sessionId,
+      "--askpass", askpassPath,
+    ]
+    if port != 22 {
+      args.append(contentsOf: ["--port", String(port)])
+    }
+    if let err = TerminalLauncher.launchShellCommandLine(
       appPath: appPath,
-      command: shellCmd,
+      executable: "/usr/bin/expect",
+      arguments: args,
       launchSessionId: sessionId
     ) {
+      let shellCmd = (["/usr/bin/expect"] + args).map { TerminalLauncher.shellQuoteForPlan($0) }.joined(separator: " ")
       let plan = TerminalLauncher.describeLaunchPlan(appPath: appPath, shellCommand: shellCmd)
       return "\(err)\n\n\(plan)"
     }

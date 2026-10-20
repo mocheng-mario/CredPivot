@@ -149,6 +149,9 @@ pub enum AgentRequest {
         session_id: String,
         #[serde(default)]
         prompt: String,
+        /// expect 等调用方强制取密类型：`password` | `otp`（不依赖提示文案）。
+        #[serde(default)]
+        force_kind: Option<String>,
     },
     VaultCreate { password: String },
     VaultChangePassword {

@@ -1,30 +1,26 @@
 #!/usr/bin/expect -f
-# CredPivot 内置 SSH 自动认证脚本（由 App 安装到 ~/.credpivot，勿手工修改）
+# CredPivot SSH 自动认证（PTY + Agent 会话取密，不落盘明文密码）
 
 set username ""
-set password ""
 set hostname ""
 set port ""
-set otpcode ""
-set passfile ""
+set session_id ""
+set askpass_bin ""
 
 proc usage {} {
     global argv0
     puts "Usage:"
-    puts "  $argv0 --user USER --password-file PATH --host HOST [--otp OTP] [--port PORT]"
-    puts "  $argv0 --user USER --password PASSWORD --host HOST [--otp OTP] [--port PORT]"
+    puts "  $argv0 --user USER --host HOST --session-id ID --askpass PATH [--port PORT]"
 }
 
 for {set i 0} {$i < [llength $argv]} {incr i} {
     set key [lindex $argv $i]
     switch -- $key {
         "--user" { incr i; set username [lindex $argv $i] }
-        "--password" { incr i; set password [lindex $argv $i] }
-        "--password-file" { incr i; set passfile [lindex $argv $i] }
         "--host" { incr i; set hostname [lindex $argv $i] }
         "--port" { incr i; set port [lindex $argv $i] }
-        "--otp" -
-        "--otpcode" { incr i; set otpcode [lindex $argv $i] }
+        "--session-id" { incr i; set session_id [lindex $argv $i] }
+        "--askpass" { incr i; set askpass_bin [lindex $argv $i] }
         default {
             puts "Unknown argument: $key"
             usage
@@ -33,21 +29,7 @@ for {set i 0} {$i < [llength $argv]} {incr i} {
     }
 }
 
-if {$passfile ne ""} {
-    if {![file exists $passfile]} {
-        puts "Password file not found: $passfile"
-        exit 1
-    }
-    set fh [open $passfile r]
-    fconfigure $fh -translation binary
-    set password [read $fh]
-    close $fh
-    catch { file delete -force $passfile }
-}
-
-set password [string trim $password "\t\n\r "]
-
-if {$username eq "" || $password eq "" || $hostname eq ""} {
+if {$username eq "" || $hostname eq "" || $session_id eq "" || $askpass_bin eq ""} {
     puts "Missing required argument."
     usage
     exit 1
@@ -57,6 +39,17 @@ if {$port ne "" && ![string is integer -strict $port]} {
     puts "Invalid port: $port"
     usage
     exit 1
+}
+
+proc fetch_secret {kind} {
+    global session_id askpass_bin
+    set env(CREDPIVOT_SESSION_ID) $session_id
+    set env(CREDPIVOT_FORCE_KIND) $kind
+    if {[catch {exec $askpass_bin} result]} {
+        send_user "\r\nCredPivot: 无法从 Agent 获取 $kind（$result）。\r\n"
+        return ""
+    }
+    return [string trim $result "\t\n\r "]
 }
 
 set timeout 45
@@ -89,27 +82,32 @@ if {$port eq ""} {
 }
 
 proc send_password {} {
-    global password password_tries max_password_tries
+    global password_tries max_password_tries
     if {$password_tries >= $max_password_tries} {
         send_user "\r\nCredPivot: 密码尝试次数已达上限，请手动输入。\r\n"
         interact
         exit 1
     }
     incr password_tries
-    send -- "$password\r"
-}
-
-proc send_otp_if_any {} {
-    global otpcode
-    if {$otpcode eq ""} {
-        send_user "\r\nCredPivot: 需要 MFA/OTP，未传入 --otp，请手动输入。\r\n"
+    set pw [fetch_secret "password"]
+    if {$pw eq ""} {
+        send_user "\r\nCredPivot: 密码为空，请手动输入。\r\n"
         interact
         return
     }
-    send -- "$otpcode\r"
+    send -- "$pw\r"
 }
 
-# 主循环：勿匹配 \"Permission denied, please try again\"（会误判为最终失败）
+proc send_otp {} {
+    set code [fetch_secret "otp"]
+    if {$code eq ""} {
+        send_user "\r\nCredPivot: MFA 验证码获取失败，请手动输入。\r\n"
+        interact
+        return
+    }
+    send -- "$code\r"
+}
+
 while {1} {
     expect {
         -nocase -re {are you sure you want to continue connecting} {
@@ -125,16 +123,16 @@ while {1} {
             send_password
         }
         -nocase -re {verification code|one-time code|otp code|mfa code} {
-            send_otp_if_any
+            send_otp
         }
-        "请输入 MFA 验证码" {
-            send_otp_if_any
+        -re {请输入 MFA 验证码} {
+            send_otp
         }
-        "请输入验证码" {
-            send_otp_if_any
+        -re {请输入验证码} {
+            send_otp
         }
         -re {Permission denied \(publickey,password\)} {
-            send_user "\r\nCredPivot: 认证失败（公钥与密码均被拒绝）。请核对 SSH 密码或联系管理员。\r\n"
+            send_user "\r\nCredPivot: 认证失败（公钥与密码均被拒绝）。\r\n"
             interact
             exit 1
         }
