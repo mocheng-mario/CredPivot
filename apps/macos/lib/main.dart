@@ -26,12 +26,14 @@ class CredPivotApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return ListenableBuilder(listenable: AppPresentation.instance, builder: (context, _) => MaterialApp(
       navigatorKey: vaultRootNavigatorKey,
       title: 'CredPivot',
-      theme: buildAppTheme(),
+      theme: buildAppTheme(brightness: Brightness.light),
+      darkTheme: buildAppTheme(brightness: Brightness.dark),
+      themeMode: AppPresentation.instance.mode,
       home: const VaultHomePage(),
-    );
+    ));
   }
 }
 
@@ -76,10 +78,16 @@ class _VaultHomePageState extends State<VaultHomePage> {
   @override
   void initState() {
     super.initState();
+    AppPresentation.instance.addListener(_onPresentationChanged);
     installVaultLockCoordinator(_onVaultLockedExternally);
     AgentBridge.installVaultLockHandler(notifyVaultLocked);
     _vaultLockPoll = Timer.periodic(const Duration(seconds: 2), (_) => _pollVaultLockGeneration());
     _bootstrap();
+  }
+
+  void _onPresentationChanged() {
+    // 系统外观及语言切换后，重新计算页面中已解析的颜色和输入框文案。
+    if (mounted) setState(() {});
   }
 
   Future<void> _pollVaultLockGeneration() async {
@@ -132,6 +140,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
 
   @override
   void dispose() {
+    AppPresentation.instance.removeListener(_onPresentationChanged);
     _vaultLockPoll?.cancel();
     _password.dispose();
     _passwordFocus.dispose();
@@ -224,6 +233,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
         );
         return;
       }
+      try { await AppPresentation.instance.load(); } catch (_) { /* 外观设置不能阻止保险库解锁。 */ }
       try {
         _chromeExtensionId.text = await AgentBridge.getChromeExtensionId();
         final chrome = await AgentBridge.chromeHostStatus();
@@ -272,26 +282,26 @@ class _VaultHomePageState extends State<VaultHomePage> {
     return showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('后台未启动'),
-        content: const Text(
+        title: const LText('后台未启动'),
+        content: const LText(
           '凭据后台（Agent）未运行，无法创建/解锁保险库。\n\n'
           '请先尝试「重启 Agent」；仍失败请「重新打开应用」或 Cmd+Q 完全退出后重开。',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('知道了')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('知道了')),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
               _restartAgent();
             },
-            child: const Text('重启 Agent'),
+            child: const LText('重启 Agent'),
           ),
           FilledButton(
             onPressed: () {
               Navigator.pop(ctx);
               AgentBridge.relaunchApp();
             },
-            child: const Text('重新打开应用'),
+            child: const LText('重新打开应用'),
           ),
         ],
       ),
@@ -337,19 +347,19 @@ class _VaultHomePageState extends State<VaultHomePage> {
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('请保存恢复密钥'),
+          title: const LText('请保存恢复密钥'),
           content: SelectableText(recovery),
           actions: [
             TextButton(
               onPressed: () async {
                 await AgentBridge.copyConcealed(recovery);
                 if (ctx.mounted) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('已复制')));
+                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: LText('已复制')));
                 }
               },
-              child: const Text('复制'),
+              child: const LText('复制'),
             ),
-            FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('已记录')),
+            FilledButton(onPressed: () => Navigator.pop(ctx), child: const LText('已记录')),
           ],
         ),
       );
@@ -516,12 +526,12 @@ class _VaultHomePageState extends State<VaultHomePage> {
                             child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                              Text(appPageTitles[_pageIndex],
+                              LText(appPageTitles[_pageIndex],
                                   style: Theme.of(context)
                                       .textTheme
                                       .headlineMedium),
                               const SizedBox(height: 4),
-                              Text(appPageDescriptions[_pageIndex],
+                              LText(appPageDescriptions[_pageIndex],
                                   style: Theme.of(context).textTheme.bodySmall),
                             ])),
                         const SizedBox(width: 12),
@@ -533,7 +543,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
                           const SizedBox(width: 8),
                           IconButton(
                               onPressed: _busy ? null : _lock,
-                              tooltip: '锁定保险库',
+                              tooltip: tr('锁定保险库'),
                               icon: const Icon(Icons.lock_outline_rounded)),
                         ],
                       ]),
@@ -598,13 +608,13 @@ class _VaultHomePageState extends State<VaultHomePage> {
             icon: Icons.lock_outline_rounded,
             child: Wrap(spacing: 10, runSpacing: 10, children: [
               FilledButton(onPressed: _busy ? null : _bootstrap,
-                  child: const Text('重新连接')),
+                  child: const LText('重新连接')),
               OutlinedButton(onPressed: _busy ? null : () async {
                 await _restartAgent();
                 if (mounted) await _bootstrap();
-              }, child: const Text('重启后台')),
+              }, child: const LText('重启后台')),
               TextButton(onPressed: _busy ? null : _relaunchApp,
-                  child: const Text('重新打开应用')),
+                  child: const LText('重新打开应用')),
             ]),
           ),
         ),
@@ -622,13 +632,13 @@ class _VaultHomePageState extends State<VaultHomePage> {
             child: AppPanel(
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.lock_outline_rounded,
+                Icon(Icons.lock_outline_rounded,
                     size: 44, color: AppColors.primary),
                 const SizedBox(height: 18),
-                Text('CredPivot 已锁定', textAlign: TextAlign.center,
+                LText('CredPivot 已锁定', textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 8),
-                Text(_status['master_password_required'] == true
+                LText(_status['master_password_required'] == true
                     ? '首次解锁或已达到验证期限，请输入保险库主密码。'
                     : '完成身份验证后，才能访问凭据、设置和其他功能。',
                     textAlign: TextAlign.center,
@@ -648,30 +658,30 @@ class _VaultHomePageState extends State<VaultHomePage> {
                     enabled: !_busy,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: const InputDecoration(
-                        labelText: '保险库主密码',
-                        hintText: '不是 Mac 登录密码',
+                    decoration: InputDecoration(
+                        labelText: tr('保险库主密码'),
+                        hintText: tr('不是 Mac 登录密码'),
                         prefixIcon: Icon(Icons.key_outlined)),
                     onSubmitted: (_) { if (!_busy) _unlock(); },
                   ),
                   const SizedBox(height: 14),
                   FilledButton.icon(onPressed: _busy ? null : _unlock,
                       icon: const Icon(Icons.lock_open_rounded),
-                      label: const Text('解锁')),
+                      label: const LText('解锁')),
                   if (canUseBiometrics)
                     TextButton.icon(onPressed: _busy ? null : _unlockTouchId,
                         icon: const Icon(Icons.fingerprint_rounded),
-                        label: const Text('重试指纹验证')),
+                        label: const LText('重试指纹验证')),
                 ] else ...[
                   FilledButton.icon(onPressed: _busy ? null : _unlockTouchId,
                       icon: const Icon(Icons.fingerprint_rounded),
-                      label: const Text('指纹解锁')),
+                      label: const LText('指纹解锁')),
                   TextButton(onPressed: _busy ? null : () {
                     setState(() => _showMasterPassword = true);
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (mounted && !_unlocked) _passwordFocus.requestFocus();
                     });
-                  }, child: const Text('使用主密码')),
+                  }, child: const LText('使用主密码')),
                 ],
               ]),
             ),
@@ -714,6 +724,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
             onRemoveSsh: _removeSshIdentityAgent,
             onOpenVault: _openVaultDir,
             onSaved: () async {
+              await AppPresentation.instance.load();
               _chromeExtensionId.text = await AgentBridge.getChromeExtensionId();
               await _refreshStatus();
             });
@@ -750,13 +761,13 @@ class _VaultHomePageState extends State<VaultHomePage> {
                         child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                          Text(
+                          LText(
                               _unlocked
                                   ? '一切就绪，安心使用'
                                   : (_vaultExists ? '欢迎回来' : '你的安全空间，从这里开始'),
                               style: Theme.of(context).textTheme.titleLarge),
                           const SizedBox(height: 7),
-                          Text(
+                          LText(
                               _unlocked
                                   ? '保险库已解锁，可以管理凭据或使用浏览器填充。'
                                   : (_vaultExists
@@ -774,8 +785,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
                     TextField(
                       controller: _password,
                       obscureText: true,
-                      decoration: const InputDecoration(
-                          labelText: '主密码',
+                      decoration: InputDecoration(
+                          labelText: tr('主密码'),
                           prefixIcon: Icon(Icons.key_outlined)),
                       onSubmitted: (_) {
                         if (!_busy) {
@@ -796,7 +807,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
                           icon: Icon(_vaultExists
                               ? Icons.lock_open_rounded
                               : Icons.add_rounded),
-                          label: Text(!_vaultExists ? '创建保险库' :
+                          label: LText(!_vaultExists ? '创建保险库' :
                               (_status['local_unlock_configured'] == true && _status['master_password_required'] == false
                                   ? '指纹解锁' : '主密码解锁'))),
                       if (_vaultExists && _status['local_unlock_configured'] == true &&
@@ -804,24 +815,24 @@ class _VaultHomePageState extends State<VaultHomePage> {
                         OutlinedButton.icon(
                             onPressed: _unlock,
                             icon: const Icon(Icons.key_outlined),
-                            label: const Text('使用主密码')),
+                            label: const LText('使用主密码')),
                       TextButton(
                           onPressed: _openVaultDir,
-                          child: const Text('打开已有保险库')),
+                          child: const LText('打开已有保险库')),
                     ]),
                   ] else ...[
                     Wrap(spacing: 10, runSpacing: 10, children: [
                       FilledButton.icon(
                           onPressed: () => _selectPage(1),
                           icon: const Icon(Icons.key_outlined),
-                          label: const Text('管理凭据')),
+                          label: const LText('管理凭据')),
                       OutlinedButton.icon(
                           onPressed: () => _selectPage(2),
                           icon: const Icon(Icons.language_rounded),
-                          label: const Text('连接浏览器')),
+                          label: const LText('连接浏览器')),
                       TextButton(
                           onPressed: () => _selectPage(3),
-                          child: const Text('备份与恢复')),
+                          child: const LText('备份与恢复')),
                     ]),
                   ],
                 ]),
@@ -856,24 +867,24 @@ class _VaultHomePageState extends State<VaultHomePage> {
                 TextField(
                     controller: _password,
                     obscureText: true,
-                    decoration: const InputDecoration(labelText: '当前主密码')),
+                    decoration: InputDecoration(labelText: tr('当前主密码'))),
                 const SizedBox(height: 12),
                 TextField(
                     controller: _newPassword,
                     obscureText: true,
                     decoration:
-                        const InputDecoration(labelText: '新主密码（至少 8 位）')),
+                        InputDecoration(labelText: tr('新主密码（至少 8 位）'))),
                 const SizedBox(height: 14),
                 Align(
                     alignment: Alignment.centerLeft,
                     child: Wrap(spacing: 10, runSpacing: 10, children: [
                       OutlinedButton(
                           onPressed: _changePassword,
-                          child: const Text('更改主密码')),
+                          child: const LText('更改主密码')),
                       OutlinedButton.icon(
                           onPressed: _exportOvb,
                           icon: const Icon(Icons.file_download_outlined),
-                          label: const Text('导出 OVB 备份')),
+                          label: const LText('导出 OVB 备份')),
                     ])),
               ]),
             ),
@@ -884,31 +895,31 @@ class _VaultHomePageState extends State<VaultHomePage> {
             shape: const Border(),
             collapsedShape: const Border(),
             leading:
-                const Icon(Icons.restore_rounded, color: AppColors.primary),
-            title: const Text('从备份恢复'),
-            subtitle: const Text('使用主密码或恢复密钥打开 OVB'),
+                Icon(Icons.restore_rounded, color: AppColors.primary),
+            title: const LText('从备份恢复'),
+            subtitle: const LText('使用主密码或恢复密钥打开 OVB'),
             childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             children: [
               if (_unlocked) const AppNotice('恢复会切换当前保险库，请先保存正在编辑的内容。'),
               TextField(
                   controller: _recoveryPassword,
                   obscureText: true,
-                  decoration: const InputDecoration(labelText: '备份的主密码')),
+                  decoration: InputDecoration(labelText: tr('备份的主密码'))),
               const SizedBox(height: 12),
               TextField(
                   controller: _recoveryKey,
                   obscureText: true,
-                  decoration: const InputDecoration(labelText: '恢复密钥')),
+                  decoration: InputDecoration(labelText: tr('恢复密钥'))),
               const SizedBox(height: 14),
               Align(
                   alignment: Alignment.centerLeft,
                   child: Wrap(spacing: 10, runSpacing: 10, children: [
                     OutlinedButton(
                         onPressed: () => _recoverOvb(useRecovery: false),
-                        child: const Text('使用主密码恢复')),
+                        child: const LText('使用主密码恢复')),
                     OutlinedButton(
                         onPressed: () => _recoverOvb(useRecovery: true),
-                        child: const Text('使用恢复密钥恢复')),
+                        child: const LText('使用恢复密钥恢复')),
                   ])),
             ],
           )),
@@ -918,8 +929,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
             shape: const Border(),
             collapsedShape: const Border(),
             leading: const Icon(Icons.info_outline_rounded),
-            title: const Text('运行信息'),
-            subtitle: Text(
+            title: const LText('运行信息'),
+            subtitle: LText(
                 '内存 ${formatResidentMemory(_memoryBytes)} · Build $kCredPivotBuildStamp'),
             childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             children: [
@@ -945,11 +956,11 @@ class _VaultHomePageState extends State<VaultHomePage> {
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                Text(title, style: Theme.of(context).textTheme.bodySmall),
+                LText(title, style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 4),
                 Text(value, style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 4),
-                Text(caption, style: Theme.of(context).textTheme.bodySmall),
+                LText(caption, style: Theme.of(context).textTheme.bodySmall),
               ])),
         ]),
       );

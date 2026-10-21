@@ -274,6 +274,15 @@ class AgentBridge {
     return raw ?? '';
   }
 
+  static Future<Map<String, dynamic>> manage(Map<String, dynamic> action) async =>
+      payloadOf(await request({'type': 'vault_manage', 'action': action}));
+
+  static Future<List<String>> scanQrImage() async =>
+      (await _channel.invokeListMethod<String>('scanQrImage')) ?? [];
+
+  static Future<void> writeTextFile(String path, String text) =>
+      _channel.invokeMethod('writeTextFile', {'path': path, 'text': text});
+
   static Future<void> copyConcealed(String secret) =>
       _channel.invokeMethod('copyConcealed', secret);
 

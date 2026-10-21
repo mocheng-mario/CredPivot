@@ -134,28 +134,28 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setLocal) => AlertDialog(
-          title: Text(isEdit ? '编辑服务器' : '添加服务器 / 堡垒机'),
+          title: LText(isEdit ? '编辑服务器' : '添加服务器 / 堡垒机'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(controller: labelCtl, decoration: const InputDecoration(labelText: '名称')),
+                TextField(controller: labelCtl, decoration: InputDecoration(labelText: tr('名称'))),
                 TextField(
                   controller: hostCtl,
-                  decoration: const InputDecoration(labelText: '主机 / 堡垒机地址'),
+                  decoration: InputDecoration(labelText: tr('主机 / 堡垒机地址')),
                 ),
                 TextField(
                   controller: portCtl,
-                  decoration: const InputDecoration(labelText: '端口'),
+                  decoration: InputDecoration(labelText: tr('端口')),
                   keyboardType: TextInputType.number,
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String?>(
                   isExpanded: true,
                   value: linkedLogin,
-                  decoration: const InputDecoration(labelText: '关联登录密码'),
+                  decoration: InputDecoration(labelText: tr('关联登录密码')),
                   items: [
-                    const DropdownMenuItem(value: null, child: Text('（不关联，使用下方手动用户名）')),
+                    const DropdownMenuItem(value: null, child: LText('（不关联，使用下方手动用户名）')),
                     ..._logins.map(
                       (c) => DropdownMenuItem(
                         value: c['id'] as String,
@@ -186,7 +186,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                   controller: manualUserCtl,
                   enabled: linkedLogin == null || (linkedLogin?.isEmpty ?? true),
                   decoration: InputDecoration(
-                    labelText: '手动 SSH 用户名',
+                    labelText: tr('手动 SSH 用户名'),
                     hintText: linkedLogin == null || (linkedLogin?.isEmpty ?? true)
                         ? '未关联登录时必填'
                         : '已关联登录，用户名取自凭据',
@@ -195,16 +195,16 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                 DropdownButtonFormField<String?>(
                   isExpanded: true,
                   value: linkedTotp,
-                  decoration: const InputDecoration(
-                    labelText: '关联 MFA / TOTP',
-                    helperText: '留空则一键连接使用「关联登录」上的 MFA；此处若选择则覆盖登录',
+                  decoration: InputDecoration(
+                    labelText: tr('关联 MFA / TOTP'),
+                    helperText: tr('留空则一键连接使用「关联登录」上的 MFA；此处若选择则覆盖登录'),
                   ),
                   items: [
-                    const DropdownMenuItem(value: null, child: Text('（不关联）')),
+                    const DropdownMenuItem(value: null, child: LText('（不关联）')),
                     ..._totps.map(
                       (t) => DropdownMenuItem(
                         value: t['id'] as String,
-                        child: Text(
+                        child: LText(
                           '${t['issuer']} : ${t['account']}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -217,9 +217,9 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                 DropdownButtonFormField<String?>(
                   isExpanded: true,
                   value: linkedSsh,
-                  decoration: const InputDecoration(labelText: '关联 SSH 密钥'),
+                  decoration: InputDecoration(labelText: tr('关联 SSH 密钥')),
                   items: [
-                    const DropdownMenuItem(value: null, child: Text('（不关联）')),
+                    const DropdownMenuItem(value: null, child: LText('（不关联）')),
                     ..._sshKeys.map(
                       (s) => DropdownMenuItem(
                         value: s['id'] as String,
@@ -237,8 +237,8 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('保存')),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('保存')),
           ],
         ),
       ),
@@ -249,7 +249,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     if (hadStaleLink && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('部分关联凭据已删除，保存后将清除无效关联；请按需重新选择。'),
+          content: LText('部分关联凭据已删除，保存后将清除无效关联；请按需重新选择。'),
         ),
       );
     }
@@ -399,7 +399,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已在终端中启动 SSH 自动认证')),
+        const SnackBar(content: LText('已在终端中启动 SSH 自动认证')),
       );
     }
   }
@@ -435,7 +435,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     if (mounted) {
       final term = await loadTerminalApplication();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已在 ${terminalDisplayName(term)} 中打开 SSH')),
+        SnackBar(content: LText('已在 ${terminalDisplayName(term)} 中打开 SSH')),
       );
     }
   }
@@ -451,7 +451,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     await AgentBridge.copyConcealed(detail['password'] as String? ?? '');
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('密码已复制，将按设置自动清除剪贴板')),
+        const SnackBar(content: LText('密码已复制，将按设置自动清除剪贴板')),
       );
     }
   }
@@ -470,7 +470,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
       await AgentBridge.copyConcealed(code);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('验证码 $code 已复制')),
+          SnackBar(content: LText('验证码 $code 已复制')),
         );
       }
     } on AgentException catch (e) {
@@ -490,7 +490,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     final line = port == 22 ? 'ssh $u@$host' : 'ssh -p $port $u@$host';
     await Clipboard.setData(ClipboardData(text: line));
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已复制：$line')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: LText('已复制：$line')));
     }
   }
 
@@ -506,11 +506,11 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
             OutlinedButton.icon(
                 onPressed: () => showTerminalPickerDialog(context),
                 icon: const Icon(Icons.terminal_rounded),
-                label: const Text('终端设置')),
+                label: const LText('终端设置')),
             FilledButton.icon(
                 onPressed: () => _addOrEdit(),
                 icon: const Icon(Icons.add_rounded),
-                label: const Text('添加服务器')),
+                label: const LText('添加服务器')),
           ]),
         ),
         if (_status.isNotEmpty) AppNotice(_status),
@@ -586,25 +586,25 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                     FilledButton.icon(
                       onPressed: _openSshAuto,
                       icon: const Icon(Icons.bolt),
-                      label: const Text('一键连接'),
+                      label: const LText('一键连接'),
                     ),
                     OutlinedButton.icon(
                       onPressed: _openInTerminal,
                       icon: const Icon(Icons.terminal),
-                      label: const Text('仅打开 SSH'),
+                      label: const LText('仅打开 SSH'),
                     ),
                     OutlinedButton(
                         onPressed: _copySshHint,
-                        child: const Text('复制 SSH 命令')),
+                        child: const LText('复制 SSH 命令')),
                     OutlinedButton(
-                        onPressed: _copyPassword, child: const Text('复制密码')),
+                        onPressed: _copyPassword, child: const LText('复制密码')),
                     FilledButton.tonal(
-                        onPressed: _copyMfa, child: const Text('复制 MFA')),
+                        onPressed: _copyMfa, child: const LText('复制 MFA')),
                     OutlinedButton(
                         onPressed: () => _addOrEdit(existing: _selected),
-                        child: const Text('编辑')),
+                        child: const LText('编辑')),
                     OutlinedButton(
-                        onPressed: _deleteSelected, child: const Text('删除')),
+                        onPressed: _deleteSelected, child: const LText('删除')),
                   ],
                 ),
         )),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_presentation.dart';
 
 import 'agent_bridge.dart';
 
@@ -24,21 +25,21 @@ Future<bool> requireTouchId(
       final accepted = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('确认敏感操作'),
-          content: Text('是否继续$reason？'),
+          title: const LText('确认敏感操作'),
+          content: LText('是否继续$reason？'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('继续')),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('继续')),
           ],
         ),
       );
       if (accepted != true) return false;
     }
     if (!context.mounted || generation != _sensitiveAuthGeneration) return false;
-    final ok = await AgentBridge.authenticateTouchId(reason);
+    final ok = await AgentBridge.authenticateTouchId(tr(reason));
     if (!context.mounted || generation != _sensitiveAuthGeneration) return false;
     if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('身份验证未通过，请重试或使用主密码')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: LText('身份验证未通过，请重试或使用主密码')));
     }
     return ok;
   } finally {

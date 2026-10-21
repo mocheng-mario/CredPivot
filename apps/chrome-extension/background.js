@@ -2,6 +2,7 @@ import {
   runFillLoginOnTab,
   runFillOtpFromVaultOnTab,
   runOtpFillOnTab,
+  requestPageContext,
 } from "./fill_flow.js";
 
 const HOST_NAME = "com.credpivot.chrome.m0";
@@ -19,6 +20,23 @@ const inflight = new Map();
 function uuid() {
   return crypto.randomUUID();
 }
+
+function selectedAccountKey(tabId, origin) {
+  return `selected_account:${tabId}:${origin}`;
+}
+
+// 仅保存账号 ID；不同标签页和网站分别记录，秘密不会写入扩展存储。
+async function rememberSelectedAccount(tabId, origin, credentialId) {
+  await chrome.storage.session.set({ [selectedAccountKey(tabId, origin)]: credentialId });
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  (async () => {
+    const stored = await chrome.storage.session.get(null);
+    const keys = Object.keys(stored).filter((key) => key.startsWith(`selected_account:${tabId}:`));
+    if (keys.length) await chrome.storage.session.remove(keys);
+  })().catch(() => {});
+});
 
 /** 凭据操作只信任标签页真实 URL，不用消息自报的 origin。 */
 async function originFromSender(sender, msg) {
@@ -129,6 +147,10 @@ async function sendNative(message) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
+      // 只有扩展自己的界面能发起操作；网页及内容脚本不能自行保存或领取秘密。
+      if (sender.id !== chrome.runtime.id || sender.tab || !sender.url?.startsWith(chrome.runtime.getURL(""))) {
+        sendResponse({ok:false,code:"forbidden",message:"请从扩展面板操作"}); return;
+      }
       if (msg.type === "handshake") {
         const resp = await sendNative({
           action: "handshake",
@@ -149,6 +171,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse(resp);
         return;
       }
+      if (msg.type === "select_account") {
+        const origin = await originFromSender(sender, msg);
+        if (!origin || origin !== msg.origin || typeof msg.credential_id !== "string") {
+          sendResponse({ ok: false, message: "页面已改变，请重新打开插件面板" });
+          return;
+        }
+        await rememberSelectedAccount(msg.tab_id, origin, msg.credential_id);
+        sendResponse({ ok: true });
+        return;
+      }
       connectNativeIfNeeded();
       if (msg.type === "suggest_credentials") {
         const origin = await originFromSender(sender, msg);
@@ -160,20 +192,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           action: "credential.suggest_for_origin",
           origin,
         });
+        if (resp?.ok) {
+          const key = selectedAccountKey(msg.tab_id, origin);
+          const stored = await chrome.storage.session.get(key);
+          const selected = stored[key];
+          const valid = (resp.payload?.candidates ?? []).some((row) => row.id === selected);
+          resp.payload = { ...resp.payload, selected_credential_id: valid ? selected : null };
+          if (selected && !valid) await chrome.storage.session.remove(key);
+        }
         sendResponse(resp);
         return;
       }
-      if (msg.type === "save_credential") {
+      if (msg.type === "save_credential" || msg.type === "update_credential") {
         const origin = await originFromSender(sender, msg);
         if (!origin) {
           sendResponse({ ok: false, code: "bad_origin", message: "无法确定页面 origin" });
           return;
         }
+        const page = await requestPageContext(msg.tab_id);
+        if (page?.documentId !== msg.document_id || page?.origin !== origin) {
+          sendResponse({ok:false,message:"页面已改变，请重新读取表单"}); return;
+        }
         const resp = await sendNative({
-          action: "credential.save",
-          origin,
-          username: msg.username,
-          password: msg.password,
+          action: msg.type === "update_credential" ? "credential.update" : "credential.save",
+          credential_id: msg.credential_id, expected_revision: msg.expected_revision,
+          origin, username: msg.username, password: msg.password,
         });
         sendResponse(resp);
         return;
@@ -210,26 +253,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse(resp);
         return;
       }
-      if (msg.type === "totp_code") {
-        const resp = await sendNative({
-          action: "credential.totp_code",
-          totp_id: msg.totp_id,
-        });
-        if (resp?.ok && resp?.payload) {
-          const code = resp.payload.code ?? resp.payload;
-          sendResponse({ ok: true, payload: { code } });
-          return;
-        }
-        sendResponse(resp);
-        return;
-      }
       if (msg.type === "fill_login_tab" || msg.type === "fill_active_tab") {
         const tabId = msg.tab_id;
         if (!tabId) {
           sendResponse({ ok: false, error: "缺少 tab_id" });
           return;
         }
-        const result = await runFillLoginOnTab(tabId, sendNative);
+        const result = await runFillLoginOnTab(tabId, sendNative, msg.credential_id);
+        // 后台负责记录，popup 因指纹验证失焦关闭后仍能保留本次成功使用的账号。
+        if (result.ok) {
+          try {
+            await rememberSelectedAccount(tabId, result.origin, result.credential_id);
+          } catch (_) {
+            result.selection_remembered = false;
+          }
+        }
         sendResponse(result);
         return;
       }
@@ -239,7 +277,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: false, error: "缺少 tab_id" });
           return;
         }
-        const result = await runFillOtpFromVaultOnTab(tabId, sendNative);
+        const result = await runFillOtpFromVaultOnTab(tabId, sendNative, msg.credential_id);
+        if (result.ok) {
+          try {
+            await rememberSelectedAccount(tabId, result.origin, result.credential_id);
+          } catch (_) {
+            result.selection_remembered = false;
+          }
+        }
         sendResponse(result);
         return;
       }

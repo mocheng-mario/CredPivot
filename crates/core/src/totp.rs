@@ -76,8 +76,8 @@ pub struct TotpStoredParams {
 
 /// 入库前规范化：从 URI 或 Base32 提取完整 TOTP 参数。
 pub fn validate_totp_stored_params(params: &TotpStoredParams) -> Result<()> {
-    if params.period == 0 {
-        return Err(CoreError::format("TOTP period 必须大于 0"));
+    if params.period == 0 || params.period > 86400 {
+        return Err(CoreError::format("TOTP period 须在 1–86400 秒之间"));
     }
     if params.digits < 6 || params.digits > 8 {
         return Err(CoreError::format("TOTP digits 须在 6–8 之间"));
@@ -88,23 +88,21 @@ pub fn validate_totp_stored_params(params: &TotpStoredParams) -> Result<()> {
 pub fn totp_params_for_storage(input: &str) -> Result<TotpStoredParams> {
     let trimmed = input.trim();
     if trimmed.to_lowercase().starts_with("otpauth://") {
-        if let Ok(totp) = TOTP::from_url(trimmed) {
-            let params = TotpStoredParams {
-                secret_base32: totp.get_secret_base32(),
-                algorithm: totp.algorithm,
-                digits: totp.digits,
-                period: totp.step,
-            };
-            validate_totp_stored_params(&params)?;
-            return Ok(params);
-        }
+        if !trimmed.to_lowercase().starts_with("otpauth://totp/") { return Err(CoreError::format("仅支持 TOTP URI")); }
         let secret = extract_secret_from_otpauth(trimmed)?;
         validate_base32_secret(&secret)?;
+        let mut values = std::collections::HashMap::new();
+        for pair in trimmed.split_once('?').map(|(_,q)|q).unwrap_or_default().split('&') {
+            if let Some((key,value))=pair.split_once('=') {
+                if values.insert(key,url_decode_component(value)).is_some() { return Err(CoreError::format("TOTP 参数重复")); }
+            }
+        }
+        // 短密钥 URI 也必须保留显式参数，不能在解析失败时静默回退成 SHA1 / 6 / 30。
         let params = TotpStoredParams {
             secret_base32: normalize_base32(&secret),
-            algorithm: Algorithm::SHA1,
-            digits: 6,
-            period: 30,
+            algorithm: algorithm_from_name(values.get("algorithm").map(String::as_str).unwrap_or("SHA1"))?,
+            digits: values.get("digits").map(|v|v.parse()).transpose().map_err(|_|CoreError::format("TOTP 位数无效"))?.unwrap_or(6),
+            period: values.get("period").map(|v|v.parse()).transpose().map_err(|_|CoreError::format("TOTP 周期无效"))?.unwrap_or(30),
         };
         validate_totp_stored_params(&params)?;
         return Ok(params);
@@ -126,6 +124,9 @@ pub fn normalize_totp_secret_for_storage(input: &str) -> Result<String> {
 }
 
 pub fn totp_code_from_params(params: &TotpStoredParams) -> Result<String> {
+    totp_code_at(params, (crate::repo::now_ms().max(0) as u64) / 1000)
+}
+pub(crate) fn totp_code_at(params: &TotpStoredParams, unix_seconds: u64) -> Result<String> {
     validate_totp_stored_params(params)?;
     let secret = Secret::Encoded(params.secret_base32.clone())
         .to_bytes()
@@ -139,9 +140,7 @@ pub fn totp_code_from_params(params: &TotpStoredParams) -> Result<String> {
         None,
         "".to_string(),
     );
-    Ok(totp
-        .generate_current()
-        .map_err(|e| CoreError::format(e.to_string()))?)
+    Ok(totp.generate(unix_seconds))
 }
 
 pub fn algorithm_name(alg: Algorithm) -> &'static str {

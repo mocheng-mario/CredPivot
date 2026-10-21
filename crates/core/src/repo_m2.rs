@@ -3,7 +3,6 @@ use crate::repo::{new_revision, now_ms};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-pub const PASSWORD_HISTORY_MAX: usize = 20;
 pub const PASSWORD_STALE_DAYS: i64 = 90;
 const MS_PER_DAY: i64 = 86_400_000;
 
@@ -82,7 +81,7 @@ pub fn list_logins(conn: &Connection, query: Option<&str>, limit: u32) -> Result
 }
 
 /// 按 ID 读取写入结果，避免受列表分页和相同更新时间的排序影响。
-fn get_login_row(conn: &Connection, credential_id: &str) -> Result<LoginListRow> {
+pub(crate) fn get_login_row(conn: &Connection, credential_id: &str) -> Result<LoginListRow> {
     conn.query_row(
         &format!(
             "{LOGIN_LIST_SELECT}
@@ -149,8 +148,8 @@ pub fn insert_login_extended(
     .map_err(|e| CoreError::format(e.to_string()))?;
     tx.execute(
         "INSERT INTO login_credentials (id, item_id, origin, username, secret, display_name, connection_host, linked_totp_id,
-         current_revision, created_at_ms, updated_at_ms, password_active_since_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?10)",
+         current_revision, created_at_ms, updated_at_ms, password_active_since_ms, active_password_revision)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, 0, ?9)",
         params![
             cred_id,
             item_id,
@@ -186,7 +185,7 @@ pub fn update_login_credential(
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| CoreError::format(e.to_string()))?;
-    let (item_id, current_rev, old_secret, active_since): (String, String, String, i64) = tx
+    let (item_id, current_rev, old_secret, _active_since): (String, String, String, i64) = tx
         .query_row(
             "SELECT c.item_id, c.current_revision, c.secret, c.password_active_since_ms
              FROM login_credentials c
@@ -203,74 +202,15 @@ pub fn update_login_credential(
     let ts = now_ms();
     let title = login_item_title(display_name, origin, username);
 
+    // 改密先保存候选；用户确认已在网站应用后，才替换当前可填充密码。
     if let Some(pw) = new_password {
-        if pw != old_secret {
-            tx.execute(
-                "INSERT INTO password_history (id, credential_id, secret, activated_at_ms, retired_at_ms)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    Uuid::new_v4().to_string(),
-                    credential_id,
-                    old_secret,
-                    active_since,
-                    ts
-                ],
-            )
-            .map_err(|e| CoreError::format(e.to_string()))?;
-            trim_password_history(&tx, credential_id)?;
-            tx.execute(
-                "UPDATE login_credentials SET origin = ?1, username = ?2, secret = ?3, display_name = ?4,
-                 connection_host = ?5, linked_totp_id = ?6, current_revision = ?7, updated_at_ms = ?8, password_active_since_ms = ?8
-                 WHERE id = ?9",
-                params![
-                    origin,
-                    username,
-                    pw,
-                    display_name.trim(),
-                    connection_host.trim(),
-                    linked_totp_id,
-                    revision,
-                    ts,
-                    credential_id
-                ],
-            )
-            .map_err(|e| CoreError::format(e.to_string()))?;
-        } else {
-            tx.execute(
-                "UPDATE login_credentials SET origin = ?1, username = ?2, display_name = ?3, connection_host = ?4,
-                 linked_totp_id = ?5, current_revision = ?6, updated_at_ms = ?7
-                 WHERE id = ?8",
-                params![
-                    origin,
-                    username,
-                    display_name.trim(),
-                    connection_host.trim(),
-                    linked_totp_id,
-                    revision,
-                    ts,
-                    credential_id
-                ],
-            )
-            .map_err(|e| CoreError::format(e.to_string()))?;
-        }
-    } else {
-        tx.execute(
-            "UPDATE login_credentials SET origin = ?1, username = ?2, display_name = ?3, connection_host = ?4,
-             linked_totp_id = ?5, current_revision = ?6, updated_at_ms = ?7
-             WHERE id = ?8",
-            params![
-                origin,
-                username,
-                display_name.trim(),
-                connection_host.trim(),
-                linked_totp_id,
-                revision,
-                ts,
-                credential_id
-            ],
-        )
-        .map_err(|e| CoreError::format(e.to_string()))?;
+        if pw != old_secret { crate::credential_management::create_candidate(&tx, credential_id, expected_revision, pw)?; }
     }
+    tx.execute(
+        "UPDATE login_credentials SET origin=?1, username=?2, display_name=?3, connection_host=?4,
+         linked_totp_id=?5, current_revision=?6, updated_at_ms=?7 WHERE id=?8",
+        params![origin,username,display_name.trim(),connection_host.trim(),linked_totp_id,revision,ts,credential_id],
+    )?;
     tx.execute(
         "UPDATE items SET title = ?1, group_id = ?2, current_revision = ?3, updated_at_ms = ?4 WHERE id = ?5",
         params![title, group_id, revision, ts, item_id],
@@ -279,27 +219,6 @@ pub fn update_login_credential(
     let row = get_login_row(&tx, credential_id)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(row)
-}
-
-fn trim_password_history(conn: &Connection, credential_id: &str) -> Result<()> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT id FROM password_history WHERE credential_id = ?1 ORDER BY retired_at_ms DESC, activated_at_ms DESC",
-        )
-        .map_err(|e| CoreError::format(e.to_string()))?;
-    let ids: Vec<String> = stmt
-        .query_map(params![credential_id], |row| row.get(0))
-        .map_err(|e| CoreError::format(e.to_string()))?
-        .filter_map(|r| r.ok())
-        .collect();
-    if ids.len() <= PASSWORD_HISTORY_MAX {
-        return Ok(());
-    }
-    for id in ids.iter().skip(PASSWORD_HISTORY_MAX) {
-        conn.execute("DELETE FROM password_history WHERE id = ?1", params![id])
-            .map_err(|e| CoreError::format(e.to_string()))?;
-    }
-    Ok(())
 }
 
 pub fn trash_item(conn: &Connection, item_id: &str) -> Result<()> {
@@ -324,7 +243,7 @@ pub fn trash_item(conn: &Connection, item_id: &str) -> Result<()> {
     }
     let n = tx
         .execute(
-            "UPDATE items SET trashed = 1, current_revision = ?1, updated_at_ms = ?2 WHERE id = ?3 AND trashed = 0",
+            "UPDATE items SET trashed = 1, trashed_at_ms = ?2, current_revision = ?1, updated_at_ms = ?2 WHERE id = ?3 AND trashed = 0",
             params![revision, ts, item_id],
         )
         .map_err(|e| CoreError::format(e.to_string()))?;
@@ -774,6 +693,7 @@ pub fn insert_recovery_codes(
         params![rec_id, item_id, service_name, codes_json, revision, ts],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
+    crate::credential_management::sync_recovery_entries(&tx, &rec_id, &cleaned)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(RecoveryCodeRow {
         id: rec_id,
@@ -834,7 +754,8 @@ pub fn update_recovery_codes(
     if cleaned.is_empty() {
         return Err(CoreError::format("at least one recovery code required"));
     }
-    let (item_id, current_rev): (String, String) = conn
+    let tx = conn.unchecked_transaction()?;
+    let (item_id, current_rev): (String, String) = tx
         .query_row(
             "SELECT r.item_id, r.current_revision FROM recovery_code_items r
              INNER JOIN items i ON i.id = r.item_id
@@ -850,9 +771,6 @@ pub fn update_recovery_codes(
     let ts = now_ms();
     let codes_json =
         serde_json::to_string(&cleaned).map_err(|e| CoreError::format(e.to_string()))?;
-    let tx = conn
-        .unchecked_transaction()
-        .map_err(|e| CoreError::format(e.to_string()))?;
     tx.execute(
         "UPDATE recovery_code_items SET service_name = ?1, codes_json = ?2, current_revision = ?3, updated_at_ms = ?4 WHERE id = ?5",
         params![service_name, codes_json, revision, ts, id],
@@ -863,6 +781,7 @@ pub fn update_recovery_codes(
         params![service_name, revision, ts, item_id],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
+    crate::credential_management::sync_recovery_entries(&tx, id, &cleaned)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(RecoveryCodeRow {
         id: id.to_string(),

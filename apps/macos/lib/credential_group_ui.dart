@@ -15,11 +15,11 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setLocal) => AlertDialog(
-        title: const Text('管理分组'),
+        title: const LText('管理分组'),
         content: SizedBox(
           width: 360,
           child: groups.isEmpty
-              ? const Text('暂无分组，可点击下方新建。')
+              ? const LText('暂无分组，可点击下方新建。')
               : ListView.builder(
                   shrinkWrap: true,
                   itemCount: groups.length,
@@ -50,11 +50,11 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
               final ok = await showDialog<bool>(
                 context: ctx,
                 builder: (d) => AlertDialog(
-                  title: const Text('新建分组'),
-                  content: TextField(controller: nameCtl, decoration: const InputDecoration(labelText: '分组名称')),
+                  title: const LText('新建分组'),
+                  content: TextField(controller: nameCtl, decoration: InputDecoration(labelText: tr('分组名称'))),
                   actions: [
-                    TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')),
-                    FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('创建')),
+                    TextButton(onPressed: () => Navigator.pop(d, false), child: const LText('取消')),
+                    FilledButton(onPressed: () => Navigator.pop(d, true), child: const LText('创建')),
                   ],
                 ),
               );
@@ -67,9 +67,9 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
                 ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(e.message)));
               }
             },
-            child: const Text('新建分组'),
+            child: const LText('新建分组'),
           ),
-          FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('完成')),
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: const LText('完成')),
         ],
       ),
     ),
@@ -89,13 +89,13 @@ Future<void> showMoveItemToGroupDialog(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setLocal) => AlertDialog(
-        title: const Text('移到分组'),
+        title: const LText('移到分组'),
         content: DropdownButtonFormField<String?>(
           isExpanded: true,
           value: selected,
-          decoration: const InputDecoration(labelText: '目标分组'),
+          decoration: InputDecoration(labelText: tr('目标分组')),
           items: [
-            const DropdownMenuItem(value: null, child: Text('（未分组）')),
+            const DropdownMenuItem(value: null, child: LText('（未分组）')),
             ...groups.map(
               (g) => DropdownMenuItem(
                 value: g['id'] as String,
@@ -110,8 +110,8 @@ Future<void> showMoveItemToGroupDialog(
           onChanged: (v) => setLocal(() => selected = v),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('保存')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('保存')),
         ],
       ),
     ),
@@ -120,7 +120,7 @@ Future<void> showMoveItemToGroupDialog(
   try {
     await AgentBridge.setItemGroup(itemId, selected);
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('分组已更新')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: LText('分组已更新')));
     }
   } on AgentException catch (e) {
     if (context.mounted) {
@@ -143,10 +143,10 @@ Widget buildGroupFilterBar({
           child: DropdownButtonFormField<String?>(
             value: dropdownValueIfPresent(selectedGroupId, groups),
             isExpanded: true,
-            decoration: const InputDecoration(
-                labelText: '分组', prefixIcon: Icon(Icons.folder_outlined)),
+            decoration: InputDecoration(
+                labelText: tr('分组'), prefixIcon: Icon(Icons.folder_outlined)),
             items: [
-              const DropdownMenuItem(value: null, child: Text('全部')),
+              const DropdownMenuItem(value: null, child: LText('全部')),
               ...groups.map(
                 (g) => DropdownMenuItem(
                   value: g['id'] as String,
@@ -165,7 +165,7 @@ Widget buildGroupFilterBar({
         IconButton(
             onPressed: onManage,
             icon: const Icon(Icons.folder_outlined),
-            tooltip: '管理分组'),
+            tooltip: tr('管理分组')),
       ],
     ),
   );
@@ -198,8 +198,8 @@ List<Widget> buildGroupedListTiles({
     final title = key == null ? '未分组' : (groupName[key] ?? '分组');
     out.add(Padding(
       padding: const EdgeInsets.only(left: 4, top: 8, bottom: 10),
-      child: Text('$title  ·  ${buckets[key]!.length}',
-          style: const TextStyle(
+      child: LText('$title  ·  ${buckets[key]!.length}',
+          style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
               color: AppColors.muted)),

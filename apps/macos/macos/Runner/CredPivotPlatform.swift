@@ -1,4 +1,6 @@
 import Cocoa
+import Vision
+import Darwin
 import CryptoKit
 import FlutterMacOS
 import UniformTypeIdentifiers
@@ -195,9 +197,58 @@ final class CredPivotPlatform: NSObject {
         return
       }
       do {
-        result(try String(contentsOfFile: path, encoding: .utf8))
+        let url = URL(fileURLWithPath: path)
+        guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
+          throw CocoaError(.fileReadUnknown)
+        }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: 4 * 1024 * 1024 + 1) ?? Data()
+        guard data.count <= 4 * 1024 * 1024, let text = String(data: data, encoding: .utf8) else {
+          throw CocoaError(.fileReadCorruptFile)
+        }
+        result(text)
       } catch {
-        result(FlutterError(code: "io", message: error.localizedDescription, details: nil))
+        result(FlutterError(code: "io", message: "请选择 4MB 以内的 UTF-8 文本文件", details: nil))
+      }
+    case "scanQrImage":
+      DispatchQueue.main.async {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { result([]); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+          do {
+            let request = VNDetectBarcodesRequest()
+            request.symbologies = [.qr]
+            try VNImageRequestHandler(url: url).perform([request])
+            let uris = (request.results ?? []).compactMap { $0.payloadStringValue }
+              .filter { $0.lowercased().hasPrefix("otpauth://totp/") }
+            DispatchQueue.main.async { result(uris) }
+          } catch {
+            DispatchQueue.main.async { result(FlutterError(code: "qr", message: "二维码识别失败", details: nil)) }
+          }
+        }
+      }
+    case "writeTextFile":
+      guard let args = call.arguments as? [String: String], let path = args["path"],
+            let text = args["text"], let data = text.data(using: .utf8) else {
+        result(FlutterError(code: "bad_args", message: "path and text required", details: nil)); return
+      }
+      // 明文私钥和语言文件均使用私有临时文件，原子替换，避免短暂的宽权限文件。
+      let temporary = path + "." + UUID().uuidString + ".tmp"
+      let fd = Darwin.open(temporary, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
+      guard fd >= 0 else { result(FlutterError(code: "io", message: "文件创建失败", details: nil)); return }
+      do {
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        try handle.write(contentsOf: data)
+        try handle.synchronize()
+        try handle.close()
+        guard Darwin.rename(temporary, path) == 0 else { throw CocoaError(.fileWriteUnknown) }
+        result(nil)
+      } catch {
+        try? FileManager.default.removeItem(atPath: temporary)
+        result(FlutterError(code: "io", message: "文件保存失败", details: nil))
       }
     case "copyConcealed":
       guard let secret = call.arguments as? String else {

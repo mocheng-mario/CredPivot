@@ -519,16 +519,8 @@ impl VaultSession {
             .db
             .as_ref()
             .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
-        let mut list = Vec::new();
-        for variant in origin_match_variants(origin) {
-            let chunk = db
-                .list_by_origin(&variant)
-                .map_err(|e| AgentError::Vault(e.to_string()))?;
-            if !chunk.is_empty() {
-                list = chunk;
-                break;
-            }
-        }
+        let list = credpivot_core::browser_login_candidates(db.conn()).map_err(|e| AgentError::Vault(e.to_string()))?
+            .into_iter().filter(|row| self.credential_matches_page(&row.id, origin)).collect::<Vec<_>>();
         Ok(list
             .into_iter()
             .map(|c| FakeCredential {
@@ -539,6 +531,11 @@ impl VaultSession {
                 linked_totp_id: c.linked_totp_id,
             })
             .collect())
+    }
+
+    pub fn credential_matches_page(&self, credential_id: &str, origin: &str) -> bool {
+        self.db.as_ref().and_then(|db| credpivot_core::credential_origins(db.conn(), credential_id).ok())
+            .is_some_and(|origins| origins.iter().any(|candidate| Self::origin_matches_credential_page(candidate, origin)))
     }
 
     pub fn origin_matches_credential_page(cred_origin: &str, page_origin: &str) -> bool {

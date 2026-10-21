@@ -2,7 +2,7 @@ use crate::error::{CoreError, Result};
 use rusqlite::Connection;
 
 /// SQLCipher `user_version`：与迁移脚本同步递增。
-pub const SCHEMA_USER_VERSION: i32 = 8;
+pub const SCHEMA_USER_VERSION: i32 = 9;
 
 const MIGRATION_V1: &str = "
 CREATE TABLE IF NOT EXISTS vault_meta (
@@ -237,8 +237,37 @@ CREATE INDEX IF NOT EXISTS idx_credential_groups_scope ON credential_groups(scop
         ensure_column(c, "totp_credentials", "totp_period", "INTEGER NOT NULL DEFAULT 30")?;
         Ok(())
     })?;
-    apply_migration_step(conn, SCHEMA_USER_VERSION, |c| {
+    apply_migration_step(conn, 8, |c| {
         repair_server_login_profiles_columns(c)?;
+        Ok(())
+    })?;
+    apply_migration_step(conn, 9, |c| {
+        c.execute_batch("ALTER TABLE items ADD COLUMN details_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE items ADD COLUMN trashed_at_ms INTEGER;
+ALTER TABLE login_credentials ADD COLUMN active_password_revision TEXT NOT NULL DEFAULT '';
+-- 旧版本的时间来自创建/编辑，未经用户确认，不作为真实密码启用时间。
+UPDATE login_credentials SET active_password_revision = current_revision, password_active_since_ms = 0;
+UPDATE items SET trashed_at_ms = updated_at_ms WHERE trashed = 1;
+CREATE TABLE local_usage (item_id TEXT PRIMARY KEY, last_used_at_ms INTEGER NOT NULL, use_count INTEGER NOT NULL);
+CREATE TABLE password_candidates (
+ id TEXT PRIMARY KEY, credential_id TEXT NOT NULL REFERENCES login_credentials(id),
+ base_active_revision TEXT NOT NULL, secret TEXT NOT NULL, created_at_ms INTEGER NOT NULL
+);
+CREATE TABLE recovery_code_entries (
+ id TEXT PRIMARY KEY, recovery_id TEXT NOT NULL REFERENCES recovery_code_items(id),
+ code TEXT NOT NULL, used_at_ms INTEGER, position INTEGER NOT NULL
+);
+ALTER TABLE import_mappings ADD COLUMN source_digest TEXT NOT NULL DEFAULT '';
+UPDATE import_mappings SET source_namespace='bitwarden:personal' WHERE source_namespace='bitwarden';
+")?;
+        let mut stmt = c.prepare("SELECT id, codes_json FROM recovery_code_items")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        for row in rows {
+            let (id, json) = row?;
+            let codes: Vec<String> = serde_json::from_str(&json)
+                .map_err(|_| CoreError::format("恢复码数据格式错误，迁移已取消"))?;
+            crate::credential_management::sync_recovery_entries(c, &id, &codes)?;
+        }
         Ok(())
     })?;
     Ok(())

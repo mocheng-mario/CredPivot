@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_presentation.dart';
 
 /// 凭据模块危险操作二次确认。
 Future<bool> confirmCredentialDanger(
@@ -13,7 +14,7 @@ Future<bool> confirmCredentialDanger(
       title: Text(title),
       content: Text(message),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
         FilledButton(
           style: FilledButton.styleFrom(
             backgroundColor: Theme.of(ctx).colorScheme.error,

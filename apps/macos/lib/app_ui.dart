@@ -1,33 +1,44 @@
 import 'package:flutter/material.dart';
+import 'app_presentation.dart';
+export 'app_presentation.dart';
 
 abstract final class AppColors {
-  static const background = Color(0xFFF5F6FA);
-  static const sidebar = Color(0xFFEEF0F6);
-  static const ink = Color(0xFF20283F);
-  static const muted = Color(0xFF69748A);
-  static const border = Color(0xFFE5E8F0);
-  static const primary = Color(0xFF565DD9);
-  static const green = Color(0xFF25856D);
+  static bool get dark => AppPresentation.instance.dark;
+  static Color get surface => dark ? const Color(0xFF202637) : Colors.white;
+  static Color get selected => dark ? const Color(0xFF303657) : const Color(0xFFF0F0FD);
+  static Color get background => dark ? const Color(0xFF151A26) : const Color(0xFFF5F6FA);
+  static Color get sidebar => dark ? const Color(0xFF1B2130) : const Color(0xFFEEF0F6);
+  static Color get ink => dark ? const Color(0xFFE5E9F3) : const Color(0xFF20283F);
+  static Color get muted => dark ? const Color(0xFFAAB5CC) : const Color(0xFF69748A);
+  static Color get border => dark ? const Color(0xFF384057) : const Color(0xFFE5E8F0);
+  static Color get primary => dark ? const Color(0xFF9BA1FF) : const Color(0xFF565DD9);
+  static Color get green => dark ? const Color(0xFF66D3B4) : const Color(0xFF25856D);
 }
 
-ThemeData buildAppTheme() {
+ThemeData buildAppTheme({Brightness? brightness}) {
+  final dark = (brightness ?? (AppColors.dark ? Brightness.dark : Brightness.light)) == Brightness.dark;
+  final surface = dark ? const Color(0xFF202637) : Colors.white;
+  final ink = dark ? const Color(0xFFE5E9F3) : const Color(0xFF20283F);
+  final muted = dark ? const Color(0xFFAAB5CC) : const Color(0xFF69748A);
+  final primary = dark ? const Color(0xFF9BA1FF) : const Color(0xFF565DD9);
+  final border = dark ? const Color(0xFF384057) : const Color(0xFFE5E8F0);
   final scheme = ColorScheme.fromSeed(
-    seedColor: AppColors.primary,
-    brightness: Brightness.light,
-    surface: Colors.white,
+    seedColor: const Color(0xFF565DD9),
+    brightness: dark ? Brightness.dark : Brightness.light,
+    surface: surface,
   ).copyWith(
-    primary: AppColors.primary,
-    onSurface: AppColors.ink,
-    onSurfaceVariant: AppColors.muted,
-    outlineVariant: AppColors.border,
+    primary: dark ? const Color(0xFF9BA1FF) : const Color(0xFF565DD9),
+    onSurface: ink,
+    onSurfaceVariant: muted,
+    outlineVariant: border,
   );
   final base = ThemeData(useMaterial3: true, colorScheme: scheme);
   final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(10));
   return base.copyWith(
-    scaffoldBackgroundColor: AppColors.background,
+    scaffoldBackgroundColor: dark ? const Color(0xFF151A26) : const Color(0xFFF5F6FA),
     // 合并字号与字重，保留基础文字颜色，避免卡片正文和详情值丢失前景色。
     textTheme: base.textTheme
-        .apply(bodyColor: AppColors.ink, displayColor: AppColors.ink)
+        .apply(bodyColor: ink, displayColor: ink)
         .merge(TextTheme(
           headlineMedium: const TextStyle(
               fontSize: 27, fontWeight: FontWeight.w700, letterSpacing: -0.8),
@@ -36,36 +47,36 @@ ThemeData buildAppTheme() {
           titleMedium:
               const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
           bodyMedium: const TextStyle(fontSize: 13, height: 1.55),
-          bodySmall: const TextStyle(
-              fontSize: 12, height: 1.5, color: AppColors.muted),
+          bodySmall: TextStyle(
+              fontSize: 12, height: 1.5, color: muted),
           labelLarge:
               const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
         )),
     cardTheme: CardThemeData(
-      color: Colors.white,
+      color: surface,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: const BorderSide(color: AppColors.border),
+        side: BorderSide(color: border),
       ),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: const Color(0xFFF8F9FC),
+      fillColor: dark ? const Color(0xFF1A2030) : const Color(0xFFF8F9FC),
       isDense: true,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
-      labelStyle: const TextStyle(fontSize: 13, color: AppColors.muted),
-      hintStyle: const TextStyle(fontSize: 13, color: AppColors.muted),
+      labelStyle: TextStyle(fontSize: 13, color: muted),
+      hintStyle: TextStyle(fontSize: 13, color: muted),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: AppColors.border),
+        borderSide: BorderSide(color: border),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+        borderSide: BorderSide(color: primary, width: 1.5),
       ),
     ),
     filledButtonTheme: FilledButtonThemeData(
@@ -78,45 +89,45 @@ ThemeData buildAppTheme() {
         style: OutlinedButton.styleFrom(
       minimumSize: const Size(0, 40),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      foregroundColor: AppColors.ink,
-      side: const BorderSide(color: AppColors.border),
+      foregroundColor: ink,
+      side: BorderSide(color: border),
       shape: shape,
     )),
     textButtonTheme:
         TextButtonThemeData(style: TextButton.styleFrom(shape: shape)),
     iconButtonTheme: IconButtonThemeData(
         style: IconButton.styleFrom(
-      foregroundColor: AppColors.muted,
+      foregroundColor: muted,
       iconSize: 19,
       shape: shape,
     )),
-    dividerTheme: const DividerThemeData(
-        color: AppColors.border, thickness: 1, space: 24),
+    dividerTheme: DividerThemeData(
+        color: border, thickness: 1, space: 24),
     tabBarTheme: TabBarThemeData(
-      labelColor: AppColors.primary,
-      unselectedLabelColor: AppColors.muted,
+      labelColor: primary,
+      unselectedLabelColor: muted,
       dividerColor: Colors.transparent,
       indicatorSize: TabBarIndicatorSize.tab,
       labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
       unselectedLabelStyle:
           const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
       indicator: BoxDecoration(
-        color: Colors.white,
+        color: surface,
         borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: border),
       ),
     ),
     dialogTheme: DialogThemeData(
-      backgroundColor: Colors.white,
+      backgroundColor: surface,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      backgroundColor: AppColors.ink,
+      backgroundColor: dark ? const Color(0xFF384057) : ink,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     ),
-    listTileTheme: const ListTileThemeData(iconColor: AppColors.muted),
+    listTileTheme: ListTileThemeData(iconColor: muted),
   );
 }
 
@@ -150,13 +161,13 @@ class AppPanel extends StatelessWidget {
                     const SizedBox(width: 10),
                   ],
                   Expanded(
-                      child: Text(title!,
+                      child: LText(title!,
                           style: Theme.of(context).textTheme.titleMedium)),
                   if (trailing != null) trailing!,
                 ]),
                 if (subtitle != null) ...[
                   const SizedBox(height: 6),
-                  Text(subtitle!, style: Theme.of(context).textTheme.bodySmall),
+                  LText(subtitle!, style: Theme.of(context).textTheme.bodySmall),
                 ],
                 const SizedBox(height: 18),
               ],
@@ -168,26 +179,26 @@ class AppPanel extends StatelessWidget {
 }
 
 class AppStatusBadge extends StatelessWidget {
-  const AppStatusBadge(this.label, {super.key, this.color = AppColors.green});
+  const AppStatusBadge(this.label, {super.key, this.color});
 
   final String label;
-  final Color color;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.08),
+            color: (color ?? AppColors.green).withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(20)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Container(
               width: 6,
               height: 6,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+              decoration: BoxDecoration(color: color ?? AppColors.green, shape: BoxShape.circle)),
           const SizedBox(width: 7),
-          Text(label,
+          LText(label,
               style: TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+                  fontSize: 11, fontWeight: FontWeight.w600, color: color ?? AppColors.green)),
         ]),
       );
 }
@@ -220,11 +231,11 @@ class AppEmptyState extends StatelessWidget {
                 child: Icon(icon, size: 34, color: AppColors.primary),
               ),
               const SizedBox(height: 20),
-              Text(title,
+              LText(title,
                   style: Theme.of(context).textTheme.titleLarge,
                   textAlign: TextAlign.center),
               const SizedBox(height: 8),
-              Text(message,
+              LText(message,
                   style: Theme.of(context).textTheme.bodySmall,
                   textAlign: TextAlign.center),
               if (action != null) ...[const SizedBox(height: 20), action!],
@@ -251,7 +262,7 @@ class AppSectionHeader extends StatelessWidget {
         child: LayoutBuilder(builder: (context, constraints) {
           final heading =
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            LText(title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 4),
             Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
           ]);
@@ -289,12 +300,12 @@ class AppNotice extends StatelessWidget {
           const SizedBox(width: 9),
           Expanded(
               child:
-                  Text(message, style: Theme.of(context).textTheme.bodySmall)),
+                  LText(message, style: Theme.of(context).textTheme.bodySmall)),
           if (onDismiss != null) ...[
             const SizedBox(width: 8),
             IconButton(
                 onPressed: onDismiss,
-                tooltip: '关闭提示',
+                tooltip: tr('关闭提示'),
                 icon: const Icon(Icons.close_rounded, size: 16),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 24, minHeight: 24)),

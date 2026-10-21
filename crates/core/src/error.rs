@@ -31,3 +31,7 @@ impl CoreError {
         Self::Io(msg.as_ref().to_string())
     }
 }
+
+impl From<rusqlite::Error> for CoreError {
+    fn from(error: rusqlite::Error) -> Self { Self::format(error.to_string()) }
+}

@@ -9,15 +9,34 @@ function gateHint(resp) {
   return null;
 }
 
+export async function requestPageContext(tabId) {
+  try {
+    return await chrome.tabs.sendMessage(tabId, { type: "fill_context" }, { frameId: 0 });
+  } catch (e) {
+    // 扩展重载后，已打开的标签页可能没有接收端；只重试不含秘密的上下文请求。
+    if (!String(e).includes("Receiving end does not exist")) throw e;
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId, frameIds: [0] },
+        files: ["content.js"],
+        world: "ISOLATED",
+      });
+      return await chrome.tabs.sendMessage(tabId, { type: "fill_context" }, { frameId: 0 });
+    } catch (_) {
+      throw new Error("无法连接页面，请确认已允许扩展访问此网站；浏览器限制页面不支持填充。若页面正在跳转，请加载完成后重试。");
+    }
+  }
+}
+
 async function loadPageContext(tabId, origin) {
   let ctx;
   try {
-    ctx = await chrome.tabs.sendMessage(tabId, { type: "fill_context" }, { frameId: 0 });
+    ctx = await requestPageContext(tabId);
   } catch (e) {
     return {
       error: {
         ok: false,
-        error: "无法与页面通信（请刷新该页后重试）",
+        error: "无法与页面通信",
         detail: String(e),
       },
     };
@@ -31,7 +50,7 @@ async function loadPageContext(tabId, origin) {
   return { ctx };
 }
 
-async function suggestFirstCredential(origin, sendNative) {
+async function suggestFirstCredential(origin, sendNative, selectedId) {
   const suggest = await sendNative({
     action: "credential.suggest_for_origin",
     origin,
@@ -50,27 +69,18 @@ async function suggestFirstCredential(origin, sendNative) {
     };
   }
   const candidates = suggest?.payload?.candidates ?? [];
-  const credentialId = candidates[0]?.id;
+  const selected = candidates.find((c) => c.id === selectedId);
+  const credentialId = selected?.id;
   if (!credentialId) {
     return {
       error: {
         ok: false,
-        error: "当前站点无匹配的登录凭据（origin 须与保存时一致）",
+        error: "请先选择当前站点的登录账户",
         origin,
       },
     };
   }
-  return { credentialId: candidates[0].id, candidate: candidates[0], candidates };
-}
-
-/** 填充 MFA 时优先选用已关联 TOTP 的登录项（同 origin 可能有多条）。 */
-function pickCredentialForOtp(suggested) {
-  const list = suggested.candidates ?? (suggested.candidate ? [suggested.candidate] : []);
-  const withTotp = list.find((c) => c?.linked_totp_id);
-  if (withTotp) {
-    return { credentialId: withTotp.id, candidate: withTotp };
-  }
-  return { credentialId: suggested.credentialId, candidate: suggested.candidate };
+  return { credentialId: selected.id, candidate: selected, candidates };
 }
 
 async function consumeLoginSecrets(tabId, ctx, credentialId, sendNative) {
@@ -111,7 +121,7 @@ async function consumeLoginSecrets(tabId, ctx, credentialId, sendNative) {
   return { secrets: consume.payload ?? consume };
 }
 
-export async function runFillLoginOnTab(tabId, sendNative) {
+export async function runFillLoginOnTab(tabId, sendNative, selectedId) {
   const tab = await chrome.tabs.get(tabId);
   if (!tab?.url || !tab.url.startsWith("http")) {
     return { ok: false, error: "请在普通 http(s) 网页标签页中使用填充" };
@@ -120,7 +130,7 @@ export async function runFillLoginOnTab(tabId, sendNative) {
   const { ctx, error } = await loadPageContext(tabId, origin);
   if (error) return error;
 
-  const suggested = await suggestFirstCredential(ctx.origin, sendNative);
+  const suggested = await suggestFirstCredential(ctx.origin, sendNative, selectedId);
   if (suggested.error) return suggested.error;
 
   const consumed = await consumeLoginSecrets(tabId, ctx, suggested.credentialId, sendNative);
@@ -154,10 +164,10 @@ export async function runFillLoginOnTab(tabId, sendNative) {
       deliver,
     };
   }
-  return { ok: true, filled: true, origin: ctx.origin, login_filled: true };
+  return { ok: true, filled: true, origin: ctx.origin, login_filled: true, credential_id: suggested.credentialId };
 }
 
-export async function runFillOtpFromVaultOnTab(tabId, sendNative) {
+export async function runFillOtpFromVaultOnTab(tabId, sendNative, selectedId) {
   const tab = await chrome.tabs.get(tabId);
   if (!tab?.url || !tab.url.startsWith("http")) {
     return { ok: false, error: "请在普通 http(s) 网页标签页中使用填充" };
@@ -166,9 +176,9 @@ export async function runFillOtpFromVaultOnTab(tabId, sendNative) {
   const { ctx, error } = await loadPageContext(tabId, origin);
   if (error) return error;
 
-  const suggested = await suggestFirstCredential(ctx.origin, sendNative);
+  const suggested = await suggestFirstCredential(ctx.origin, sendNative, selectedId);
   if (suggested.error) return suggested.error;
-  const forOtp = pickCredentialForOtp(suggested);
+  const forOtp = suggested;
   const totpId = forOtp.candidate?.linked_totp_id;
   if (!totpId) {
     return {
@@ -178,10 +188,11 @@ export async function runFillOtpFromVaultOnTab(tabId, sendNative) {
     };
   }
 
-  const codeResp = await sendNative({
-    action: "credential.totp_code",
-    totp_id: totpId,
-  });
+  let codeResp = await sendNative({action: "credential.totp_code", credential_id: forOtp.credentialId, origin: ctx.origin});
+  if (codeResp?.ok && codeResp.payload?.wait_seconds != null) {
+    await new Promise((resolve) => setTimeout(resolve, (codeResp.payload.wait_seconds + 1) * 1000));
+    codeResp = await sendNative({action: "credential.totp_code", credential_id: forOtp.credentialId, origin: ctx.origin});
+  }
   const gate = gateHint(codeResp);
   if (gate) {
     return { ok: false, error: gate, raw: codeResp, needs_gate: true };
@@ -193,8 +204,8 @@ export async function runFillOtpFromVaultOnTab(tabId, sendNative) {
       raw: codeResp,
     };
   }
-  const code = codeResp?.payload?.code ?? codeResp?.payload;
-  if (!code) {
+  const code = codeResp?.payload?.code;
+  if (typeof code !== "string" || !code) {
     return { ok: false, error: "MFA 验证码为空" };
   }
 
@@ -221,12 +232,12 @@ export async function runFillOtpFromVaultOnTab(tabId, sendNative) {
       deliver,
     };
   }
-  return { ok: true, filled: true, origin: ctx.origin, otp_filled: true };
+  return { ok: true, filled: true, origin: ctx.origin, otp_filled: true, credential_id: suggested.credentialId };
 }
 
 /** @deprecated 使用 runFillLoginOnTab + runFillOtpFromVaultOnTab */
-export async function runFillOnTab(tabId, sendNative) {
-  return runFillLoginOnTab(tabId, sendNative);
+export async function runFillOnTab(tabId, sendNative, selectedId) {
+  return runFillLoginOnTab(tabId, sendNative, selectedId);
 }
 
 export async function runOtpFillOnTab(tabId, totpCode, sendNative) {

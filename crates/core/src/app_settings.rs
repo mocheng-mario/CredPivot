@@ -19,6 +19,10 @@ pub struct AppSettings {
     pub master_password_idle_hours: u64,
     pub restore_interval_hours: u64,
     pub restore_keep_count: usize,
+    pub password_history_limit: usize,
+    pub password_reminder_days: u32,
+    pub theme: String,
+    pub language: String,
     pub log_level: String,
     pub log_max_mb: u64,
     pub log_backup_count: usize,
@@ -41,6 +45,10 @@ impl Default for AppSettings {
             master_password_idle_hours: 24,
             restore_interval_hours: 24,
             restore_keep_count: crate::MAX_RESTORE_POINTS,
+            password_history_limit: 20,
+            password_reminder_days: 90,
+            theme: "system".into(),
+            language: "zh-CN".into(),
             log_level: "info".into(),
             log_max_mb: 2,
             log_backup_count: 1,
@@ -54,7 +62,12 @@ impl Default for AppSettings {
 
 impl AppSettings {
     pub fn validate(&self) -> io::Result<()> {
-        let valid = self.version == 1
+        let valid = self.password_history_limit <= 50
+            && self.password_reminder_days <= 3650
+            && matches!(self.theme.as_str(), "system" | "light" | "dark")
+            && !self.language.is_empty() && self.language.len() <= 64
+            && self.language.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+            && self.version == 1
             && (60..=1800).contains(&self.vault_idle_seconds)
             && self.vault_idle_seconds % 60 == 0
             && self.sensitive_auth_seconds <= 300

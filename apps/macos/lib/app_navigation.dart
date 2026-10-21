@@ -35,7 +35,7 @@ class AppSidebar extends StatelessWidget {
         width: compact ? 76 : 216,
         padding:
             EdgeInsets.symmetric(horizontal: compact ? 12 : 16, vertical: 24),
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
             color: AppColors.sidebar,
             border: Border(right: BorderSide(color: AppColors.border))),
         child:
@@ -50,12 +50,12 @@ class AppSidebar extends StatelessWidget {
                   decoration: BoxDecoration(
                       color: AppColors.primary,
                       borderRadius: BorderRadius.circular(12)),
-                  child: const Icon(Icons.shield_outlined,
-                      color: Colors.white, size: 23),
+                  child: Icon(Icons.shield_outlined,
+                      color: AppColors.surface, size: 23),
                 ),
                 if (!compact) ...[
                   const SizedBox(width: 10),
-                  const Text('CredPivot',
+                  const LText('CredPivot',
                       style: TextStyle(
                           fontSize: 19,
                           fontWeight: FontWeight.w700,
@@ -64,9 +64,9 @@ class AppSidebar extends StatelessWidget {
               ]),
           const SizedBox(height: 34),
           if (!compact)
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(left: 12, bottom: 12),
-              child: Text('工作空间',
+              child: LText('工作空间',
                   style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -100,7 +100,7 @@ class AppSidebar extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.65),
+                  color: AppColors.surface.withValues(alpha: 0.65),
                   borderRadius: BorderRadius.circular(12)),
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -113,7 +113,7 @@ class AppSidebar extends StatelessWidget {
                           size: 15,
                           color: AppColors.muted),
                       const SizedBox(width: 7),
-                      const Text('本机保险库',
+                      const LText('本机保险库',
                           style: TextStyle(
                               fontSize: 12, fontWeight: FontWeight.w600)),
                     ]),
@@ -122,7 +122,7 @@ class AppSidebar extends StatelessWidget {
                         color: agentReady ? AppColors.green : AppColors.muted),
                     const SizedBox(height: 8),
                     Text(footer,
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 10, height: 1.6, color: AppColors.muted)),
                   ]),
             ),
@@ -134,7 +134,7 @@ class AppSidebar extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Tooltip(
-        message: compact ? appPageTitles[index] : '',
+        message: compact ? tr(appPageTitles[index]) : '',
         child: Semantics(
           selected: selected,
           child: AnimatedContainer(
@@ -143,7 +143,7 @@ class AppSidebar extends StatelessWidget {
                     MediaQuery.disableAnimationsOf(context) ? 0 : 150),
             curve: Curves.easeOut,
             decoration: BoxDecoration(
-                color: selected ? Colors.white : Colors.transparent,
+                color: selected ? AppColors.surface : Colors.transparent,
                 borderRadius: BorderRadius.circular(11)),
             child: Material(
               color: Colors.transparent,
@@ -165,7 +165,7 @@ class AppSidebar extends StatelessWidget {
                         if (!compact) ...[
                           const SizedBox(width: 12),
                           Expanded(
-                              child: Text(appPageTitles[index],
+                              child: LText(appPageTitles[index],
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: selected
@@ -179,7 +179,7 @@ class AppSidebar extends StatelessWidget {
                             Container(
                                 width: 5,
                                 height: 5,
-                                decoration: const BoxDecoration(
+                                decoration: BoxDecoration(
                                     color: AppColors.primary,
                                     shape: BoxShape.circle)),
                         ],

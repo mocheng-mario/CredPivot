@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_presentation.dart';
 
 import 'agent_bridge.dart';
 
@@ -89,20 +90,20 @@ class _TerminalSettingsDialogState extends State<_TerminalSettingsDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('选择终端'),
+      title: const LText('选择终端'),
       content: SizedBox(
         width: 480,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
+            const LText(
               '一键 SSH / 自动认证会在所选终端中打开新标签。'
               ' 已内置 Terminal、iTerm、Warp、Tabby 等常见应用的启动方式。',
               style: TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 12),
-            Text(
+            LText(
               _appName.text.isNotEmpty
                   ? '当前：${_appName.text}\n${_appPath.text}'
                   : '当前：未选择',
@@ -112,7 +113,7 @@ class _TerminalSettingsDialogState extends State<_TerminalSettingsDialog> {
             FilledButton.icon(
               onPressed: _pickApp,
               icon: const Icon(Icons.apps, size: 18),
-              label: const Text('选择 .app'),
+              label: const LText('选择 .app'),
             ),
             if (_status.isNotEmpty) ...[
               const SizedBox(height: 8),
@@ -125,8 +126,8 @@ class _TerminalSettingsDialogState extends State<_TerminalSettingsDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-        FilledButton(onPressed: _save, child: const Text('保存')),
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const LText('取消')),
+        FilledButton(onPressed: _save, child: const LText('保存')),
       ],
     );
   }

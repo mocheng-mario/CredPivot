@@ -146,20 +146,20 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
                   TextField(
                     controller: widget.extensionIdController,
                     readOnly: true,
-                    decoration: const InputDecoration(
-                        labelText: 'Chrome 扩展 ID',
-                        hintText: '请在设置页配置'),
+                    decoration: InputDecoration(
+                        labelText: tr('Chrome 扩展 ID'),
+                        hintText: tr('请在设置页配置')),
                   ),
                   const SizedBox(height: 14),
                   Wrap(spacing: 10, runSpacing: 10, children: [
                     OutlinedButton.icon(
                         onPressed: widget.onOpenSettings,
                         icon: const Icon(Icons.settings_outlined),
-                        label: const Text('前往设置')),
+                        label: const LText('前往设置')),
                     FilledButton.icon(
                         onPressed: busy ? null : _installHost,
                         icon: const Icon(Icons.link_rounded),
-                        label: Text(_working ? '处理中…' : '更新 Native Host')),
+                        label: LText(_working ? '处理中…' : '更新 Native Host')),
                     OutlinedButton.icon(
                       onPressed: () => _run('显示目录', () async {
                         final r = await AgentBridge.revealChromeExtensionDir();
@@ -168,7 +168,7 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
                               () => _message = r['message']?.toString() ?? '');
                       }),
                       icon: const Icon(Icons.folder_open_rounded),
-                      label: const Text('显示扩展目录'),
+                      label: const LText('显示扩展目录'),
                     ),
                     OutlinedButton.icon(
                       onPressed: () => _run('打开扩展页', () async {
@@ -178,12 +178,12 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
                               () => _message = r['message']?.toString() ?? '');
                       }),
                       icon: const Icon(Icons.open_in_new_rounded),
-                      label: const Text('打开 Chrome 扩展页'),
+                      label: const LText('打开 Chrome 扩展页'),
                     ),
                     TextButton.icon(
                         onPressed: () => _run('刷新状态', _refresh),
                         icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('刷新')),
+                        label: const LText('刷新')),
                   ]),
                   if (_working)
                     const Padding(
@@ -200,7 +200,7 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
             shape: const Border(),
             collapsedShape: const Border(),
             leading: const Icon(Icons.description_outlined),
-            title: const Text('配置详情'),
+            title: const LText('配置详情'),
             childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             children: [
               Align(
@@ -254,10 +254,10 @@ class _StepTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10)),
             child: Center(
                 child: ok
-                    ? const Icon(Icons.check_rounded,
+                    ? Icon(Icons.check_rounded,
                         size: 17, color: AppColors.green)
-                    : Text('$step',
-                        style: const TextStyle(
+                    : LText('$step',
+                        style: TextStyle(
                             color: AppColors.muted,
                             fontWeight: FontWeight.w600))),
           ),

@@ -143,6 +143,12 @@ pub fn export_database_bytes(vault_dir: &Path, vmk: &[u8; 32]) -> Result<Vec<u8>
         .run_to_completion(100, Duration::from_millis(50), None)
         .map_err(|e| CoreError::io(e.to_string()))?;
 
+    drop(backup);
+    // 删除后重写副本，避免本机使用痕迹残留在导出数据库的空闲页中。
+    dest.execute_batch("PRAGMA secure_delete=ON;")?;
+    dest.execute("DELETE FROM local_usage", [])?;
+    dest.execute_batch("VACUUM; PRAGMA wal_checkpoint(TRUNCATE);")?;
+    drop(dest);
     let bytes = fs::read(tmp.path()).map_err(|e| CoreError::io(e.to_string()))?;
     if bytes.len() as u64 > MAX_OVB_FILE_BYTES {
         return Err(CoreError::limit("database export"));

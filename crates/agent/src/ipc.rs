@@ -107,14 +107,16 @@ pub fn load_extension_gate_into_state(st: &mut IpcState) {
 fn native_host_request_forbidden(req: &AgentRequest) -> bool {
     !matches!(req, AgentRequest::Ping | AgentRequest::Status | AgentRequest::ExtensionConnect
         | AgentRequest::CredentialSave { .. } | AgentRequest::CredentialSuggest { .. }
+        | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::BrowserTotpCode { .. }
         | AgentRequest::CredentialFillPrepare { .. } | AgentRequest::CredentialFillConsume { .. }
-        | AgentRequest::TotpCode { .. } | AgentRequest::CancelRequest { .. })
+        | AgentRequest::CancelRequest { .. })
 }
 
 fn req_requires_extension_gate(req: &AgentRequest) -> bool {
     matches!(
         req,
         AgentRequest::CredentialSave { .. }
+            | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::BrowserTotpCode { .. }
             | AgentRequest::CredentialSuggest { .. }
             | AgentRequest::CredentialFillPrepare { .. }
             | AgentRequest::CredentialFillConsume { .. }
@@ -274,6 +276,7 @@ async fn handle_request_inner(
         | AgentRequest::UnlockLocal { .. } | AgentRequest::VerifyMasterPassword { .. }
         | AgentRequest::SensitiveAuthGrant | AgentRequest::ExtensionGateGrant { .. }
         | AgentRequest::AppSettingsGet | AgentRequest::AppSettingsBackup | AgentRequest::AppSettingsSet { .. }
+        | AgentRequest::VaultManage { .. }
         | AgentRequest::UnlockPassword { .. } | AgentRequest::VaultCreate { .. }) && !peer.from_app {
         return AgentResponse::err("forbidden", "authentication control is App-only");
     }
@@ -305,7 +308,7 @@ async fn handle_request_inner(
         }
     }
     let bump_gate_activity = peer.from_native_host && req_requires_extension_gate(&req);
-    if peer.from_app && matches!(&req,
+    if peer.from_app && (matches!(&req,
         AgentRequest::CredentialGet { .. } | AgentRequest::CredentialUpdate { .. }
         | AgentRequest::CredentialTrash { .. } | AgentRequest::TotpCode { .. }
         | AgentRequest::TotpReveal { .. } | AgentRequest::RecoveryCodesGet { .. }
@@ -313,7 +316,8 @@ async fn handle_request_inner(
         | AgentRequest::ServerProfileUpdate { .. } | AgentRequest::SshSessionPrepare { .. }
         | AgentRequest::ImportBitwarden { .. } | AgentRequest::VaultChangePassword { .. }
         | AgentRequest::VaultExportOvb { .. } | AgentRequest::RestorePointRecover { .. }
-        | AgentRequest::VaultMigrate { .. } | AgentRequest::VaultSecurityRebuild { .. }) {
+        | AgentRequest::VaultMigrate { .. } | AgentRequest::VaultSecurityRebuild { .. })
+        || matches!(&req, AgentRequest::VaultManage { action } if action.requires_sensitive_auth())) {
         let mut v = st.vault.lock().await;
         if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
         if !v.authorize_sensitive_operation() { return AgentResponse::err("auth_required", "identity verification required"); }
@@ -559,6 +563,32 @@ async fn handle_request_inner(
                 "credential": cred,
             }))
         }
+        AgentRequest::BrowserCredentialUpdate { credential_id, expected_revision, origin, username, password } => {
+            if !peer.from_native_host { return AgentResponse::err("forbidden", "browser only"); }
+            let mut v=st.vault.lock().await;
+            if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
+            let Ok(cred)=v.get_credential(&credential_id) else { return AgentResponse::err("not_found", "credential not found"); };
+            if !v.credential_matches_page(&credential_id,&origin) { return AgentResponse::err("origin_mismatch", "网站与凭据不匹配"); }
+            let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked", "vault locked"); };
+            let _=cred;
+            match credpivot_core::update_login_from_browser(db.conn(),&credential_id,&expected_revision,&username,&password) {
+                Ok(())=>{v.touch_activity();AgentResponse::ok(json!({"updated":true}))},
+                Err(credpivot_core::CoreError::Conflict)=>AgentResponse::err("conflict","记录已改变，请刷新后重试"),
+                Err(_)=>AgentResponse::err("vault","密码更新失败"),
+            }
+        }
+        AgentRequest::BrowserTotpCode { credential_id, origin } => {
+            if !peer.from_native_host { return AgentResponse::err("forbidden", "browser only"); }
+            let v=st.vault.lock().await;
+            if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
+            if !v.credential_matches_page(&credential_id,&origin) { return AgentResponse::err("origin_mismatch", "网站与凭据不匹配"); }
+            let Ok(cred)=v.get_credential(&credential_id) else { return AgentResponse::err("not_found","credential not found"); };
+            let Some(id)=cred.linked_totp_id else { return AgentResponse::err("not_found","未关联 MFA"); };
+            let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","vault locked"); };
+            match credpivot_core::manage_credentials(db.conn(),credpivot_core::VaultAction::TotpStatus {id,min_valid_seconds:5,passive:false}) {
+                Ok(payload)=>AgentResponse::ok(payload),Err(_)=>AgentResponse::err("vault","MFA 读取失败"),
+            }
+        }
         AgentRequest::CredentialSuggest { origin } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
@@ -569,6 +599,13 @@ async fn handle_request_inner(
                 Ok(c) => c,
                 Err(e) => return AgentResponse::err("vault", e.to_string()),
             };
+            let items: Vec<_> = items.into_iter().map(|item| {
+                let revision = v.db.as_ref().and_then(|db| db.get_login(&item.id).ok()).map(|r| r.current_revision);
+                let mut value = json!(item);
+                value["current_revision"] = json!(revision);
+                value.as_object_mut().unwrap().remove("password");
+                value
+            }).collect();
             AgentResponse::ok(json!({ "candidates": items }))
         }
         AgentRequest::CredentialFillPrepare {
@@ -584,11 +621,10 @@ async fn handle_request_inner(
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
-            let cred = match v.get_credential(&credential_id) {
-                Ok(c) => c,
-                Err(_) => return AgentResponse::err("not_found", "credential not found"),
-            };
-            if !VaultSession::origin_matches_credential_page(&cred.origin, &origin) {
+            if v.get_credential(&credential_id).is_err() {
+                return AgentResponse::err("not_found", "credential not found");
+            }
+            if !v.credential_matches_page(&credential_id, &origin) {
                 return AgentResponse::err("origin_mismatch", "credential does not match page origin");
             }
             let now = now_ms();
@@ -632,13 +668,11 @@ async fn handle_request_inner(
             }
             match v.get_credential(&grant.credential_id) {
                 Ok(c) => {
-                    if !VaultSession::origin_matches_credential_page(&c.origin, &grant.origin) {
+                    if !v.credential_matches_page(&grant.credential_id, &grant.origin) {
                         return AgentResponse::err("origin_mismatch", "credential origin mismatch");
                     }
-                    let totp_code = c
-                        .linked_totp_id
-                        .as_deref()
-                        .and_then(|id| v.totp_code(id).ok());
+                    if let Some(db)=v.db.as_ref() { let _=credpivot_core::record_credential_use(db.conn(),&grant.credential_id); }
+                    let totp_code: Option<String> = None;
                     AgentResponse::ok(json!({
                     "username": c.username,
                     "password": c.password,
@@ -660,12 +694,10 @@ async fn handle_request_inner(
                 return AgentResponse::err("locked", "vault locked");
             }
             match v.get_credential(&credential_id) {
-                Ok(c) => AgentResponse::ok(json!({
-                    "id": c.id,
-                    "origin": c.origin,
-                    "username": c.username,
-                    "password": c.password,
-                })),
+                Ok(c) => {
+                    if let Some(db)=v.db.as_ref() { let _=credpivot_core::record_credential_use(db.conn(),&credential_id); }
+                    AgentResponse::ok(json!({"id":c.id,"origin":c.origin,"username":c.username,"password":c.password}))
+                },
                 Err(e) => AgentResponse::err("not_found", e.to_string()),
             }
         }
@@ -727,6 +759,27 @@ async fn handle_request_inner(
             v.touch_activity();
             match v.trash_credential_item(&item_id) {
                 Ok(()) => AgentResponse::ok(json!({ "trashed": true })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::VaultManage { action } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
+            if !action.is_passive() { v.touch_activity(); }
+            // 导入和永久删除前保留可恢复快照，且失败时不执行危险操作。
+            if matches!(&action, credpivot_core::VaultAction::BitwardenImport { .. } | credpivot_core::VaultAction::TrashPurge { .. }) {
+                let (Some(vmk), Some(db)) = (v.vmk.as_ref(), v.db.as_ref()) else { return AgentResponse::err("locked", "vault locked"); };
+                if credpivot_core::create_restore_point_for_risky_op(&v.vault_dir, &**vmk, db.conn()).is_err() {
+                    return AgentResponse::err("backup", "操作前的恢复点创建失败");
+                }
+            }
+            let result = match v.db.as_ref() {
+                Some(db) => credpivot_core::manage_credentials(db.conn(), action),
+                None => return AgentResponse::err("locked", "database not attached"),
+            };
+            match result {
+                Ok(payload) => AgentResponse::ok(payload),
+                Err(credpivot_core::CoreError::Conflict) => AgentResponse::err("conflict", "记录已改变，请刷新重试"),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }
@@ -914,10 +967,16 @@ async fn handle_request_inner(
                 Ok(items) => {
                     // 列表仅返回元数据，二次验证后再按条目读取恢复码。
                     let items: Vec<_> = items.into_iter().map(|item| {
+                        let recovery_id = item.id.clone();
                         let mut value = json!(item);
                         let count = value["codes"].as_array().map_or(0, Vec::len);
                         value.as_object_mut().unwrap().remove("codes");
                         value["code_count"] = json!(count);
+                        let (total, remaining) = v.db.as_ref().and_then(|db| db.conn().query_row(
+                            "SELECT COUNT(*),COALESCE(SUM(used_at_ms IS NULL),0) FROM recovery_code_entries WHERE recovery_id=?1",
+                            [&recovery_id], |r| Ok((r.get::<_, i64>(0)?,r.get::<_, i64>(1)?))).ok()).unwrap_or((count as i64,0));
+                        value["code_count"] = json!(total);
+                        value["remaining_count"] = json!(remaining);
                         value
                     }).collect();
                     AgentResponse::ok(json!({ "items": items }))

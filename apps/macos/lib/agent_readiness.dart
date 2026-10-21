@@ -83,9 +83,9 @@ class AgentNotReadyPane extends StatelessWidget {
                     FilledButton.icon(
                         onPressed: onRestartAgent,
                         icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('重启 Agent')),
+                        label: const LText('重启 Agent')),
                     OutlinedButton(
-                        onPressed: onRelaunchApp, child: const Text('重新打开应用')),
+                        onPressed: onRelaunchApp, child: const LText('重新打开应用')),
                   ]),
                 ]),
           ),
@@ -95,7 +95,7 @@ class AgentNotReadyPane extends StatelessWidget {
                 child: ExpansionTile(
               shape: const Border(),
               collapsedShape: const Border(),
-              title: const Text('查看诊断信息'),
+              title: const LText('查看诊断信息'),
               leading: const Icon(Icons.info_outline_rounded),
               childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
               children: [

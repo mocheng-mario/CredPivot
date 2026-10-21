@@ -12,38 +12,53 @@
         <svg viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.5 3.1 7.4 7.5 9.5 4.4-2.1 7.5-5 7.5-9.5V6L12 3Z"/><path d="m8.5 12 2.3 2.3 4.7-4.8"/></svg>
       </div>
       <div><h1>CredPivot</h1><p>你的本机凭据助手</p></div>
-      <span class="local-badge">本机</span>
+      <span class="local-badge">本机保险库</span>
     </header>
-
     <main>
-      <section class="connection-panel" aria-labelledby="connection-title">
-        <div class="section-label" id="connection-title">保险库连接</div>
-        <div id="status" role="status" aria-live="polite">正在连接本机 Agent…</div>
-        <button id="connect" class="primary-button">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 10V7a4 4 0 0 1 8 0v3"/><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M12 14v3"/></svg>
-          连接与验证
-          <span aria-hidden="true">→</span>
-        </button>
-        <p class="connection-hint">请在 App 中解锁，并完成指纹或 App 内的主密码验证</p>
+      <section class="connection-panel" aria-label="保险库连接">
+        <span id="connectionState" data-state="pending">正在连接…</span>
+        <button id="connect" class="text-button" disabled>连接与验证</button>
       </section>
-
-      <div class="section-heading"><h2>快捷填充</h2><span>当前网页</span></div>
+      <section class="account-panel" aria-labelledby="accountTitle">
+        <div class="section-heading"><h2 id="accountTitle">当前网站</h2><span id="accountCount">加载中</span></div>
+        <div id="site" class="site-name">读取网页…</div>
+        <div id="searchField" hidden>
+          <label class="sr-only" for="accountSearch">搜索此网站的账号</label>
+          <input id="accountSearch" type="search" placeholder="搜索此网站的账号" autocomplete="off" />
+        </div>
+        <label class="account-label" for="account">登录账号 <span id="mfa" hidden></span></label>
+        <select id="account" aria-describedby="selectionNote" disabled><option>连接后加载账号</option></select>
+        <p id="selectionNote" class="muted">选择一个账号，密码和 MFA 将使用同一账号。</p>
+      </section>
       <div class="fill-actions">
-        <button id="fillLogin" class="action-button">
+        <button id="fillLogin" class="action-button" disabled>
           <span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="8" cy="9" r="4"/><path d="m11 12 9 9m-5-5 3-3m0 6 3-3"/></svg></span>
-          <span><strong>账号与密码</strong><small>填充当前网站的登录凭据</small></span>
+          <span class="action-copy"><strong>填充账号与密码</strong><small id="fillLoginHint">先选择登录账号</small></span>
           <span class="chevron" aria-hidden="true">›</span>
         </button>
-        <button id="fillOtp" class="action-button">
+        <button id="fillOtp" class="action-button" disabled>
           <span class="action-icon mfa-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 8h6M9 12h2m2 0h2m-6 4h6"/></svg></span>
-          <span><strong>MFA 验证码</strong><small>填充登录项关联的动态验证码</small></span>
+          <span class="action-copy"><strong>填充 MFA 验证码</strong><small id="fillOtpHint">先选择登录账号</small></span>
           <span class="chevron" aria-hidden="true">›</span>
         </button>
       </div>
-      <div id="mfa" hidden aria-live="polite"></div>
+      <div id="status" role="status" aria-live="polite" data-state="pending">正在连接本机保险库…</div>
+      <button id="stopWaiting" class="text-button" hidden>停止等待验证</button>
+      <details id="errorDetails" class="error-details" hidden><summary>技术信息</summary><pre id="errorDetail"></pre></details>
+      <details class="save-panel">
+        <summary>保存当前网页 <span class="muted">添加 / 更新账号</span></summary>
+        <div class="save-content">
+          <p class="muted">读取已填写的登录表单。更新前，请确认新密码已在网站生效。</p>
+          <button id="capture" class="secondary-button" disabled>读取当前登录表单</button>
+          <p id="captureInfo" class="capture-info"></p>
+          <div class="save-actions">
+            <button id="saveNew" class="secondary-button" disabled>保存为新账号</button>
+            <button id="update" class="secondary-button" disabled>更新所选账号</button>
+          </div>
+        </div>
+      </details>
     </main>
-
-    <footer><span>凭据由本机保险库提供</span><span id="ver"></span></footer>
+    <footer><span>仅填充，不会自动提交表单</span><span id="ver"></span></footer>
     <script type="module" src="popup.js"></script>
   </body>
 </html>

@@ -17,7 +17,7 @@ Widget selectableCredentialTile({
       duration: Duration(
           milliseconds: MediaQuery.disableAnimationsOf(context) ? 0 : 130),
       decoration: BoxDecoration(
-        color: selected ? const Color(0xFFF0F0FD) : Colors.white,
+        color: selected ? AppColors.selected : AppColors.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
             color: selected
@@ -35,7 +35,7 @@ Widget selectableCredentialTile({
             width: 38,
             height: 38,
             decoration: BoxDecoration(
-                color: selected ? Colors.white : AppColors.background,
+                color: selected ? AppColors.surface : AppColors.background,
                 borderRadius: BorderRadius.circular(10)),
             child: Icon(icon,
                 size: 20,
@@ -51,11 +51,11 @@ Widget selectableCredentialTile({
               : DefaultTextStyle.merge(
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, color: AppColors.muted),
+                  style: TextStyle(fontSize: 11, color: AppColors.muted),
                   child: subtitle),
           trailing: trailing ??
               (selected
-                  ? const Icon(Icons.chevron_right_rounded,
+                  ? Icon(Icons.chevron_right_rounded,
                       size: 18, color: AppColors.primary)
                   : null),
           onTap: onTap,
@@ -152,10 +152,10 @@ class CredentialDetails extends StatelessWidget {
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(field.key,
+                    LText(field.key,
                         style: Theme.of(context).textTheme.bodySmall),
                     const SizedBox(height: 5),
-                    SelectableText(field.value.isEmpty ? '未填写' : field.value,
+                    SelectableText(field.value.isEmpty ? tr('未填写') : field.value,
                         style: const TextStyle(fontSize: 13)),
                   ]),
             )),

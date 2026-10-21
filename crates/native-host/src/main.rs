@@ -194,12 +194,16 @@ fn map_extension_to_agent(
                 .unwrap_or("")
                 .to_string(),
         }),
-        "credential.totp_code" => Ok(AgentRequest::TotpCode {
-            totp_id: envelope
-                .get("totp_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
+        "credential.totp_code" => Ok(AgentRequest::BrowserTotpCode {
+            credential_id: envelope.get("credential_id").and_then(Value::as_str).unwrap_or("").into(),
+            origin: envelope.get("origin").and_then(Value::as_str).unwrap_or("").into(),
+        }),
+        "credential.update" => Ok(AgentRequest::BrowserCredentialUpdate {
+            credential_id: envelope.get("credential_id").and_then(Value::as_str).unwrap_or("").into(),
+            expected_revision: envelope.get("expected_revision").and_then(Value::as_str).unwrap_or("").into(),
+            origin: envelope.get("origin").and_then(Value::as_str).unwrap_or("").into(),
+            username: envelope.get("username").and_then(Value::as_str).unwrap_or("").into(),
+            password: envelope.get("password").and_then(Value::as_str).unwrap_or("").into(),
         }),
         other => Err(format!("unsupported action: {other}").into()),
     }

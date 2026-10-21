@@ -69,8 +69,8 @@ pub fn insert_login_credential_in_tx(
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     conn.execute(
-        "INSERT INTO login_credentials (id, item_id, origin, username, secret, current_revision, created_at_ms, updated_at_ms, password_active_since_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7)",
+        "INSERT INTO login_credentials (id, item_id, origin, username, secret, current_revision, created_at_ms, updated_at_ms, password_active_since_ms, active_password_revision)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 0, ?6)",
         params![cred_id, item_id, origin, username, password, revision, ts],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;

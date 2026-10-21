@@ -37,6 +37,8 @@ enum Commands {
         vault_dir: PathBuf,
         output: PathBuf,
     },
+    /// 明文逻辑 JSON 导出（含全部秘密，文件权限 0600，不覆盖已有文件）
+    ExportJson { vault_dir: PathBuf, output: PathBuf },
     /// 从 OVB 恢复到空目录（主密码或恢复密钥，交互输入）
     Recover {
         ovb: PathBuf,
@@ -55,6 +57,7 @@ fn main() {
         Commands::UnlockTest { vault_dir } => cmd_unlock_test(&vault_dir),
         Commands::Init { target_dir } => cmd_init(&target_dir),
         Commands::ExportOvb { vault_dir, output } => cmd_export_ovb(&vault_dir, &output),
+        Commands::ExportJson { vault_dir, output } => cmd_export_json(&vault_dir, &output),
         Commands::Recover { ovb, target_dir, recovery } => cmd_recover(&ovb, &target_dir, recovery),
     };
     std::process::exit(code);
@@ -158,4 +161,27 @@ fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
         .iter()
         .map(|b| format!("{:02x}", b))
         .collect()
+}
+
+fn cmd_export_json(vault_dir: &PathBuf, output: &PathBuf) -> i32 {
+    use std::io::Write;
+    let outcome = (|| -> Result<(), Box<dyn std::error::Error>> {
+        eprintln!("明文导出包含密码、MFA 密钥、SSH 私钥和回收站内容，请妥善保管。");
+        let password = rpassword::prompt_password("主密码: ")?;
+        let cfg = read_vault_json(vault_dir)?;
+        let vmk = cfg.unlock_master(&password)?;
+        let db = credpivot_core::VaultDatabase::open(vault_dir, &vmk)?;
+        let json = credpivot_core::export_logical_json(db.conn())?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)] { use std::os::unix::fs::OpenOptionsExt; options.mode(0o600); }
+        let mut file = options.open(output)?;
+        if let Err(error) = file.write_all(json.as_bytes()).and_then(|_| file.sync_all()) {
+            let _ = fs::remove_file(output);
+            return Err(error.into());
+        }
+        println!("已导出: {}", output.display());
+        Ok(())
+    })();
+    match outcome { Ok(()) => 0, Err(_) => { eprintln!("导出失败，请检查主密码、保险库和输出路径（不会覆盖已有文件）。"); 1 } }
 }

@@ -125,9 +125,9 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
             initiallyExpanded: true,
             shape: const Border(),
             collapsedShape: const Border(),
-            leading: const Icon(Icons.build_outlined, color: AppColors.primary),
-            title: const Text('故障排查'),
-            subtitle: const Text('连接异常时使用；重启后可能需要重新解锁和验证浏览器。'),
+            leading: Icon(Icons.build_outlined, color: AppColors.primary),
+            title: const LText('故障排查'),
+            subtitle: const LText('连接异常时使用；重启后可能需要重新解锁和验证浏览器。'),
             childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             children: [
               Align(
@@ -136,17 +136,17 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                   OutlinedButton.icon(
                     onPressed: _busy ? null : widget.onRestartAgent,
                     icon: const Icon(Icons.restart_alt_rounded),
-                    label: const Text('重启后台（Agent）')),
+                    label: const LText('重启后台（Agent）')),
                   OutlinedButton.icon(
                     onPressed: _busy ? null : widget.onRelaunchApp,
                     icon: const Icon(Icons.refresh_rounded),
-                    label: const Text('重新打开 App')),
+                    label: const LText('重新打开 App')),
                   Tooltip(
                     message: '重启 Agent 并按已保存的扩展 ID 重装 Native Host，完成后请在 Chrome 重新加载扩展。',
                     child: OutlinedButton.icon(
                       onPressed: _busy ? null : _repairAgentAndHost,
                       icon: const Icon(Icons.build_outlined),
-                      label: Text(_repairing ? '修复中…' : '修复本机连接'))),
+                      label: LText(_repairing ? '修复中…' : '修复本机连接'))),
                 ]),
               ),
             ],
@@ -156,9 +156,9 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
         const SizedBox(height: 16),
         Card(
           child: ExpansionTile(
-            title: const Text('运行日志'),
-            subtitle: const Text('展开查看日志、筛选级别或复制运行记录'),
-            leading: const Icon(Icons.article_outlined, color: AppColors.primary),
+            title: const LText('运行日志'),
+            subtitle: const LText('展开查看日志、筛选级别或复制运行记录'),
+            leading: Icon(Icons.article_outlined, color: AppColors.primary),
             shape: const Border(),
             collapsedShape: const Border(),
             initiallyExpanded: false,
@@ -174,15 +174,15 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                         : () {
                             Clipboard.setData(ClipboardData(text: filteredLogText));
                             ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('已复制当前筛选日志')));
+                                const SnackBar(content: LText('已复制当前筛选日志')));
                           },
                     icon: const Icon(Icons.copy_outlined),
-                    label: const Text('复制'),
+                    label: const LText('复制'),
                   ),
                   FilledButton.icon(
                       onPressed: _busy ? null : _refresh,
                       icon: const Icon(Icons.refresh_rounded),
-                      label: const Text('刷新')),
+                      label: const LText('刷新')),
                 ]),
               ),
               Card(
@@ -194,17 +194,17 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       Row(mainAxisSize: MainAxisSize.min, children: [
-                        const Icon(Icons.filter_list_rounded,
+                        Icon(Icons.filter_list_rounded,
                             size: 18, color: AppColors.muted),
                         const SizedBox(width: 8),
-                        const Text('查看级别', style: TextStyle(color: AppColors.ink)),
+                        LText('查看级别', style: TextStyle(color: AppColors.ink)),
                         const SizedBox(width: 12),
                         DropdownButtonHideUnderline(
                             child: DropdownButton<String>(
                           value: _logLevel,
                           isDense: true,
-                          dropdownColor: Colors.white,
-                          style: const TextStyle(
+                          dropdownColor: AppColors.surface,
+                          style: TextStyle(
                               color: AppColors.ink,
                               fontSize: 12,
                               fontWeight: FontWeight.w600),
@@ -217,7 +217,7 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                           },
                         )),
                         const SizedBox(width: 8),
-                        const Tooltip(
+                        Tooltip(
                             message:
                                 '仅筛选下方已读取的日志，不改变记录级别，也不会补回之前未记录的事件。',
                             child: Icon(Icons.info_outline_rounded,
@@ -225,7 +225,7 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                       ]),
                       TextButton(
                           onPressed: widget.onOpenSettings,
-                          child: Text('记录级别 ${_recordLevel.toUpperCase()} · 前往设置')),
+                          child: LText('记录级别 ${_recordLevel.toUpperCase()} · 前往设置')),
                     ]),
               )),
               const SizedBox(height: 16),
@@ -240,7 +240,7 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                     Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                         border: Border(bottom: BorderSide(color: Color(0xFF343B4C)))),
                     child: Row(children: [
                       const Icon(Icons.terminal_rounded,

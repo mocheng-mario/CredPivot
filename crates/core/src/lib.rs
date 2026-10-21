@@ -74,3 +74,7 @@ pub use vault_pipeline::{
     ensure_empty_target, export_ovb_from_dir, recover_ovb_to_dir, recover_restore_point_to_dir,
     security_rebuild_in_dir, RecoveryUnlock,
 };
+
+mod credential_management;
+pub use credential_management::{VaultAction, manage_credentials, export_logical_json, update_login_from_browser, credential_origins, browser_login_candidates, record_credential_use};
+mod ssh_transfer;

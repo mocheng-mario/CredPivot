@@ -43,6 +43,8 @@ pub enum AgentRequest {
         #[serde(default)]
         group_id: Option<String>,
     },
+    BrowserCredentialUpdate { credential_id: String, expected_revision: String, origin: String, username: String, password: String },
+    BrowserTotpCode { credential_id: String, origin: String },
     CredentialSuggest {
         origin: String,
     },
@@ -83,6 +85,7 @@ pub enum AgentRequest {
         password: Option<String>,
     },
     CredentialTrash { item_id: String },
+    VaultManage { action: credpivot_core::VaultAction },
     SecuritySummary,
     ImportBitwarden { json: String },
     TotpList,
@@ -234,6 +237,8 @@ impl AgentRequest {
             Self::VerifyMasterPassword { .. } => "verify_master_password",
             Self::SensitiveAuthGrant => "sensitive_auth_grant",
             Self::CredentialSave { .. } => "credential_save",
+            Self::BrowserCredentialUpdate { .. } => "browser_credential_update",
+            Self::BrowserTotpCode { .. } => "browser_totp_code",
             Self::CredentialSuggest { .. } => "credential_suggest",
             Self::CredentialFillPrepare { .. } => "credential_fill_prepare",
             Self::CredentialFillConsume { .. } => "credential_fill_consume",
@@ -242,6 +247,7 @@ impl AgentRequest {
             Self::CredentialGet { .. } => "credential_get",
             Self::CredentialUpdate { .. } => "credential_update",
             Self::CredentialTrash { .. } => "credential_trash",
+            Self::VaultManage { .. } => "vault_manage",
             Self::SecuritySummary => "security_summary",
             Self::ImportBitwarden { .. } => "import_bitwarden",
             Self::TotpList => "totp_list",
