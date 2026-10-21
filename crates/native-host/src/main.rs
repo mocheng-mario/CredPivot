@@ -131,6 +131,7 @@ fn map_extension_to_agent(
             connection_host: String::new(),
             linked_totp_id: None,
             group_id: None,
+            website_rules: None,
         }),
         "credential.suggest_for_origin" => Ok(AgentRequest::CredentialSuggest {
             origin: envelope

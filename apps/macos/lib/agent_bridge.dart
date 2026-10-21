@@ -407,6 +407,7 @@ class AgentBridge {
     String? groupId,
     String connectionHost = '',
     String? linkedTotpId,
+    List<Map<String, dynamic>>? websiteRules,
   }) async {
     final resp = await request({
       'type': 'credential_save',
@@ -418,6 +419,7 @@ class AgentBridge {
       if (groupId != null && groupId.isNotEmpty) 'group_id': groupId,
       'connection_host': connectionHost,
       if (linkedTotpId != null && linkedTotpId.isNotEmpty) 'linked_totp_id': linkedTotpId,
+      if (websiteRules != null) 'website_rules': websiteRules,
     });
     return Map<String, dynamic>.from(payloadOf(resp)['credential'] as Map? ?? {});
   }
@@ -432,6 +434,7 @@ class AgentBridge {
     String connectionHost = '',
     String? linkedTotpId,
     String? password,
+    List<Map<String, dynamic>>? websiteRules,
   }) async {
     final resp = await request({
       'type': 'credential_update',
@@ -444,6 +447,7 @@ class AgentBridge {
       'connection_host': connectionHost,
       'linked_totp_id': linkedTotpId ?? '',
       if (password != null && password.isNotEmpty) 'password': password,
+      if (websiteRules != null) 'website_rules': websiteRules,
     });
     return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
   }

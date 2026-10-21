@@ -61,6 +61,7 @@ impl VaultDatabase {
         connection_host: &str,
         linked_totp_id: Option<&str>,
         group_id: Option<&str>,
+        website_rules: Option<&[crate::UriRule]>,
     ) -> Result<LoginListRow> {
         let row = insert_login_extended(
             &self.conn,
@@ -71,6 +72,7 @@ impl VaultDatabase {
             connection_host,
             linked_totp_id,
             group_id,
+            website_rules,
         )?;
         mark_restore_dirty(&self.conn)?;
         Ok(row)
@@ -103,6 +105,7 @@ impl VaultDatabase {
         linked_totp_id: Option<&str>,
         group_id: Option<&str>,
         new_password: Option<&str>,
+        website_rules: Option<&[crate::UriRule]>,
     ) -> Result<LoginListRow> {
         let row = update_login_credential(
             &self.conn,
@@ -115,6 +118,7 @@ impl VaultDatabase {
             linked_totp_id,
             group_id,
             new_password,
+            website_rules,
         )?;
         mark_restore_dirty(&self.conn)?;
         Ok(row)

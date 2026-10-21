@@ -2,6 +2,22 @@ import 'package:flutter/material.dart';
 import 'app_presentation.dart';
 export 'app_presentation.dart';
 
+// 表单内容约占窗口一半；小窗口保证可读，大窗口避免单行过长。
+double appEditDialogWidth(BuildContext context) {
+  final width = MediaQuery.sizeOf(context).width;
+  final desired = (width * .5).clamp(640.0, 860.0);
+  final available = (width - 128).clamp(0.0, double.infinity);
+  return desired.clamp(0.0, available).toDouble();
+}
+
+List<Widget> appFormFields(List<Widget> fields) => [
+  for (var i = 0; i < fields.length; i++) ...[
+    if (i > 0 && fields[i] is! SizedBox && fields[i - 1] is! SizedBox)
+      const SizedBox(height: 16),
+    fields[i],
+  ],
+];
+
 abstract final class AppColors {
   static bool get dark => AppPresentation.instance.dark;
   static Color get surface => dark ? const Color(0xFF202637) : Colors.white;

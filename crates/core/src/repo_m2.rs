@@ -131,6 +131,7 @@ pub fn insert_login_extended(
     connection_host: &str,
     linked_totp_id: Option<&str>,
     group_id: Option<&str>,
+    website_rules: Option<&[crate::UriRule]>,
 ) -> Result<LoginListRow> {
     let item_id = Uuid::new_v4().to_string();
     let cred_id = Uuid::new_v4().to_string();
@@ -164,6 +165,7 @@ pub fn insert_login_extended(
         ],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
+    if let Some(rules) = website_rules { crate::website_rules::save_login_website_rules(&tx, &item_id, rules)?; }
     let row = get_login_row(&tx, &cred_id)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(row)
@@ -181,6 +183,7 @@ pub fn update_login_credential(
     linked_totp_id: Option<&str>,
     group_id: Option<&str>,
     new_password: Option<&str>,
+    website_rules: Option<&[crate::UriRule]>,
 ) -> Result<LoginListRow> {
     let tx = conn
         .unchecked_transaction()
@@ -216,6 +219,7 @@ pub fn update_login_credential(
         params![title, group_id, revision, ts, item_id],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
+    if let Some(rules) = website_rules { crate::website_rules::save_login_website_rules(&tx, &item_id, rules)?; }
     let row = get_login_row(&tx, credential_id)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(row)

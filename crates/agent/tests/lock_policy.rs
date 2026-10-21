@@ -47,6 +47,7 @@ async fn locked_vault_rejects_sensitive_agent_ops() {
                 connection_host: String::new(),
                 linked_totp_id: None,
                 group_id: None,
+                website_rules: None,
             },
             RequestPeerContext { from_app: true, ..Default::default() },
         )
@@ -78,6 +79,7 @@ async fn unlock_then_save_then_lock_blocks_again() {
             connection_host: String::new(),
             linked_totp_id: None,
             group_id: None,
+            website_rules: None,
         },
         RequestPeerContext { from_app: true, ..Default::default() },
     )
@@ -104,6 +106,7 @@ async fn unlock_then_save_then_lock_blocks_again() {
                 connection_host: String::new(),
                 linked_totp_id: None,
                 group_id: None,
+                website_rules: None,
             },
             RequestPeerContext { from_app: true, ..Default::default() },
         )

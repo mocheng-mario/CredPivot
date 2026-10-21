@@ -23,6 +23,7 @@ fn revision_conflict_on_stale_update() {
             None,
             None,
             Some("p2"),
+            None,
         )
         .expect("update");
     let conn = open_database(dir.path(), &*material.vmk).expect("conn");
@@ -37,6 +38,7 @@ fn revision_conflict_on_stale_update() {
         None,
         None,
         Some("p3"),
+        None,
     )
     .expect_err("conflict");
     assert!(matches!(err, CoreError::Conflict));

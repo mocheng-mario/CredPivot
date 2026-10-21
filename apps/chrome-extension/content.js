@@ -5,8 +5,9 @@
     globalThis.crypto?.randomUUID?.() ?? `doc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   function findLoginFields() {
+    // Jenkins / Spring Security 使用 j_username，且可能显式关闭 autocomplete。
     const user = document.querySelector(
-      'input[type="email"], input[type="text"][autocomplete="username"], input[name="username"], input[name="login"], input[name="email"], input[id="username"], input[id="email"]'
+      'input[type="email"], input[type="text"][autocomplete="username"], input[name="username"], input[name="j_username"], input[name="login"], input[name="email"], input[id="username"], input[id="j_username"], input[id="email"]'
     );
     const pass = document.querySelector('input[type="password"]');
     return { user, pass };

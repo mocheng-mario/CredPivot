@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import 'agent_bridge.dart';
 import 'vault_tools.dart';
+import 'website_rules_editor.dart';
 import 'app_ui.dart';
 import 'credential_confirm.dart';
 import 'credential_group_ui.dart';
@@ -173,8 +174,20 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
       setState(() => _status = AgentBridge.friendlyMessage(e));
       return;
     }
+    List<Map<String, dynamic>> websiteRules = [{'uri': '', 'match_mode': 'exact_origin'}];
+    if (isEdit) {
+      try {
+        final result = await AgentBridge.manage({'action': 'login_website_rules', 'credential_id': existing!['id']});
+        websiteRules = (result['rules'] as List).map((row) => Map<String, dynamic>.from(row as Map)).toList();
+      } on AgentException catch (e) {
+        if (mounted) setState(() => _status = e.message);
+        return;
+      }
+    }
+    if (!mounted) return;
+    var validating = false;
+    var formError = '';
     final nameCtl = TextEditingController(text: existing?['display_name']?.toString() ?? '');
-    final originCtl = TextEditingController(text: existing?['origin']?.toString() ?? 'https://');
     final userCtl = TextEditingController(text: existing?['username']?.toString() ?? '');
     final passCtl = TextEditingController();
     final rawGroupId = existing?['group_id'] as String?;
@@ -186,10 +199,10 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setLocal) => AlertDialog(
         title: LText(isEdit ? '编辑登录' : '添加登录'),
-        content: SingleChildScrollView(
+        content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: [
+            children: appFormFields([
               TextField(
                 controller: nameCtl,
                 decoration: InputDecoration(labelText: tr('名称'), hintText: tr('例如：公司 VPN 账号')),
@@ -212,10 +225,6 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                   ),
                 ],
                 onChanged: (v) => setLocal(() => groupId = v),
-              ),
-              TextField(
-                controller: originCtl,
-                decoration: InputDecoration(labelText: tr('网站 / Origin'), hintText: 'https://example.com'),
               ),
               TextField(controller: userCtl, decoration: InputDecoration(labelText: tr('用户名'))),
               TextField(
@@ -251,19 +260,39 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                 ],
                 onChanged: (v) => setLocal(() => linkedTotp = v),
               ),
-            ],
+              WebsiteRulesEditor(rules: websiteRules, enabled: !validating),
+              if (formError.isNotEmpty) Text(formError, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+            ]),
           ),
-        ),
+        )),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('保存')),
+          FilledButton(onPressed: validating ? null : () async {
+            setLocal(() { validating = true; formError = ''; });
+            try {
+              final error = await websiteRulesError(websiteRules);
+              if (!ctx.mounted) return;
+              if (error == null) { Navigator.pop(ctx, true); return; }
+              setLocal(() => formError = error);
+            } catch (_) {
+              if (ctx.mounted) setLocal(() => formError = '网站规则校验失败，请重试');
+            } finally {
+              if (ctx.mounted) setLocal(() => validating = false);
+            }
+          }, child: LText(validating ? '校验中…' : '保存')),
         ],
       ),
       ),
     );
-    if (ok != true) return;
+    if (ok != true) {
+      for (final controller in [nameCtl, userCtl, passCtl]) { controller.dispose(); }
+      return;
+    }
     if (isEdit) {
-      if (!await requireTouchId(context, reason: '保存登录凭据修改')) return;
+      if (!await requireTouchId(context, reason: '保存登录凭据修改')) {
+        for (final controller in [nameCtl, userCtl, passCtl]) { controller.dispose(); }
+        return;
+      }
     }
     if (staleLinkWasCleared(rawTotp, linkedTotp) && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -271,7 +300,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
       );
     }
     try {
-      final origin = originCtl.text.trim();
+      final origin = websiteRules.first['uri'].toString().trim();
       final user = userCtl.text.trim();
       final displayName = nameCtl.text.trim();
       if (isEdit) {
@@ -279,6 +308,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
           credentialId: existing!['id'] as String,
           expectedRevision: existing['current_revision'] as String,
           origin: origin,
+          websiteRules: websiteRules,
           username: user,
           displayName: displayName,
           groupId: groupId,
@@ -289,6 +319,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
       } else {
         await AgentBridge.createLogin(
           origin: origin,
+          websiteRules: websiteRules,
           username: user,
           password: passCtl.text,
           displayName: displayName,
@@ -298,7 +329,9 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
       }
       await _refresh();
     } on AgentException catch (e) {
-      setState(() => _status = e.message);
+      if (mounted) setState(() => _status = e.message);
+    } finally {
+      for (final controller in [nameCtl, userCtl, passCtl]) { controller.dispose(); }
     }
   }
 
@@ -511,10 +544,10 @@ class _TotpPanelState extends State<_TotpPanel> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setLocal) => AlertDialog(
         title: const LText('添加 MFA / TOTP'),
-        content: SingleChildScrollView(
+        content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: [
+            children: appFormFields([
               DropdownButtonFormField<String?>(
                 isExpanded: true,
                 value: groupId,
@@ -568,9 +601,9 @@ class _TotpPanelState extends State<_TotpPanel> {
                   }
                 },
               ),
-            ],
+            ]),
           ),
-        ),
+        )),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('保存')),
@@ -904,9 +937,9 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setLocal) => AlertDialog(
           title: const LText('生成 SSH 密钥'),
-          content: Column(
+          content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: [
+            children: appFormFields([
               DropdownButtonFormField<String?>(
                 isExpanded: true,
                 value: groupId,
@@ -933,8 +966,8 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                 title: const LText('设为默认（Agent 签名用）'),
                 contentPadding: EdgeInsets.zero,
               ),
-            ],
-          ),
+            ]),
+          ))),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
             FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('生成')),

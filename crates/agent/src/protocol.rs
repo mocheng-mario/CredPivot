@@ -42,6 +42,8 @@ pub enum AgentRequest {
         linked_totp_id: Option<String>,
         #[serde(default)]
         group_id: Option<String>,
+        #[serde(default)]
+        website_rules: Option<Vec<credpivot_core::UriRule>>,
     },
     BrowserCredentialUpdate { credential_id: String, expected_revision: String, origin: String, username: String, password: String },
     BrowserTotpCode { credential_id: String, origin: String },
@@ -83,6 +85,8 @@ pub enum AgentRequest {
         #[serde(default)]
         linked_totp_id: String,
         password: Option<String>,
+        #[serde(default)]
+        website_rules: Option<Vec<credpivot_core::UriRule>>,
     },
     CredentialTrash { item_id: String },
     VaultManage { action: credpivot_core::VaultAction },

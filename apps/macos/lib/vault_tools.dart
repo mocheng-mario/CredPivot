@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 import 'agent_bridge.dart';
 import 'touch_id_gate.dart';
 import 'app_ui.dart';
+import 'website_rules_editor.dart';
 
 Future<Map<String, dynamic>> vaultAction(
     BuildContext context, Map<String, dynamic> action,
     {bool confirmed = false}) async {
   final sensitive = !{
     'generate_password',
+    'login_website_rules',
+    'website_rules_test',
     'item_search',
     'security_report',
     'trash_list',
@@ -270,9 +273,9 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
       (details['custom_fields'] as List? ?? [])
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
-  late final List<Map<String, dynamic>> uris = (details['uris'] as List? ?? [])
-      .map((e) => Map<String, dynamic>.from(e as Map))
-      .toList();
+  late final List<Map<String, dynamic>> uris = (details['uris'] as List? ?? []).isEmpty && widget.row['origin'] != null
+      ? [{'uri': widget.row['origin'].toString(), 'match_mode': 'exact_origin'}]
+      : (details['uris'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   late final Set<String> related = (details['related_item_ids'] as List? ?? [])
       .map((e) => e.toString())
       .toSet();
@@ -292,6 +295,10 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
     if ((history.text.isNotEmpty && (h == null || h < 0 || h > 50)) ||
         (reminder.text.isNotEmpty && (r == null || r < 0 || r > 3650))) {
       setState(() => message = '历史数量 0–50，提醒天数 0–3650；留空继承全局配置');
+      return;
+    }
+    if ((widget.row['kind'] == 'login' || widget.row.containsKey('origin')) && uris.isEmpty) {
+      setState(() => message = '请至少保留一条网站规则；如需停止填充，可将规则设为停用。');
       return;
     }
     if (!await confirmVaultAction(context, '保存详情？', '保存备注、标签、关联及凭据策略。')) return;
@@ -335,12 +342,12 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
           title: LText(
               '详情 · ${widget.row['title'] ?? widget.row['display_name'] ?? ''}'),
           content: SizedBox(
-              width: 620,
-              height: 470,
+              width: appEditDialogWidth(context),
+              height: MediaQuery.sizeOf(context).height * .6,
               child: SingleChildScrollView(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+                      children: appFormFields([
                     if (widget.row['kind'] == 'secure_note')
                       TextField(
                           controller: title,
@@ -433,44 +440,9 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                         icon: const Icon(Icons.add),
                         label: const LText('添加字段（勾选为隐藏）')),
                     const SizedBox(height: 12),
-                    LText('网站匹配',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    for (final uri in uris)
-                      Row(key: ObjectKey(uri), children: [
-                        Expanded(
-                            child: TextFormField(
-                                initialValue: uri['uri']?.toString() ?? '',
-                                decoration:
-                                    const InputDecoration(labelText: 'URI'),
-                                onChanged: (v) => uri['uri'] = v)),
-                        const SizedBox(width: 8),
-                        DropdownButton<String>(
-                            value:
-                                uri['match_mode']?.toString() ?? 'exact_origin',
-                            items: {
-                              'exact_origin',
-                              'never',
-                              uri['match_mode']?.toString() ?? 'exact_origin'
-                            }
-                                .map((m) => DropdownMenuItem(
-                                    value: m,
-                                    child: LText(m == 'exact_origin'
-                                        ? '精确来源'
-                                        : m == 'never'
-                                            ? '不匹配'
-                                            : m)))
-                                .toList(),
-                            onChanged: (v) =>
-                                setState(() => uri['match_mode'] = v)),
-                        IconButton(
-                            onPressed: () => setState(() => uris.remove(uri)),
-                            icon: const Icon(Icons.close))
-                      ]),
-                    TextButton(
-                        onPressed: () => setState(() => uris.add(
-                            {'uri': 'https://', 'match_mode': 'exact_origin'})),
-                        child: const LText('添加网站')),
-                    const SizedBox(height: 12),
+                    if (widget.row['kind'] == 'login' || widget.row.containsKey('origin'))
+                      WebsiteRulesEditor(rules: uris, enabled: !busy),
+                    const SizedBox(height: 16),
                     const LText('关联凭据（可多选）'),
                     for (final stale in related
                         .where(
@@ -490,7 +462,7 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                               ? related.add(item['id'].toString())
                               : related.remove(item['id']))),
                     if (message.isNotEmpty) Text(message),
-                  ]))),
+                  ])))),
           actions: [
             TextButton(
                 onPressed: busy ? null : () => Navigator.pop(context),
@@ -552,8 +524,8 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
         builder: (ctx) => AlertDialog(
                 title: const LText('新建安全笔记'),
                 content: SizedBox(
-                    width: 440,
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    width: appEditDialogWidth(ctx),
+                    child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
                       TextField(
                           controller: title,
                           decoration: InputDecoration(labelText: tr('标题'))),
@@ -562,7 +534,7 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
                           minLines: 4,
                           maxLines: 8,
                           decoration: InputDecoration(labelText: tr('内容')))
-                    ])),
+                    ])))),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, false),
@@ -877,8 +849,8 @@ Future<void> _importBitwardenWithPreview(BuildContext context) async {
       builder: (ctx) => AlertDialog(
               title: const LText('Bitwarden 导入'),
               content: SizedBox(
-                  width: 460,
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  width: appEditDialogWidth(ctx),
+                  child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
                     const LText(
                         '支持普通 JSON 和 Password protected JSON。来源账户名称用于重复导入识别，请保持一致。'),
                     TextField(
@@ -889,7 +861,7 @@ Future<void> _importBitwardenWithPreview(BuildContext context) async {
                         obscureText: true,
                         decoration:
                             InputDecoration(labelText: tr('导出密码（普通 JSON 留空）')))
-                  ])),
+                  ])))),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(ctx, false),
@@ -1024,8 +996,8 @@ Future<void> transferSshKey(BuildContext context, {String? keyId}) async {
         builder: (ctx) => AlertDialog(
                 title: LText(exporting ? '导出 OpenSSH 私钥' : '导入 Ed25519 私钥'),
                 content: SizedBox(
-                    width: 460,
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    width: appEditDialogWidth(ctx),
+                    child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
                       LText(exporting
                           ? '可设置导出密码；留空会导出明文私钥，任何拿到文件的人都可使用。'
                           : '支持 OpenSSH 格式及加密私钥。导入后私钥保存在加密保险库中。'),
@@ -1039,7 +1011,7 @@ Future<void> transferSshKey(BuildContext context, {String? keyId}) async {
                           decoration: InputDecoration(
                               labelText:
                                   tr(exporting ? '导出密码（建议设置）' : '私钥密码（未加密留空）')))
-                    ])),
+                    ])))),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, false),
@@ -1097,8 +1069,8 @@ Future<void> editTotp(BuildContext context, Map<String, dynamic> row) async {
         builder: (ctx) => AlertDialog(
                 title: const LText('编辑 MFA / TOTP'),
                 content: SizedBox(
-                    width: 540,
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    width: appEditDialogWidth(ctx),
+                    child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
                       TextField(
                           controller: issuer,
                           decoration: InputDecoration(labelText: tr('发行方'))),
@@ -1110,9 +1082,10 @@ Future<void> editTotp(BuildContext context, Map<String, dynamic> row) async {
                           obscureText: true,
                           decoration: InputDecoration(
                               labelText: 'otpauth URI / Base32',
+                              helperMaxLines: 3,
                               helperText: tr(
                                   '完整 URI 可指定 algorithm、digits、period；Base32 默认 SHA1 / 6 / 30s')))
-                    ])),
+                    ])))),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, false),
@@ -1343,7 +1316,7 @@ class _PasswordGeneratorDialogState extends State<_PasswordGeneratorDialog> {
   Widget build(BuildContext context) => AlertDialog(
           title: const LText('密码生成器'),
           content: SizedBox(
-              width: 480,
+              width: appEditDialogWidth(context),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 LText('长度：$length'),
                 Slider(

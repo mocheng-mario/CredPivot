@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'app_presentation.dart';
+import 'app_ui.dart';
 
 import 'agent_bridge.dart';
 
@@ -92,7 +92,7 @@ class _TerminalSettingsDialogState extends State<_TerminalSettingsDialog> {
     return AlertDialog(
       title: const LText('选择终端'),
       content: SizedBox(
-        width: 480,
+        width: appEditDialogWidth(context),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,

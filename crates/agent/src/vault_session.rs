@@ -79,27 +79,6 @@ pub struct FillGrant {
     pub expires_at_ms: u128,
 }
 
-fn normalize_origin_key(origin: &str) -> String {
-    origin.trim().trim_end_matches('/').to_string()
-}
-
-fn origin_match_variants(origin: &str) -> Vec<String> {
-    let base = normalize_origin_key(origin);
-    let mut out = vec![base.clone()];
-    if let Some(rest) = base.strip_prefix("https://www.") {
-        out.push(format!("https://{}", rest));
-    } else if let Some(rest) = base.strip_prefix("http://www.") {
-        out.push(format!("http://{}", rest));
-    } else if let Some(rest) = base.strip_prefix("https://") {
-        out.push(format!("https://www.{}", rest));
-    } else if let Some(rest) = base.strip_prefix("http://") {
-        out.push(format!("http://www.{}", rest));
-    }
-    out.sort();
-    out.dedup();
-    out
-}
-
 impl VaultSession {
     pub fn new() -> Self {
         Self::new_at(crate::paths::vault_data_dir())
@@ -497,6 +476,7 @@ impl VaultSession {
         connection_host: &str,
         linked_totp_id: Option<&str>,
         group_id: Option<&str>,
+        website_rules: Option<&[credpivot_core::UriRule]>,
     ) -> Result<credpivot_core::LoginListRow> {
         let db = self
             .db
@@ -510,6 +490,7 @@ impl VaultSession {
             connection_host,
             linked_totp_id,
             group_id,
+            website_rules,
         )
         .map_err(|e| AgentError::Vault(e.to_string()))
     }
@@ -534,14 +515,7 @@ impl VaultSession {
     }
 
     pub fn credential_matches_page(&self, credential_id: &str, origin: &str) -> bool {
-        self.db.as_ref().and_then(|db| credpivot_core::credential_origins(db.conn(), credential_id).ok())
-            .is_some_and(|origins| origins.iter().any(|candidate| Self::origin_matches_credential_page(candidate, origin)))
-    }
-
-    pub fn origin_matches_credential_page(cred_origin: &str, page_origin: &str) -> bool {
-        let a = origin_match_variants(cred_origin);
-        let b = origin_match_variants(page_origin);
-        a.iter().any(|x| b.contains(x))
+        self.db.as_ref().is_some_and(|db| credpivot_core::credential_matches_origin(db.conn(), credential_id, origin).unwrap_or(false))
     }
 
     pub fn list_credentials(&self, query: Option<&str>, limit: u32) -> Result<Vec<credpivot_core::LoginListRow>> {
@@ -563,6 +537,7 @@ impl VaultSession {
         linked_totp_id: Option<&str>,
         group_id: Option<&str>,
         password: Option<&str>,
+        website_rules: Option<&[credpivot_core::UriRule]>,
     ) -> Result<credpivot_core::LoginListRow> {
         let db = self
             .db
@@ -578,6 +553,7 @@ impl VaultSession {
             linked_totp_id,
             group_id,
             password,
+            website_rules,
         )
             .map_err(|e| match e {
                 credpivot_core::CoreError::Conflict => AgentError::Vault("revision conflict".into()),

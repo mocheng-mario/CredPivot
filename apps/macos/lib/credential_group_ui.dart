@@ -17,7 +17,7 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
       builder: (ctx, setLocal) => AlertDialog(
         title: const LText('管理分组'),
         content: SizedBox(
-          width: 360,
+          width: appEditDialogWidth(ctx),
           child: groups.isEmpty
               ? const LText('暂无分组，可点击下方新建。')
               : ListView.builder(
@@ -51,7 +51,7 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
                 context: ctx,
                 builder: (d) => AlertDialog(
                   title: const LText('新建分组'),
-                  content: TextField(controller: nameCtl, decoration: InputDecoration(labelText: tr('分组名称'))),
+                  content: SizedBox(width: appEditDialogWidth(d), child: TextField(controller: nameCtl, decoration: InputDecoration(labelText: tr('分组名称')))),
                   actions: [
                     TextButton(onPressed: () => Navigator.pop(d, false), child: const LText('取消')),
                     FilledButton(onPressed: () => Navigator.pop(d, true), child: const LText('创建')),
@@ -90,7 +90,7 @@ Future<void> showMoveItemToGroupDialog(
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setLocal) => AlertDialog(
         title: const LText('移到分组'),
-        content: DropdownButtonFormField<String?>(
+        content: SizedBox(width: appEditDialogWidth(ctx), child: DropdownButtonFormField<String?>(
           isExpanded: true,
           value: selected,
           decoration: InputDecoration(labelText: tr('目标分组')),
@@ -108,7 +108,7 @@ Future<void> showMoveItemToGroupDialog(
             ),
           ],
           onChanged: (v) => setLocal(() => selected = v),
-        ),
+        )),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('保存')),

@@ -54,6 +54,14 @@ pub enum VaultAction {
     ItemDetails {
         item_id: String,
     },
+    LoginWebsiteRules {
+        credential_id: String,
+    },
+    WebsiteRulesTest {
+        rules: Vec<UriRule>,
+        #[serde(default)]
+        target: Option<String>,
+    },
     ItemDetailsSave {
         item_id: String,
         expected_revision: String,
@@ -119,6 +127,8 @@ impl VaultAction {
         !matches!(
             self,
             Self::GeneratePassword { .. }
+                | Self::LoginWebsiteRules { .. }
+                | Self::WebsiteRulesTest { .. }
                 | Self::ItemSearch { .. }
                 | Self::SecurityReport
                 | Self::TrashList
@@ -139,7 +149,7 @@ pub struct ItemDetails {
     pub category: String,
     pub custom_fields: Vec<CustomField>,
     pub related_item_ids: Vec<String>,
-    // URI 匹配规则原样保留；自动填充仅接受 exact_origin，其他规则须用户确认后修改。
+    // 导入规则原样保留；只启用已支持的匹配模式，其他模式须用户确认后修改。
     pub uris: Vec<UriRule>,
     pub history_limit: Option<usize>,
     pub reminder_days: Option<u32>,
@@ -534,6 +544,19 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
     let tx = conn.unchecked_transaction()?;
     let mut changed = true;
     let value = match action {
+        LoginWebsiteRules { credential_id } => {
+            changed = false;
+            json!({"rules":crate::website_rules::credential_website_rules(&tx,&credential_id)?})
+        }
+        WebsiteRulesTest { rules, target } => {
+            changed = false;
+            if let Some(target) = target {
+                crate::website_rules::test_website_rules(&rules,&target)?
+            } else {
+                crate::website_rules::validate_website_rules(&rules)?;
+                json!({"valid":true})
+            }
+        }
         GeneratePassword {
             length,
             symbols,
@@ -648,7 +671,12 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
         ItemDetails { item_id } => {
             changed = false;
             let rev = active_item(&tx, &item_id)?;
-            json!({"details":details_for(&tx,&item_id)?,"current_revision":rev})
+            let mut details = details_for(&tx, &item_id)?;
+            if details.uris.is_empty() {
+                let origin: Option<String> = tx.query_row("SELECT origin FROM login_credentials WHERE item_id=?1", [&item_id], |row| row.get(0)).optional()?;
+                if let Some(uri) = origin { details.uris.push(UriRule { uri, match_mode: "exact_origin".into() }); }
+            }
+            json!({"details":details,"current_revision":rev})
         }
         ItemDetailsSave {
             item_id,
@@ -657,6 +685,7 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             title,
         } => {
             check_revision(&active_item(&tx, &item_id)?, &expected_revision)?;
+            crate::website_rules::validate_website_rules(&details.uris)?;
             if details.notes.len() > 1_000_000
                 || details.tags.len() > 100
                 || details.custom_fields.len() > 100
@@ -703,10 +732,13 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
                     params![title.trim(), item_id],
                 )?;
             }
+            let revision = new_revision();
             tx.execute(
                 "UPDATE items SET details_json=?1,current_revision=?2,updated_at_ms=?3 WHERE id=?4",
-                params![encode(&details)?, new_revision(), now_ms(), item_id],
+                params![encode(&details)?, revision, now_ms(), item_id],
             )?;
+            // 网站规则与基本账号编辑共用 revision，防止旧弹窗覆盖新匹配规则。
+            tx.execute("UPDATE login_credentials SET current_revision=?1 WHERE item_id=?2", params![revision,item_id])?;
             json!({"updated":true})
         }
         NoteCreate { title, text } => {

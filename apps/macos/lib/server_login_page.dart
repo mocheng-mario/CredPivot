@@ -135,10 +135,10 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setLocal) => AlertDialog(
           title: LText(isEdit ? '编辑服务器' : '添加服务器 / 堡垒机'),
-          content: SingleChildScrollView(
+          content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              children: [
+              children: appFormFields([
                 TextField(controller: labelCtl, decoration: InputDecoration(labelText: tr('名称'))),
                 TextField(
                   controller: hostCtl,
@@ -233,9 +233,9 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                   ],
                   onChanged: (v) => setLocal(() => linkedSsh = v),
                 ),
-              ],
+              ]),
             ),
-          ),
+          )),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
             FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('保存')),

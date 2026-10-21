@@ -30,6 +30,8 @@ aes = "0.8"
 cbc = { version = "0.1", features = ["alloc", "block-padding"] }
 pbkdf2 = "0.12"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
+url = "2.5"
+regex = "1"
 
 [dev-dependencies]
 ovb1-structure = { path = "../ovb1-structure" }

@@ -539,6 +539,7 @@ async fn handle_request_inner(
             connection_host,
             linked_totp_id,
             group_id,
+            website_rules,
         } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
@@ -553,6 +554,7 @@ async fn handle_request_inner(
                 &connection_host,
                 linked_totp_id.as_deref().and_then(|s| opt_nonempty(s)),
                 group_id.as_deref().and_then(|s| opt_nonempty(s)),
+                website_rules.as_deref(),
             ) {
                 Ok(c) => c,
                 Err(e) => return AgentResponse::err("vault", e.to_string()),
@@ -723,6 +725,7 @@ async fn handle_request_inner(
             connection_host,
             linked_totp_id,
             password,
+            website_rules,
         } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
@@ -739,6 +742,7 @@ async fn handle_request_inner(
                 opt_nonempty(&linked_totp_id),
                 opt_nonempty(&group_id),
                 password.as_deref(),
+                website_rules.as_deref(),
             ) {
                 Ok(row) => AgentResponse::ok(json!({ "updated": true, "item": row })),
                 Err(e) => {
