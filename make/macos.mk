@@ -1,10 +1,13 @@
-.PHONY: macos-bootstrap macos-pub-get macos-sync-artifacts macos-build macos-build-debug macos-build-release
+.PHONY: macos-bootstrap macos-pub-get macos-ensure-build-stamp macos-write-build-stamp macos-sync-artifacts macos-build macos-build-debug macos-build-release
 
 ## 首次：flutter create + Rust 产物 + debug 构建（等同 scripts/bootstrap-macos.sh）
 macos-bootstrap:
 	$(ROOT)/scripts/bootstrap-macos.sh
 
-macos-pub-get:
+macos-ensure-build-stamp:
+	@test -f $(MACOS_APP_DIR)/lib/build_stamp.dart || cp $(MACOS_APP_DIR)/lib/build_stamp.dart.example $(MACOS_APP_DIR)/lib/build_stamp.dart
+
+macos-pub-get: macos-ensure-build-stamp
 	cd $(MACOS_APP_DIR) && $(FLUTTER) pub get
 
 ## 将 Rust 静态库与 native-host 复制到 Runner（需先 make rust-ffi rust-host）

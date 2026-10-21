@@ -40,3 +40,9 @@ apps/macos/macos/Runner/credpivot-chrome-extension
 
 # CredPivot runtime (local)
 .credpivot/.cache/
+
+# 仓库内本地构建缓存（如 CARGO_TARGET_DIR=.cache/cargo-target、Go GOCACHE 等）
+.cache/
+
+# make macos-write-build-stamp 生成，勿手改入库
+apps/macos/lib/build_stamp.dart
