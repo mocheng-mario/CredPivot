@@ -5,9 +5,7 @@ use chrome_parent::verify_chrome_parent;
 use credpivot_agent::{
     agent_socket_path, call_agent, diagnostics, AgentRequest, AgentResponse, PROTOCOL_VERSION,
 };
-use launch_app::{
-    launch_credpivot_app, launch_credpivot_app_for_extension_gate, wait_for_agent_socket,
-};
+use launch_app::{launch_credpivot_app, wait_for_agent_socket};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 
@@ -89,15 +87,15 @@ async fn forward_to_agent(envelope: Value) -> Result<Value, Box<dyn std::error::
         .get("action")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
-    // handshake 仅探测 Agent；勿在此写入 extension_gate.pending（否则每次打开 popup 都会弹指纹）。
+    // 待确认会话由 Agent 写入，App 的协调器负责唤起身份验证。
     let req = map_extension_to_agent(&envelope, action)?;
-    let resp = call_agent(&socket, req).await?;
-    if matches!(
-        &resp,
-        credpivot_agent::AgentResponse::Err { code, .. } if code == "extension_gate_required"
-    ) {
-        launch_credpivot_app_for_extension_gate();
+    let session_id = envelope.get("browser_session_id").and_then(Value::as_str).unwrap_or("");
+    if session_id.is_empty() {
+        return Ok(error_envelope("protocol_mismatch", "请重新加载更新后的 CredPivot 扩展", request_id));
     }
+    let resp = call_agent(&socket, AgentRequest::BrowserRequest {
+        session_id: session_id.to_string(), request: Box::new(req),
+    }).await?;
     Ok(agent_to_extension(resp, request_id))
 }
 

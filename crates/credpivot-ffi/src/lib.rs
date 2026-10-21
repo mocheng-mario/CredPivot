@@ -122,7 +122,8 @@ fn json_err(message: &str) -> *mut c_char {
         "ffi_error"
     };
     let body = format!(
-        r#"{{"type":"err","protocol_version":1,"code":"{code}","message":"{}"}}"#,
+        r#"{{"type":"err","protocol_version":{},"code":"{code}","message":"{}"}}"#,
+        credpivot_agent::PROTOCOL_VERSION,
         message.replace('"', "\\\"")
     );
     CString::new(body)

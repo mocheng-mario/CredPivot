@@ -14,6 +14,36 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
+use base64::{engine::general_purpose::STANDARD, Engine};
+
+const MASTER_PASSWORD_INTERVAL_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+const UNLOCK_INTERVAL_MS: u64 = 24 * 60 * 60 * 1000;
+const SENSITIVE_AUTH_INTERVAL: Duration = Duration::from_secs(120);
+
+fn authentication_time_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// 仅由 App 从本机钥匙串恢复；不能接受浏览器或 askpass 提交的策略。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LocalUnlockPolicy {
+    pub binding: String,
+    pub last_master_ms: u64,
+    pub last_unlock_ms: u64,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LocalUnlockMaterial {
+    pub vmk: String,
+    pub policy: LocalUnlockPolicy,
+}
+
+impl std::fmt::Debug for LocalUnlockMaterial {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LocalUnlockMaterial([REDACTED])")
+    }
+}
 
 /// 进程内 Vault 会话：M1 控制面 + M2 SQLCipher 业务库。
 #[derive(Debug)]
@@ -22,7 +52,8 @@ pub struct VaultSession {
     pub vmk: Option<Zeroizing<[u8; VMK_LEN]>>,
     pub db: Option<VaultDatabase>,
     pub unlocked: bool,
-    pub touch_id_wrapped_token: Option<Vec<u8>>,
+    pub local_unlock_policy: LocalUnlockPolicy,
+    sensitive_authenticated_at: Option<Instant>,
     pub ssh_signing_key: SigningKey,
     pub idle_timeout: Duration,
     pub last_activity: Instant,
@@ -82,7 +113,8 @@ impl VaultSession {
             vmk: None,
             db: None,
             unlocked: false,
-            touch_id_wrapped_token: None,
+            local_unlock_policy: LocalUnlockPolicy::default(),
+            sensitive_authenticated_at: None,
             ssh_signing_key: signing_key,
             idle_timeout: Duration::from_secs(5 * 60),
             last_activity: Instant::now(),
@@ -150,6 +182,8 @@ impl VaultSession {
         crate::paths::persist_active_vault_dir(&path)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         self.vault_dir = path;
+        self.local_unlock_policy = LocalUnlockPolicy::default();
+        self.sensitive_authenticated_at = None;
         Ok(())
     }
 
@@ -169,7 +203,8 @@ impl VaultSession {
             "idle_timeout_sec": self.idle_timeout.as_secs(),
             "credential_count": cred_count,
             "ssh_pubkey": self.ssh_public_key_openssh(),
-            "touch_id_token_configured": self.touch_id_wrapped_token.is_some(),
+            "master_password_required": self.master_password_required(),
+            "sensitive_auth_active": self.sensitive_auth_active(),
             "vault_lock_generation": crate::paths::read_vault_lock_generation(),
         });
         if self.vault_exists() {
@@ -186,7 +221,7 @@ impl VaultSession {
     }
 
     pub fn idle_expired(&self) -> bool {
-        self.unlocked && self.last_activity.elapsed() > self.idle_timeout
+        self.unlocked && (self.last_activity.elapsed() > self.idle_timeout || self.master_password_required())
     }
 
     pub fn lock(&mut self) {
@@ -197,6 +232,7 @@ impl VaultSession {
             crate::diagnostics::info("vault", "locked");
         }
         self.unlocked = false;
+        self.sensitive_authenticated_at = None;
         self.vmk = None;
         self.db = None;
         self.ssh_signing_key = SigningKey::generate(&mut OsRng);
@@ -236,6 +272,10 @@ impl VaultSession {
             self.abort_partial_unlock();
             return Err(AgentError::Vault(e.to_string()));
         }
+        if let Err(e) = self.record_master_verification() {
+            self.abort_partial_unlock();
+            return Err(e);
+        }
         self.unlocked = true;
         self.touch_activity();
         crate::diagnostics::info("vault", "created and unlocked");
@@ -257,15 +297,98 @@ impl VaultSession {
             self.abort_partial_unlock();
             return Err(e);
         }
+        if let Err(e) = self.record_master_verification() {
+            self.abort_partial_unlock();
+            return Err(e);
+        }
         self.unlocked = true;
         self.touch_activity();
         crate::diagnostics::info("vault", "unlocked");
         Ok(())
     }
 
-    /// 门槛令牌不等于 Vault 解锁：无 VMK/数据库时不标记为已解锁。
-    pub fn unlock_touch_id_token(&mut self, _token: &[u8]) -> bool {
-        false
+    fn local_unlock_binding(&self) -> Result<String> {
+        let cfg = read_vault_json(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
+        let slot = cfg.key_slots.iter().find(|s| s.slot_type == SlotType::MasterPassword)
+            .ok_or_else(|| AgentError::Vault("master slot missing".into()))?;
+        Ok(format!("{}:{}:{}", cfg.vault_id, cfg.control_id, slot.slot_id))
+    }
+
+    pub fn load_local_unlock_policy(&mut self, policy: LocalUnlockPolicy) {
+        self.local_unlock_policy = if self.local_unlock_binding().ok().as_deref() == Some(policy.binding.as_str()) {
+            policy
+        } else {
+            LocalUnlockPolicy::default()
+        };
+    }
+
+    pub fn master_password_required(&self) -> bool {
+        let now = authentication_time_ms();
+        let policy = &self.local_unlock_policy;
+        policy.last_master_ms == 0 || policy.last_unlock_ms == 0
+            || now < policy.last_master_ms || now < policy.last_unlock_ms
+            || now.saturating_sub(policy.last_master_ms) >= MASTER_PASSWORD_INTERVAL_MS
+            || now.saturating_sub(policy.last_unlock_ms) >= UNLOCK_INTERVAL_MS
+    }
+
+    fn record_master_verification(&mut self) -> Result<()> {
+        let now = authentication_time_ms();
+        self.local_unlock_policy = LocalUnlockPolicy {
+            binding: self.local_unlock_binding()?, last_master_ms: now, last_unlock_ms: now,
+        };
+        self.grant_sensitive_auth();
+        Ok(())
+    }
+
+    pub fn verify_master_password(&mut self, password: &str) -> Result<()> {
+        if !self.unlocked { return Err(AgentError::Locked); }
+        let cfg = read_vault_json(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
+        let key = cfg.unlock_master(password).map_err(|_| AgentError::Vault("invalid password".into()))?;
+        cfg.verify_mac(&key).map_err(|_| AgentError::Vault("control mac failed".into()))?;
+        if self.vmk.as_deref() != Some(&*key) {
+            self.lock();
+            return Err(AgentError::Vault("vault changed; unlock again".into()));
+        }
+        // 验证身份不重新打开数据库，也不延长“上次解锁”的 24 小时窗口。
+        self.local_unlock_policy.last_master_ms = authentication_time_ms();
+        self.grant_sensitive_auth();
+        Ok(())
+    }
+
+    pub fn local_unlock_material(&self) -> Result<LocalUnlockMaterial> {
+        if !self.unlocked || self.master_password_required() { return Err(AgentError::Locked); }
+        let key = self.vmk.as_ref().ok_or(AgentError::Locked)?;
+        Ok(LocalUnlockMaterial { vmk: STANDARD.encode(&**key), policy: self.local_unlock_policy.clone() })
+    }
+
+    pub fn unlock_local(&mut self, material: LocalUnlockMaterial) -> Result<()> {
+        if self.master_password_required() || material.policy.binding != self.local_unlock_binding()? {
+            return Err(AgentError::Vault("master password required".into()));
+        }
+        let bytes = Zeroizing::new(STANDARD.decode(&material.vmk)
+            .map_err(|_| AgentError::Vault("invalid local unlock material".into()))?);
+        if bytes.len() != VMK_LEN { return Err(AgentError::Vault("invalid local unlock material".into())); }
+        let mut key = Zeroizing::new([0u8; VMK_LEN]);
+        key.copy_from_slice(&bytes);
+        let cfg = read_vault_json(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
+        cfg.verify_mac(&key).map_err(|_| AgentError::Vault("local unlock material expired".into()))?;
+        self.vmk = Some(key);
+        if let Err(e) = self.attach_database() { self.abort_partial_unlock(); return Err(e); }
+        self.local_unlock_policy.last_unlock_ms = authentication_time_ms();
+        self.unlocked = true;
+        self.grant_sensitive_auth();
+        self.touch_activity();
+        crate::diagnostics::info("vault", "unlocked with local authentication");
+        Ok(())
+    }
+
+    pub fn grant_sensitive_auth(&mut self) {
+        self.sensitive_authenticated_at = Some(Instant::now());
+    }
+
+    pub fn sensitive_auth_active(&self) -> bool {
+        self.unlocked && !self.master_password_required()
+            && self.sensitive_authenticated_at.is_some_and(|t| t.elapsed() < SENSITIVE_AUTH_INTERVAL)
     }
 
     pub fn change_password(&mut self, old: &str, new: &str) -> Result<()> {
@@ -292,10 +415,11 @@ impl VaultSession {
         cfg.verify_mac(&*vmk).map_err(|e| AgentError::Vault(e.to_string()))?;
         self.vmk = Some(vmk);
         self.attach_database()?;
+        self.record_master_verification()?;
         Ok(())
     }
 
-    pub fn export_ovb(&self, output_path: &str, password: &str) -> Result<()> {
+    pub fn export_ovb(&mut self, output_path: &str, password: &str) -> Result<()> {
         if !self.unlocked {
             return Err(AgentError::Locked);
         }
@@ -303,6 +427,8 @@ impl VaultSession {
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         credpivot_core::write_file_atomic(Path::new(output_path), &bytes)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
+        self.local_unlock_policy.last_master_ms = authentication_time_ms();
+        self.grant_sensitive_auth();
         if let Some(db) = self.db.as_ref() {
             let _ = mark_ovb_export_verified(db.conn());
         }
@@ -722,6 +848,7 @@ impl VaultSession {
             self.lock();
             return Err(e);
         }
+        self.record_master_verification()?;
         Ok(new_recovery)
     }
 

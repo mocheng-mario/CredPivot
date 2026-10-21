@@ -21,12 +21,12 @@ class AppDelegate: FlutterAppDelegate {
     if let controller = mainFlutterWindow?.contentViewController as? FlutterViewController {
       ChromeHostInstaller.applyTrustedNativeHostEnv()
       SshAskpassLauncher.applyTrustedAskpassEnv()
-      ExtensionGateCoordinator.start()
       _ = try? SshAskpassLauncher.materializeInstalledBinary()
       _ = try? SshAskpassLauncher.materializeExpectScript()
       TerminalLauncher.purgeTerminalLaunchScripts()
       platform = CredPivotPlatform(messenger: controller.engine.binaryMessenger)
       let code = CredPivotRustFFI.start()
+      if code == 0 { ExtensionGateCoordinator.start() }
       if code != 0 {
         NSLog("CredPivot: agent start failed at launch (code \(code))")
       }
@@ -42,6 +42,7 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   @objc func lockFromMenu() {
+    TouchIdGate.invalidateInFlightAuthentication()
     _ = credpivotAgentRequestJsonString(#"{"type":"lock"}"#)
     CredPivotPlatform.publishVaultLocked()
   }

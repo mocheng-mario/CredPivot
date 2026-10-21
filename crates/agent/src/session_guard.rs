@@ -10,11 +10,10 @@ pub async fn expire_idle_session(state: &Arc<Mutex<IpcState>>) {
         if v.idle_expired() {
             v.lock();
             true
-        } else {
-            false
-        }
+        } else { false }
     };
     if expired {
-        st.pending_fills.clear();
+        crate::ipc::revoke_extension_gate(&mut st);
+        st.pending_ssh_sessions.clear();
     }
 }

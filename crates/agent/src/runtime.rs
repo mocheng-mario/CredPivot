@@ -42,6 +42,8 @@ impl AgentRuntime {
             peer_auth: PeerAuthConfig::default(),
             extension_gate_expires_ms: 0,
             extension_gate_last_native_ms: 0,
+            extension_gate_session: None,
+            extension_gate_pending_session: None,
             shutting_down: false,
         };
         load_extension_gate_into_state(&mut ipc_state);

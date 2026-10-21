@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'agent_bridge.dart';
+import 'app_ui.dart';
 import 'credential_confirm.dart';
 import 'credential_list_tile.dart';
 import 'linked_refs.dart';
@@ -47,7 +48,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
         }
         _selected = next;
       }
-      _status = '共 ${_items.length} 个服务器配置';
+      _status = '';
       setState(() {});
     } on AgentException catch (e) {
       setState(
@@ -113,7 +114,6 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
 
   Future<void> _addOrEdit({Map<String, dynamic>? existing}) async {
     final isEdit = existing != null;
-    if (isEdit && !await requireTouchId(context, reason: '编辑服务器登录配置')) return;
 
     final labelCtl = TextEditingController(text: existing?['label']?.toString() ?? '');
     final hostCtl = TextEditingController(text: existing?['host']?.toString() ?? '');
@@ -151,6 +151,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String?>(
+                  isExpanded: true,
                   value: linkedLogin,
                   decoration: const InputDecoration(labelText: '关联登录密码'),
                   items: [
@@ -158,7 +159,11 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                     ..._logins.map(
                       (c) => DropdownMenuItem(
                         value: c['id'] as String,
-                        child: Text(_loginPickerLabel(c)),
+                        child: Text(
+                          _loginPickerLabel(c),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
                   ],
@@ -188,6 +193,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                   ),
                 ),
                 DropdownButtonFormField<String?>(
+                  isExpanded: true,
                   value: linkedTotp,
                   decoration: const InputDecoration(
                     labelText: '关联 MFA / TOTP',
@@ -198,13 +204,18 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                     ..._totps.map(
                       (t) => DropdownMenuItem(
                         value: t['id'] as String,
-                        child: Text('${t['issuer']} : ${t['account']}'),
+                        child: Text(
+                          '${t['issuer']} : ${t['account']}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
                   ],
                   onChanged: (v) => setLocal(() => linkedTotp = v),
                 ),
                 DropdownButtonFormField<String?>(
+                  isExpanded: true,
                   value: linkedSsh,
                   decoration: const InputDecoration(labelText: '关联 SSH 密钥'),
                   items: [
@@ -212,7 +223,11 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                     ..._sshKeys.map(
                       (s) => DropdownMenuItem(
                         value: s['id'] as String,
-                        child: Text(s['label']?.toString() ?? 'SSH'),
+                        child: Text(
+                          s['label']?.toString() ?? 'SSH',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
                   ],
@@ -286,7 +301,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     )) {
       return;
     }
-    if (!await requireTouchId(context, reason: '删除服务器配置')) return;
+    if (!await requireTouchId(context, reason: '删除服务器配置', confirmed: true)) return;
     final itemId = row['item_id'] as String?;
     if (itemId == null) return;
     try {
@@ -300,12 +315,11 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
 
   Future<String?> _loginUsername(String? loginId) async {
     if (loginId == null || loginId.isEmpty) return null;
-    try {
-      final detail = await AgentBridge.getCredential(loginId);
-      return detail['username'] as String?;
-    } on AgentException catch (_) {
-      return null;
+    // SSH 用户名已经在列表元数据中，不应为解析用户名提前读取密码。
+    for (final login in _logins) {
+      if (login['id'] == loginId) return login['username']?.toString();
     }
+    return null;
   }
 
   Future<String?> _resolveSshUsername(Map<String, dynamic> row) async {
@@ -450,6 +464,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
       setState(() => _status = '请在登录密码或本服务器上关联 MFA');
       return;
     }
+    if (!await requireTouchId(context, reason: '复制服务器 MFA 验证码')) return;
     try {
       final code = await AgentBridge.totpCode(totpId);
       await AgentBridge.copyConcealed(code);
@@ -482,85 +497,118 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: () => _addOrEdit(),
-                  icon: const Icon(Icons.add),
-                  label: const Text('添加服务器 / 堡垒机'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        AppSectionHeader(
+          title: '服务器',
+          subtitle: '${_items.length} 个连接配置',
+          action: Wrap(spacing: 8, runSpacing: 8, children: [
+            OutlinedButton.icon(
                 onPressed: () => showTerminalPickerDialog(context),
-                child: const Text('终端设置'),
-              ),
-            ],
-          ),
-          if (_status.isNotEmpty) Text(_status, style: Theme.of(context).textTheme.bodySmall),
-          Expanded(
-            child: _items.isEmpty
-                ? const Center(child: Text('暂无配置。可在此关联账户密码、MFA 与 SSH 密钥。'))
-                : ListView.builder(
-                    itemCount: _items.length,
-                    itemBuilder: (_, i) {
-                      final row = _items[i];
-                      final selected = _selected?['id'] == row['id'];
-                      final loginLbl = _linkedLoginDisplayName(
-                        row['linked_login_id'] as String?,
-                      );
-                      final effectiveTotpId = _resolveTotpIdForServer(row);
-                      final totpLbl = effectiveTotpId == null
-                          ? null
-                          : _linkLabel(effectiveTotpId, _totps, 'issuer');
-                      final inheritedTotp = _totpInheritedFromLogin(row);
-                      final manualUser = row['manual_username']?.toString().trim() ?? '';
-                      final sub = [
-                        '${row['host']}:${row['port']}',
-                        if (loginLbl != null) '登录: $loginLbl',
-                        if (loginLbl == null && manualUser.isNotEmpty) '用户: $manualUser',
-                        if (totpLbl != null)
-                          inheritedTotp ? 'MFA: $totpLbl（继承登录）' : 'MFA: $totpLbl',
-                      ].join(' · ');
-                      return selectableCredentialTile(
-                        context: context,
-                        selected: selected,
-                        title: Text(row['label']?.toString() ?? row['host']?.toString() ?? ''),
-                        subtitle: Text(sub),
-                        onTap: () => setState(() => _selected = row),
-                      );
-                    },
-                  ),
-          ),
-          if (_selected != null)
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.icon(
-                  onPressed: _openSshAuto,
-                  icon: const Icon(Icons.bolt),
-                  label: const Text('一键连接'),
+                icon: const Icon(Icons.terminal_rounded),
+                label: const Text('终端设置')),
+            FilledButton.icon(
+                onPressed: () => _addOrEdit(),
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('添加服务器')),
+          ]),
+        ),
+        if (_status.isNotEmpty) AppNotice(_status),
+        Expanded(
+            child: CredentialWorkspace(
+          list: _items.isEmpty
+              ? const AppEmptyState(
+                  icon: Icons.dns_outlined,
+                  title: '连接你的服务器',
+                  message: '添加主机与端口，关联登录账户、MFA 和 SSH 密钥。')
+              : ListView.builder(
+                  itemCount: _items.length,
+                  itemBuilder: (_, i) {
+                    final row = _items[i];
+                    final selected = _selected?['id'] == row['id'];
+                    final loginLbl = _linkedLoginDisplayName(
+                      row['linked_login_id'] as String?,
+                    );
+                    final effectiveTotpId = _resolveTotpIdForServer(row);
+                    final totpLbl = effectiveTotpId == null
+                        ? null
+                        : _linkLabel(effectiveTotpId, _totps, 'issuer');
+                    final inheritedTotp = _totpInheritedFromLogin(row);
+                    final manualUser =
+                        row['manual_username']?.toString().trim() ?? '';
+                    final sub = [
+                      '${row['host']}:${row['port']}',
+                      if (loginLbl != null) '登录: $loginLbl',
+                      if (loginLbl == null && manualUser.isNotEmpty)
+                        '用户: $manualUser',
+                      if (totpLbl != null)
+                        inheritedTotp ? 'MFA: $totpLbl（继承登录）' : 'MFA: $totpLbl',
+                    ].join(' · ');
+                    return selectableCredentialTile(
+                      context: context,
+                      icon: Icons.dns_outlined,
+                      selected: selected,
+                      title: Text(row['label']?.toString() ??
+                          row['host']?.toString() ??
+                          ''),
+                      subtitle: Text(sub),
+                      onTap: () => setState(() => _selected = row),
+                    );
+                  },
                 ),
-                OutlinedButton.icon(
-                  onPressed: _openInTerminal,
-                  icon: const Icon(Icons.terminal),
-                  label: const Text('仅打开 SSH'),
+          detail: _selected == null
+              ? null
+              : CredentialDetails(
+                  title: _selected!['label']?.toString() ??
+                      _selected!['host']?.toString() ??
+                      '服务器',
+                  icon: Icons.dns_outlined,
+                  fields: {
+                    '主机': _selected!['host']?.toString() ?? '',
+                    '端口': _selected!['port']?.toString() ?? '',
+                    '登录账户': _linkedLoginDisplayName(
+                            _selected!['linked_login_id'] as String?) ??
+                        _selected!['manual_username']?.toString() ??
+                        '',
+                    'MFA': _resolveTotpIdForServer(_selected!) == null
+                        ? '未关联'
+                        : (_totpInheritedFromLogin(_selected!)
+                            ? '继承登录项'
+                            : '已关联验证器'),
+                  },
                 ),
-                OutlinedButton(onPressed: _copySshHint, child: const Text('复制 SSH 命令')),
-                OutlinedButton(onPressed: _copyPassword, child: const Text('复制密码')),
-                FilledButton.tonal(onPressed: _copyMfa, child: const Text('复制 MFA')),
-                OutlinedButton(onPressed: () => _addOrEdit(existing: _selected), child: const Text('编辑')),
-                OutlinedButton(onPressed: _deleteSelected, child: const Text('删除')),
-              ],
-            ),
-        ],
-      ),
+          actions: _selected == null
+              ? null
+              : Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _openSshAuto,
+                      icon: const Icon(Icons.bolt),
+                      label: const Text('一键连接'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _openInTerminal,
+                      icon: const Icon(Icons.terminal),
+                      label: const Text('仅打开 SSH'),
+                    ),
+                    OutlinedButton(
+                        onPressed: _copySshHint,
+                        child: const Text('复制 SSH 命令')),
+                    OutlinedButton(
+                        onPressed: _copyPassword, child: const Text('复制密码')),
+                    FilledButton.tonal(
+                        onPressed: _copyMfa, child: const Text('复制 MFA')),
+                    OutlinedButton(
+                        onPressed: () => _addOrEdit(existing: _selected),
+                        child: const Text('编辑')),
+                    OutlinedButton(
+                        onPressed: _deleteSelected, child: const Text('删除')),
+                  ],
+                ),
+        )),
+      ]),
     );
   }
 }

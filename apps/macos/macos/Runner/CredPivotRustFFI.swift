@@ -19,10 +19,19 @@ private func credpivot_agent_request_json(_ request: UnsafePointer<CChar>) -> Un
 private func credpivot_string_free(_ ptr: UnsafeMutablePointer<CChar>)
 
 enum CredPivotRustFFI {
-  static func start() -> Int32 { credpivot_agent_start() }
+  static func start() -> Int32 {
+    let code = credpivot_agent_start()
+    if code == 0 { LocalVaultUnlock.restorePolicy() }
+    return code
+  }
   static func stop() -> Int32 { credpivot_agent_stop() }
   static func isRunning() -> Bool { credpivot_agent_is_running() == 1 }
-  static func restart() -> Int32 { credpivot_agent_restart() }
+  static func restart() -> Int32 {
+    TouchIdGate.invalidateInFlightAuthentication()
+    let code = credpivot_agent_restart()
+    if code == 0 { LocalVaultUnlock.restorePolicy() }
+    return code
+  }
 }
 
 func credpivotAgentRequestJsonString(_ body: String) -> String {

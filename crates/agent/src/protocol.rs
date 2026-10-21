@@ -1,25 +1,31 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const PROTOCOL_VERSION: u32 = 1;
-pub const MIN_COMPATIBLE_PROTOCOL: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
+pub const MIN_COMPATIBLE_PROTOCOL: u32 = 2;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentRequest {
     Ping,
     Status,
-    /// 扩展「连接」：Vault 已解锁时要求先通过 extension gate（指纹/系统密码）。
+    /// 浏览器会话由扩展的 session storage 持有，不能跨浏览器启动复用。
+    BrowserRequest { session_id: String, request: Box<AgentRequest> },
+    /// 扩展「连接」：必须由 App 对当前浏览器会话完成指纹/主密码验证。
     ExtensionConnect,
-    /// App 内指纹通过后授予 Chrome 扩展短时访问（秒）。
+    /// App 完成当前会话的身份验证后授予 Chrome 扩展短时访问（秒）。
     ExtensionGateGrant {
+        session_id: String,
         #[serde(default = "default_extension_gate_ttl")]
         ttl_secs: u64,
     },
     Lock,
     UnlockPassword { password: String },
-    UnlockTouchIdToken { token: String },
-    SetTouchIdToken { token: String },
+    LocalUnlockPolicySet { policy: crate::vault_session::LocalUnlockPolicy },
+    LocalUnlockMaterial,
+    UnlockLocal { material: crate::vault_session::LocalUnlockMaterial },
+    VerifyMasterPassword { password: String },
+    SensitiveAuthGrant,
     CredentialSave {
         request_id: String,
         origin: String,
@@ -171,6 +177,7 @@ pub enum AgentRequest {
     /// 锁定状态下切换本地工作库目录（须含 vault.json）。
     VaultOpenDir { path: String },
     RecoveryCodesList,
+    RecoveryCodesGet { id: String },
     RecoveryCodesCreate {
         service_name: String,
         codes: Vec<String>,
@@ -210,12 +217,16 @@ impl AgentRequest {
         match self {
             Self::Ping => "ping",
             Self::Status => "status",
+            Self::BrowserRequest { .. } => "browser_request",
             Self::ExtensionConnect => "extension_connect",
             Self::ExtensionGateGrant { .. } => "extension_gate_grant",
             Self::Lock => "lock",
             Self::UnlockPassword { .. } => "unlock_password",
-            Self::UnlockTouchIdToken { .. } => "unlock_touch_id_token",
-            Self::SetTouchIdToken { .. } => "set_touch_id_token",
+            Self::LocalUnlockPolicySet { .. } => "local_unlock_policy_set",
+            Self::LocalUnlockMaterial => "local_unlock_material",
+            Self::UnlockLocal { .. } => "unlock_local",
+            Self::VerifyMasterPassword { .. } => "verify_master_password",
+            Self::SensitiveAuthGrant => "sensitive_auth_grant",
             Self::CredentialSave { .. } => "credential_save",
             Self::CredentialSuggest { .. } => "credential_suggest",
             Self::CredentialFillPrepare { .. } => "credential_fill_prepare",
@@ -249,6 +260,7 @@ impl AgentRequest {
             Self::VaultRecoverOvb { .. } => "vault_recover_ovb",
             Self::VaultOpenDir { .. } => "vault_open_dir",
             Self::RecoveryCodesList => "recovery_codes_list",
+            Self::RecoveryCodesGet { .. } => "recovery_codes_get",
             Self::RecoveryCodesCreate { .. } => "recovery_codes_create",
             Self::RecoveryCodesUpdate { .. } => "recovery_codes_update",
             Self::RestorePointsList => "restore_points_list",

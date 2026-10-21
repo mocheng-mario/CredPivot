@@ -30,5 +30,5 @@ pub async fn call_in_process(
 ) -> AgentResponse {
     expire_idle_session(state).await;
     let mut st = state.lock().await;
-    handle_request(&mut st, req, RequestPeerContext::default()).await
+    handle_request(&mut st, req, RequestPeerContext { from_app: true, ..Default::default() }).await
 }

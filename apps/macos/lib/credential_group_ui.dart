@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'agent_bridge.dart';
+import 'app_ui.dart';
 import 'linked_refs.dart';
 
 /// 凭据子模块 scope：login | totp | ssh | server
@@ -90,6 +91,7 @@ Future<void> showMoveItemToGroupDialog(
       builder: (ctx, setLocal) => AlertDialog(
         title: const Text('移到分组'),
         content: DropdownButtonFormField<String?>(
+          isExpanded: true,
           value: selected,
           decoration: const InputDecoration(labelText: '目标分组'),
           items: [
@@ -97,7 +99,11 @@ Future<void> showMoveItemToGroupDialog(
             ...groups.map(
               (g) => DropdownMenuItem(
                 value: g['id'] as String,
-                child: Text(g['name']?.toString() ?? ''),
+                child: Text(
+                  g['name']?.toString() ?? '',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ),
           ],
@@ -129,26 +135,39 @@ Widget buildGroupFilterBar({
   required ValueChanged<String?> onChanged,
   required VoidCallback onManage,
 }) {
-  return Row(
-    children: [
-      Expanded(
-        child: DropdownButtonFormField<String?>(
-          value: dropdownValueIfPresent(selectedGroupId, groups),
-          decoration: const InputDecoration(labelText: '分组筛选', isDense: true),
-          items: [
-            const DropdownMenuItem(value: null, child: Text('全部')),
-            ...groups.map(
-              (g) => DropdownMenuItem(
-                value: g['id'] as String,
-                child: Text(g['name']?.toString() ?? ''),
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 12),
+    child: Row(
+      children: [
+        Expanded(
+          child: DropdownButtonFormField<String?>(
+            value: dropdownValueIfPresent(selectedGroupId, groups),
+            isExpanded: true,
+            decoration: const InputDecoration(
+                labelText: '分组', prefixIcon: Icon(Icons.folder_outlined)),
+            items: [
+              const DropdownMenuItem(value: null, child: Text('全部')),
+              ...groups.map(
+                (g) => DropdownMenuItem(
+                  value: g['id'] as String,
+                  child: Text(
+                    g['name']?.toString() ?? '',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ),
-            ),
-          ],
-          onChanged: onChanged,
+            ],
+            onChanged: onChanged,
+          ),
         ),
-      ),
-      IconButton(onPressed: onManage, icon: const Icon(Icons.folder_outlined), tooltip: '管理分组'),
-    ],
+        const SizedBox(width: 8),
+        IconButton(
+            onPressed: onManage,
+            icon: const Icon(Icons.folder_outlined),
+            tooltip: '管理分组'),
+      ],
+    ),
   );
 }
 
@@ -178,8 +197,12 @@ List<Widget> buildGroupedListTiles({
   for (final key in keys) {
     final title = key == null ? '未分组' : (groupName[key] ?? '分组');
     out.add(Padding(
-      padding: const EdgeInsets.only(top: 8, bottom: 4),
-      child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+      padding: const EdgeInsets.only(left: 4, top: 8, bottom: 10),
+      child: Text('$title  ·  ${buckets[key]!.length}',
+          style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: AppColors.muted)),
     ));
     for (final row in buckets[key]!) {
       out.add(tileBuilder(row));

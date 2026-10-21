@@ -1,24 +1,49 @@
 <!doctype html>
-<html>
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CredPivot</title>
-    <style>
-      body { font-family: system-ui, sans-serif; min-width: 300px; padding: 12px; }
-      button { width: 100%; margin-top: 8px; }
-      #status { font-size: 12px; color: #555; white-space: pre-wrap; }
-      #mfa { font-size: 13px; margin-top: 8px; padding: 8px; background: #f4f4f4; border-radius: 6px; }
-      .ver { font-size: 11px; color: #888; }
-    </style>
+    <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <strong>CredPivot</strong>
-    <div class="ver" id="ver"></div>
-    <div id="status">未连接</div>
-    <div id="mfa" hidden></div>
-    <button id="connect">连接 App（需指纹）</button>
-    <button id="fillLogin">填充账号密码</button>
-    <button id="fillOtp">填充 MFA</button>
+    <header class="app-header">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.5 3.1 7.4 7.5 9.5 4.4-2.1 7.5-5 7.5-9.5V6L12 3Z"/><path d="m8.5 12 2.3 2.3 4.7-4.8"/></svg>
+      </div>
+      <div><h1>CredPivot</h1><p>你的本机凭据助手</p></div>
+      <span class="local-badge">本机</span>
+    </header>
+
+    <main>
+      <section class="connection-panel" aria-labelledby="connection-title">
+        <div class="section-label" id="connection-title">保险库连接</div>
+        <div id="status" role="status" aria-live="polite">正在连接本机 Agent…</div>
+        <button id="connect" class="primary-button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 10V7a4 4 0 0 1 8 0v3"/><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M12 14v3"/></svg>
+          连接与验证
+          <span aria-hidden="true">→</span>
+        </button>
+        <p class="connection-hint">请在 App 中解锁，并完成指纹或 App 内的主密码验证</p>
+      </section>
+
+      <div class="section-heading"><h2>快捷填充</h2><span>当前网页</span></div>
+      <div class="fill-actions">
+        <button id="fillLogin" class="action-button">
+          <span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="8" cy="9" r="4"/><path d="m11 12 9 9m-5-5 3-3m0 6 3-3"/></svg></span>
+          <span><strong>账号与密码</strong><small>填充当前网站的登录凭据</small></span>
+          <span class="chevron" aria-hidden="true">›</span>
+        </button>
+        <button id="fillOtp" class="action-button">
+          <span class="action-icon mfa-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 8h6M9 12h2m2 0h2m-6 4h6"/></svg></span>
+          <span><strong>MFA 验证码</strong><small>填充登录项关联的动态验证码</small></span>
+          <span class="chevron" aria-hidden="true">›</span>
+        </button>
+      </div>
+      <div id="mfa" hidden aria-live="polite"></div>
+    </main>
+
+    <footer><span>凭据由本机保险库提供</span><span id="ver"></span></footer>
     <script type="module" src="popup.js"></script>
   </body>
 </html>

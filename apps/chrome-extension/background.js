@@ -6,7 +6,7 @@ import {
 
 const HOST_NAME = "com.credpivot.chrome.m0";
 const NATIVE_IDLE_DISCONNECT_MS = 5 * 60 * 1000;
-const PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 2;
 const NATIVE_REQUEST_TIMEOUT_MS = 30_000;
 
 /** @type {chrome.runtime.Port | null} */
@@ -79,7 +79,20 @@ function connectNativeIfNeeded() {
   return nativePort;
 }
 
-function sendNative(message) {
+// session storage 跨后台休眠保留，浏览器退出、扩展重载或更新后自动失效。
+let browserSessionPromise;
+function browserSessionId() {
+  return browserSessionPromise ??= (async () => {
+    const stored = await chrome.storage.session.get("browser_session_id");
+    if (stored.browser_session_id) return stored.browser_session_id;
+    const id = uuid();
+    await chrome.storage.session.set({ browser_session_id: id });
+    return id;
+  })().catch((error) => { browserSessionPromise = null; throw error; });
+}
+
+async function sendNative(message) {
+  message.browser_session_id = await browserSessionId();
   return new Promise((resolve, reject) => {
     try {
       connectNativeIfNeeded();

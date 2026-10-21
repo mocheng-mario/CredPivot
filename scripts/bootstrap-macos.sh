@@ -31,6 +31,8 @@ cp "$HOST_BIN" "$RUNNER/credpivot-native-host"
 chmod +x "$RUNNER/credpivot-native-host"
 cp "$ASKPASS_BIN" "$RUNNER/credpivot-askpass"
 chmod +x "$RUNNER/credpivot-askpass"
+rm -rf "$RUNNER/credpivot-chrome-extension"
+cp -R "$ROOT/apps/chrome-extension" "$RUNNER/credpivot-chrome-extension"
 
 # 自定义 Swift 已在 apps/macos/macos/Runner/ 下；flutter create 后请确认 AppDelegate 等未被覆盖。
 

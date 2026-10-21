@@ -18,6 +18,8 @@ fn test_state() -> (IpcState, tempfile::TempDir) {
         peer_auth: PeerAuthConfig::default(),
         extension_gate_expires_ms: 0,
         extension_gate_last_native_ms: 0,
+        extension_gate_session: None,
+        extension_gate_pending_session: None,
         shutting_down: false,
     };
     (state, dir)
@@ -46,7 +48,7 @@ async fn locked_vault_rejects_sensitive_agent_ops() {
                 linked_totp_id: None,
                 group_id: None,
             },
-            RequestPeerContext::default(),
+            RequestPeerContext { from_app: true, ..Default::default() },
         )
         .await,
     );
@@ -60,7 +62,7 @@ async fn unlock_then_save_then_lock_blocks_again() {
         AgentRequest::VaultCreate {
             password: "test-vault-pass".into(),
         },
-        RequestPeerContext::default(),
+        RequestPeerContext { from_app: true, ..Default::default() },
     )
     .await;
     assert!(matches!(create, AgentResponse::Ok { .. }));
@@ -77,7 +79,7 @@ async fn unlock_then_save_then_lock_blocks_again() {
             linked_totp_id: None,
             group_id: None,
         },
-        RequestPeerContext::default(),
+        RequestPeerContext { from_app: true, ..Default::default() },
     )
     .await;
     assert!(matches!(save, AgentResponse::Ok { .. }));
@@ -85,7 +87,7 @@ async fn unlock_then_save_then_lock_blocks_again() {
     let lock = handle_request(
         &mut st,
         AgentRequest::Lock,
-        RequestPeerContext::default(),
+        RequestPeerContext { from_app: true, ..Default::default() },
     )
     .await;
     assert!(matches!(lock, AgentResponse::Ok { .. }));
@@ -103,7 +105,7 @@ async fn unlock_then_save_then_lock_blocks_again() {
                 linked_totp_id: None,
                 group_id: None,
             },
-            RequestPeerContext::default(),
+            RequestPeerContext { from_app: true, ..Default::default() },
         )
         .await,
     );
@@ -115,7 +117,7 @@ async fn status_reports_locked_without_unlock() {
     let resp = handle_request(
         &mut st,
         AgentRequest::Status,
-        RequestPeerContext::default(),
+        RequestPeerContext { from_app: true, ..Default::default() },
     )
     .await;
     let AgentResponse::Ok { payload, .. } = resp else {

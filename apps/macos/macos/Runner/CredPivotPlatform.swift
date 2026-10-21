@@ -58,8 +58,33 @@ final class CredPivotPlatform: NSObject {
         result(FlutterError(code: "bad_args", message: "expected json string", details: nil))
         return
       }
-      result(credpivotAgentRequestJsonString(json))
+      var response = credpivotAgentRequestJsonString(json)
+      if let requestData = json.data(using: .utf8),
+         let request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any],
+         request["type"] as? String == "status",
+         let responseData = response.data(using: .utf8),
+         var object = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+         var payload = object["payload"] as? [String: Any] {
+        payload["local_unlock_configured"] = LocalVaultUnlock.configured
+        payload["local_unlock_notice"] = LocalVaultUnlock.setupNotice
+        object["payload"] = payload
+        if let data = try? JSONSerialization.data(withJSONObject: object),
+           let updated = String(data: data, encoding: .utf8) { response = updated }
+      }
+      if let data = json.data(using: .utf8),
+         let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+         response.contains("\"type\":\"ok\"") {
+        switch request["type"] as? String {
+        case "vault_create", "vault_change_password", "vault_security_rebuild":
+          LocalVaultUnlock.enroll()
+        case "vault_export_ovb": _ = LocalVaultUnlock.persist(enroll: false)
+        case "vault_open_dir": LocalVaultUnlock.invalidate()
+        default: break
+        }
+      }
+      result(response)
     case "lockVault":
+      TouchIdGate.invalidateInFlightAuthentication()
       _ = credpivotAgentRequestJsonString(#"{"type":"lock"}"#)
       CredPivotPlatform.publishVaultLocked()
       result(nil)
@@ -68,18 +93,7 @@ final class CredPivotPlatform: NSObject {
         result(false)
         return
       }
-      guard
-        let data = try? JSONSerialization.data(withJSONObject: [
-          "type": "unlock_password",
-          "password": password,
-        ]),
-        let body = String(data: data, encoding: .utf8)
-      else {
-        result(false)
-        return
-      }
-      let resp = credpivotAgentRequestJsonString(body)
-      result(resp.contains("\"unlocked\":true"))
+      result(LocalVaultUnlock.unlockPassword(password))
     case "authenticateTouchId":
       let reason = (call.arguments as? String) ?? "CredPivot 需要验证您的身份"
       TouchIdGate.shared.authenticateSensitiveOperation(reason: reason) { ok in
@@ -88,21 +102,7 @@ final class CredPivotPlatform: NSObject {
         }
       }
     case "unlockTouchId":
-      TouchIdGate.shared.authenticateForUnlock { ok, token in
-        DispatchQueue.main.async {
-          guard ok, let token else {
-            result(false)
-            return
-          }
-          let escaped = token.replacingOccurrences(of: "\"", with: "\\\"")
-          let body = #"{"type":"unlock_touch_id_token","token":"\#(escaped)"}"#
-          let unlocked = credpivotAgentRequestJsonString(body).contains("\"unlocked\":true")
-          if unlocked {
-            (NSApp.delegate as? AppDelegate)?.showMainWindow()
-          }
-          result(unlocked)
-        }
-      }
+      LocalVaultUnlock.unlockBiometric { ok in result(ok) }
     case "registerLoginItem":
       let enabled = (call.arguments as? Bool) ?? true
       LoginItemRegistrar.setEnabled(enabled, result: result)
@@ -283,183 +283,283 @@ enum ExtensionGateCoordinator {
     if pending {
       return
     }
-    // 门槛仍有效时清掉陈旧 pending，避免重复弹指纹。
-    let status = credpivotAgentRequestJsonString(#"{"type":"status"}"#)
-    if status.contains("\"extension_gate_active\":true") {
-      try? FileManager.default.removeItem(at: pendingPath)
-      return
-    }
+    guard !TouchIdGate.isAuthenticating,
+          let session = try? String(contentsOf: pendingPath, encoding: .utf8),
+          UUID(uuidString: session) != nil else { return }
     pending = true
     NSApp.activate(ignoringOtherApps: true)
-    let epoch = TouchIdGate.beginAuthentication()
-    TouchIdGate.shared.authenticateForExtensionGate(reason: "允许 Chrome 扩展访问已解锁凭据") { ok in
-      defer {
-        pending = false
-      }
-      let valid = TouchIdGate.endAuthentication(epoch)
-      if valid && ok {
-        _ = credpivotAgentRequestJsonString(
-          #"{"type":"extension_gate_grant","ttl_secs":0}"#
-        )
-        try? FileManager.default.removeItem(at: pendingPath)
+    TouchIdGate.shared.authenticateForExtensionGate(reason: "允许当前 Chrome 会话访问保险库") { ok in
+      pending = false
+      let current = try? String(contentsOf: pendingPath, encoding: .utf8)
+      guard current == session else { return }
+      if ok {
+        _ = LocalVaultUnlock.request(["type": "extension_gate_grant", "session_id": session, "ttl_secs": 0])
       } else {
-        try? FileManager.default.removeItem(at: pendingPath)
         snoozeUntilMs = Date().timeIntervalSince1970 * 1000 + 30_000
+      }
+      // 取消后不自动重弹；用户重新点扩展连接时再生成请求。
+      if (try? String(contentsOf: pendingPath, encoding: .utf8)) == session {
+        try? FileManager.default.removeItem(at: pendingPath)
       }
     }
   }
 }
 
-// MARK: - Touch ID scheme A (LAContext gate + login keychain wrapper)
+// MARK: - 本机解锁（Secure Enclave + 登录钥匙串，不依赖共享钥匙串 entitlement）
+
+enum LocalVaultUnlock {
+  private static let service = "com.credpivot.macos.local-unlock.v1"
+  private static let materialAccount = "encrypted-vmk"
+  private static let policyAccount = "verification-policy"
+  private(set) static var setupNotice = ""
+
+  static func enroll() {
+    if persist(enroll: true) {
+      setupNotice = ""
+    } else {
+      _ = SecItemDelete(query(materialAccount) as CFDictionary)
+      _ = SecItemDelete(query(policyAccount) as CFDictionary)
+      setupNotice = "本机指纹解锁材料保存失败，当前已通过主密码解锁；下次请使用主密码。请检查 Touch ID 和钥匙串访问权限。"
+    }
+  }
+
+  static func request(_ body: [String: Any]) -> [String: Any]? {
+    guard let data = try? JSONSerialization.data(withJSONObject: body),
+          let json = String(data: data, encoding: .utf8),
+          let response = credpivotAgentRequestJsonString(json).data(using: .utf8),
+          let result = try? JSONSerialization.jsonObject(with: response) as? [String: Any],
+          result["type"] as? String == "ok" else { return nil }
+    return result["payload"] as? [String: Any]
+  }
+
+  private static func query(_ account: String) -> [String: Any] {
+    // 临时签名不能假定具有 Data Protection Keychain 的访问组权限。
+    // 登录钥匙串中只保存 Secure Enclave 加密材料，绝不保存主密码或明文 VMK。
+    [kSecClass as String: kSecClassGenericPassword,
+     kSecAttrService as String: service, kSecAttrAccount as String: account,
+     kSecUseDataProtectionKeychain as String: false]
+  }
+
+  private static func read(_ account: String, allowPrompt: Bool = true) -> Data? {
+    var q = query(account)
+    q[kSecReturnData as String] = true
+    q[kSecMatchLimit as String] = kSecMatchLimitOne
+    if !allowPrompt {
+      let context = LAContext()
+      context.interactionNotAllowed = true
+      q[kSecUseAuthenticationContext as String] = context
+    }
+    var item: CFTypeRef?
+    guard SecItemCopyMatching(q as CFDictionary, &item) == errSecSuccess else { return nil }
+    return item as? Data
+  }
+
+  private static func write(_ account: String, data: Data) -> Bool {
+    let q = query(account)
+    let status = SecItemUpdate(q as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+    if status == errSecSuccess { return true }
+    guard status == errSecItemNotFound else { return false }
+    var add = q
+    add[kSecValueData as String] = data
+    return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+  }
+
+  static var configured: Bool { read(materialAccount, allowPrompt: false) != nil }
+
+  static func restorePolicy() {
+    if request(["type": "status"])?["unlocked"] as? Bool == true { return }
+    guard let data = read(policyAccount, allowPrompt: false),
+          let policy = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+    _ = request(["type": "local_unlock_policy_set", "policy": policy])
+  }
+
+  static func invalidate() {
+    _ = SecItemDelete(query(materialAccount) as CFDictionary)
+    _ = SecItemDelete(query(policyAccount) as CFDictionary)
+    _ = request(["type": "local_unlock_policy_set", "policy": ["binding": "", "last_master_ms": 0, "last_unlock_ms": 0]])
+  }
+
+  @discardableResult
+  static func persist(enroll: Bool) -> Bool {
+    guard let material = request(["type": "local_unlock_material"])?["material"] as? [String: Any],
+          let policy = material["policy"] as? [String: Any],
+          let binding = policy["binding"] as? String,
+          let policyData = try? JSONSerialization.data(withJSONObject: policy) else { return false }
+    if enroll {
+      guard SecureEnclave.isAvailable,
+            let encoded = material["vmk"] as? String,
+            var vmk = Data(base64Encoded: encoded),
+            let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                                                        [.privateKeyUsage, .biometryCurrentSet], nil) else { return false }
+      defer { vmk.resetBytes(in: 0..<vmk.count) }
+      do {
+        // 临时 Secure Enclave 密钥的 dataRepresentation 是硬件封装数据，不是私钥。
+        // 加密只用其公钥；解密必须由同一设备、同一指纹集合完成私钥运算。
+        let enclave = try SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl: access)
+        let ephemeral = P256.KeyAgreement.PrivateKey()
+        let secret = try ephemeral.sharedSecretFromKeyAgreement(with: enclave.publicKey)
+        let aad = Data(binding.utf8)
+        let key = secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: aad,
+                                                sharedInfo: Data("CredPivot local unlock v1".utf8), outputByteCount: 32)
+        let sealed = try AES.GCM.seal(vmk, using: key, authenticating: aad)
+        guard let combined = sealed.combined else { return false }
+        let record: [String: Any] = ["enclave_key": enclave.dataRepresentation.base64EncodedString(),
+                                    "ephemeral_public_key": ephemeral.publicKey.x963Representation.base64EncodedString(),
+                                    "sealed_vmk": combined.base64EncodedString(), "binding": binding]
+        let recordData = try JSONSerialization.data(withJSONObject: record)
+        guard write(materialAccount, data: recordData) else { return false }
+      } catch { return false }
+    }
+    return write(policyAccount, data: policyData)
+  }
+
+  static func unlockPassword(_ password: String) -> Bool {
+    TouchIdGate.invalidateInFlightAuthentication()
+    guard request(["type": "unlock_password", "password": password])?["unlocked"] as? Bool == true else { return false }
+    enroll()
+    return true
+  }
+
+  static func verifyPassword(_ password: String) -> Bool {
+    TouchIdGate.invalidateInFlightAuthentication()
+    let unlocked = request(["type": "status"])?["unlocked"] as? Bool == true
+    if !unlocked { return unlockPassword(password) }
+    guard request(["type": "verify_master_password", "password": password])?["verified"] as? Bool == true else { return false }
+    enroll()
+    return true
+  }
+
+  static func unlockBiometric(completion: @escaping (Bool) -> Void) {
+    guard !TouchIdGate.isAuthenticating,
+          request(["type": "status"])?["master_password_required"] as? Bool == false,
+          let data = read(materialAccount),
+          let record = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+          let binding = record["binding"],
+          let policyData = read(policyAccount),
+          let storedPolicy = try? JSONSerialization.jsonObject(with: policyData) as? [String: Any],
+          storedPolicy["binding"] as? String == binding,
+          let enclaveData = record["enclave_key"].flatMap({ Data(base64Encoded: $0) }),
+          let publicData = record["ephemeral_public_key"].flatMap({ Data(base64Encoded: $0) }),
+          let sealedData = record["sealed_vmk"].flatMap({ Data(base64Encoded: $0) }) else { completion(false); return }
+    let context = LAContext()
+    context.localizedReason = "解锁 CredPivot 保险库"
+    context.localizedFallbackTitle = ""
+    let epoch = TouchIdGate.beginAuthentication(context: context)
+    DispatchQueue.global(qos: .userInitiated).async {
+      let decrypted: Data?
+      do {
+        let enclave = try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: enclaveData,
+                                                                    authenticationContext: context)
+        let publicKey = try P256.KeyAgreement.PublicKey(x963Representation: publicData)
+        let secret = try enclave.sharedSecretFromKeyAgreement(with: publicKey)
+        let aad = Data(binding.utf8)
+        let key = secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: aad,
+                                                sharedInfo: Data("CredPivot local unlock v1".utf8), outputByteCount: 32)
+        decrypted = try AES.GCM.open(AES.GCM.SealedBox(combined: sealedData), using: key, authenticating: aad)
+      } catch { decrypted = nil }
+      DispatchQueue.main.async {
+        var vmk = decrypted
+        defer { if let count = vmk?.count { vmk?.resetBytes(in: 0..<count) } }
+        guard TouchIdGate.endAuthentication(epoch), let key = vmk else { completion(false); return }
+        let material: [String: Any] = ["vmk": key.base64EncodedString(), "policy": storedPolicy]
+        let ok = request(["type": "unlock_local", "material": material])?["unlocked"] as? Bool == true
+        if ok { _ = persist(enroll: false) }
+        completion(ok)
+      }
+    }
+  }
+}
 
 final class TouchIdGate {
   static let shared = TouchIdGate()
-  /// 生物识别弹窗期间勿因 resign-active 误锁 Agent。
   static var isAuthenticating = false
-  /// 锁屏/睡眠时递增，使在途认证结果失效。
   private(set) static var authenticationEpoch: UInt64 = 0
+  private static var activeContext: LAContext?
 
   static func invalidateInFlightAuthentication() {
-    authenticationEpoch += 1
+    authenticationEpoch &+= 1
+    activeContext?.invalidate()
+    activeContext = nil
     isAuthenticating = false
   }
 
-  static func beginAuthentication() -> UInt64 {
+  static func beginAuthentication(context: LAContext? = nil) -> UInt64 {
+    authenticationEpoch &+= 1
+    activeContext?.invalidate()
+    activeContext = context
     isAuthenticating = true
     return authenticationEpoch
   }
 
   static func endAuthentication(_ epoch: UInt64) -> Bool {
+    guard epoch == authenticationEpoch else { return false }
     isAuthenticating = false
-    return epoch == authenticationEpoch
+    activeContext = nil
+    return true
   }
 
-  private let keychainService = "com.credpivot.macos.touchid.m0"
-  private let keychainAccount = "vmk-wrapper-token"
+  private func askMasterPassword(reason: String, completion: @escaping (Bool) -> Void) {
+    let epoch = TouchIdGate.beginAuthentication()
+    NSApp.activate(ignoringOtherApps: true)
+    let alert = NSAlert()
+    alert.messageText = "验证保险库主密码"
+    alert.informativeText = reason
+    let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+    field.placeholderString = "保险库主密码（不是 Mac 登录密码）"
+    alert.accessoryView = field
+    alert.addButton(withTitle: "验证")
+    alert.addButton(withTitle: "取消")
+    alert.window.initialFirstResponder = field
+    let accepted = alert.runModal() == .alertFirstButtonReturn
+    defer { field.stringValue = "" }
+    guard TouchIdGate.endAuthentication(epoch), accepted else { completion(false); return }
+    completion(LocalVaultUnlock.verifyPassword(field.stringValue))
+  }
 
-  /// Chrome 扩展与 App 敏感操作使用相同的系统身份验证，避免手动切换认证上下文。
   func authenticateForExtensionGate(reason: String, completion: @escaping (Bool) -> Void) {
-    authenticateSensitiveOperation(reason: reason, completion: completion)
+    authenticate(reason: reason, allowReuse: false, completion: completion)
   }
 
-  /// 敏感操作门槛：由系统处理 Touch ID 与 Mac 登录密码回退，不访问钥匙串。
   func authenticateSensitiveOperation(reason: String, completion: @escaping (Bool) -> Void) {
-    let context = LAContext()
-    var error: NSError?
-    guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
-      completion(false)
+    authenticate(reason: reason, allowReuse: true, completion: completion)
+  }
+
+  private func authenticate(reason: String, allowReuse: Bool, completion: @escaping (Bool) -> Void) {
+    guard !TouchIdGate.isAuthenticating else { completion(false); return }
+    let status = LocalVaultUnlock.request(["type": "status"]) ?? [:]
+    if allowReuse && status["sensitive_auth_active"] as? Bool == true { completion(true); return }
+    if status["master_password_required"] as? Bool != false {
+      askMasterPassword(reason: reason, completion: completion)
       return
     }
-    let epoch = TouchIdGate.beginAuthentication()
-    context.evaluatePolicy(
-      .deviceOwnerAuthentication,
-      localizedReason: reason
-    ) { success, _ in
-      DispatchQueue.main.async {
-        let valid = TouchIdGate.endAuthentication(epoch)
-        completion(valid && success)
+    if status["unlocked"] as? Bool != true {
+      let context = LAContext()
+      var error: NSError?
+      if !LocalVaultUnlock.configured || !context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
+        askMasterPassword(reason: reason, completion: completion)
+      } else {
+        LocalVaultUnlock.unlockBiometric(completion: completion)
       }
+      return
     }
-  }
-
-  /// Touch ID 解锁 Agent 门槛：指纹通过后读取/创建钥匙串中的门槛令牌。
-  func authenticateForUnlock(completion: @escaping (Bool, String?) -> Void) {
     let context = LAContext()
+    context.localizedFallbackTitle = "使用主密码"
     var error: NSError?
     guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
-      completion(false, nil)
+      askMasterPassword(reason: reason, completion: completion)
       return
     }
-    let epoch = TouchIdGate.beginAuthentication()
-    context.evaluatePolicy(
-      .deviceOwnerAuthenticationWithBiometrics,
-      localizedReason: "CredPivot：Touch ID 解锁"
-    ) { success, _ in
-      guard TouchIdGate.endAuthentication(epoch), success else {
-        completion(false, nil)
-        return
+    let epoch = TouchIdGate.beginAuthentication(context: context)
+    context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, error in
+      DispatchQueue.main.async {
+        guard TouchIdGate.endAuthentication(epoch) else { completion(false); return }
+        if success {
+          completion(LocalVaultUnlock.request(["type": "sensitive_auth_grant"])?["verified"] as? Bool == true)
+        } else if let error = error as? LAError, error.code == .userFallback || error.code == .biometryLockout {
+          self.askMasterPassword(reason: reason, completion: completion)
+        } else { completion(false) }
       }
-      let token = self.loadOrCreateToken(context: context)
-      completion(true, token)
     }
-  }
-
-  private func loadOrCreateToken(context: LAContext) -> String {
-    if let existing = KeychainLoginStore.read(
-      service: keychainService,
-      account: keychainAccount,
-      context: context
-    ) {
-      return existing
-    }
-    if let legacy = KeychainLoginStore.read(
-      service: keychainService,
-      account: keychainAccount,
-      context: nil
-    ) {
-      return legacy
-    }
-    let token = UUID().uuidString
-    _ = KeychainLoginStore.writeBiometricProtected(
-      service: keychainService,
-      account: keychainAccount,
-      value: token
-    )
-    _ = agentConfigureTouchIdToken(token)
-    return token
-  }
-
-  private func agentConfigureTouchIdToken(_ token: String) -> Bool {
-    let escaped = token.replacingOccurrences(of: "\"", with: "\\\"")
-    let body = #"{"type":"set_touch_id_token","token":"\#(escaped)"}"#
-    return credpivotAgentRequestJsonString(body).contains("\"configured\":true")
-  }
-}
-
-enum KeychainLoginStore {
-  static func writeBiometricProtected(service: String, account: String, value: String) -> Bool {
-    let data = value.data(using: .utf8) ?? Data()
-    var createError: Unmanaged<CFError>?
-    guard let access = SecAccessControlCreateWithFlags(
-      kCFAllocatorDefault,
-      kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-      .biometryCurrentSet,
-      &createError
-    ) else {
-      return false
-    }
-    let deleteQuery: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: service,
-      kSecAttrAccount as String: account,
-    ]
-    SecItemDelete(deleteQuery as CFDictionary)
-    let addQuery: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: service,
-      kSecAttrAccount as String: account,
-      kSecAttrAccessControl as String: access,
-      kSecValueData as String: data,
-    ]
-    let status = SecItemAdd(addQuery as CFDictionary, nil)
-    return status == errSecSuccess
-  }
-
-  static func read(service: String, account: String, context: LAContext?) -> String? {
-    var query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: service,
-      kSecAttrAccount as String: account,
-      kSecReturnData as String: true,
-      kSecMatchLimit as String: kSecMatchLimitOne,
-    ]
-    if let context {
-      query[kSecUseAuthenticationContext as String] = context
-    }
-    var item: CFTypeRef?
-    let status = SecItemCopyMatching(query as CFDictionary, &item)
-    guard status == errSecSuccess, let data = item as? Data else { return nil }
-    return String(data: data, encoding: .utf8)
   }
 }
 
@@ -502,15 +602,31 @@ enum ChromeHostInstaller {
   static func status() -> [String: Any] {
     let stored = storedExtensionId() ?? ""
     let manifestId = manifestExtensionId()
+    let bundledHost = resolveSourceHostBinary()
+    var trustedHostConfigured = false
+    var installedHostCurrent = false
+    if let bundledHost {
+      if let trusted = getenv("CREDPIVOT_TRUSTED_NATIVE_HOST") {
+        trustedHostConfigured = URL(fileURLWithPath: String(cString: trusted)).resolvingSymlinksInPath()
+          == URL(fileURLWithPath: bundledHost).resolvingSymlinksInPath()
+      }
+      if let source = try? Data(contentsOf: URL(fileURLWithPath: bundledHost)),
+         let installed = try? Data(contentsOf: installedHostPath) {
+        installedHostCurrent = SHA256.hash(data: source) == SHA256.hash(data: installed)
+      }
+    }
     var out: [String: Any] = [
       "host_name": hostName,
       "manifest_path": manifestURL.path,
       "manifest_exists": FileManager.default.fileExists(atPath: manifestURL.path),
       "installed_host_path": installedHostPath.path,
       "installed_host_exists": FileManager.default.fileExists(atPath: installedHostPath.path),
+      "trusted_host_configured": trustedHostConfigured,
+      "installed_host_current": installedHostCurrent,
+      "manifest_host_matches_installed": false,
       "stored_extension_id": stored,
       "manifest_extension_id": manifestId ?? "",
-      "host_id_matches_manifest": manifestId == nil || stored.isEmpty || manifestId == stored,
+      "host_id_matches_manifest": !stored.isEmpty && manifestId == stored,
       "extension_dir_path": extensionDirectoryPath() ?? "",
       "extension_dir_exists": extensionDirectoryPath() != nil,
     ]
@@ -518,6 +634,7 @@ enum ChromeHostInstaller {
        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
       out["manifest_allowed_origins"] = json["allowed_origins"]
       out["manifest_host_binary"] = json["path"]
+      out["manifest_host_matches_installed"] = (json["path"] as? String) == installedHostPath.path
     }
     return out
   }
@@ -589,18 +706,9 @@ enum ChromeHostInstaller {
   }
 
   private static func resolveSourceHostBinary() -> String? {
+    // 校验基准必须来自当前 App，不能把待校验的安装副本作为可信源。
     if let bundled = Bundle.main.path(forResource: "credpivot-native-host", ofType: nil) {
       return bundled
-    }
-    let pathFile = credPivotDir.appendingPathComponent("native_host_binary.path")
-    if let raw = try? String(contentsOf: pathFile, encoding: .utf8) {
-      let p = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-      if FileManager.default.fileExists(atPath: p) {
-        return p
-      }
-    }
-    if FileManager.default.fileExists(atPath: installedHostPath.path) {
-      return installedHostPath.path
     }
     return nil
   }
@@ -610,7 +718,7 @@ enum ChromeHostInstaller {
       throw NSError(
         domain: "CredPivot",
         code: 1,
-        userInfo: [NSLocalizedDescriptionKey: "找不到 native-host，请先 make macos-build"]
+        userInfo: [NSLocalizedDescriptionKey: "App 包内缺少 native-host，请执行 make macos-build-debug 后完全退出并重新打开 App"]
       )
     }
     try FileManager.default.createDirectory(at: credPivotDir, withIntermediateDirectories: true)
@@ -647,7 +755,7 @@ enum ChromeHostInstaller {
     return s
   }
 
-  /// Agent 对端校验与 Chrome 清单中的 host 路径一致（优先 ~/.credpivot 副本）。
+  /// Agent 使用 App 包内原件校验 Chrome 启动的安装副本。
   static func applyTrustedNativeHostEnv() {
     guard let bundled = Bundle.main.path(forResource: "credpivot-native-host", ofType: nil),
           !bundled.isEmpty else {

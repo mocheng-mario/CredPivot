@@ -1,7 +1,4 @@
-use crate::extension_gate::{
-    clear_persisted_extension_gate, extension_gate_idle_secs, persist_extension_gate_until,
-    read_persisted_extension_gate_until,
-};
+use crate::extension_gate::{clear_persisted_extension_gate, extension_gate_idle_secs};
 use crate::error::{AgentError, Result};
 use crate::peer_auth::{
     authorize_peer, peer_executable_path, peer_is_askpass_executable, peer_is_native_host_executable,
@@ -24,6 +21,9 @@ const FILL_TTL_MS: u128 = 60_000;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RequestPeerContext {
+    /// 只有进程内 FFI 可以读取解锁材料或授予身份验证，Unix socket 不具备此权限。
+    pub from_app: bool,
+    pub browser_session: Option<uuid::Uuid>,
     /// Chrome Native Messaging host 经 Unix socket 发起的请求。
     pub from_native_host: bool,
     /// credpivot-askpass 经 Unix socket 发起的请求。
@@ -39,11 +39,31 @@ pub struct IpcState {
     pub extension_gate_expires_ms: u128,
     /// 最近一次扩展（native-host）敏感操作时间（毫秒）。
     pub extension_gate_last_native_ms: u128,
+    pub extension_gate_session: Option<uuid::Uuid>,
+    pub extension_gate_pending_session: Option<uuid::Uuid>,
     pub shutting_down: bool,
 }
 
 fn extension_gate_active(st: &IpcState) -> bool {
-    now_ms() <= st.extension_gate_expires_ms
+    st.extension_gate_session.is_some() && now_ms() <= st.extension_gate_expires_ms
+}
+
+pub fn revoke_extension_gate(st: &mut IpcState) {
+    st.extension_gate_expires_ms = 0;
+    st.extension_gate_last_native_ms = 0;
+    st.extension_gate_session = None;
+    st.extension_gate_pending_session = None;
+    st.pending_fills.clear();
+    clear_persisted_extension_gate();
+    let _ = crate::paths::clear_extension_gate_pending();
+}
+
+fn request_extension_gate(st: &mut IpcState, session: uuid::Uuid) {
+    if st.extension_gate_pending_session != Some(session) || !crate::paths::extension_gate_pending_path().exists() {
+        st.extension_gate_pending_session = Some(session);
+        let _ = crate::paths::ensure_runtime_dir();
+        let _ = std::fs::write(crate::paths::extension_gate_pending_path(), session.to_string());
+    }
 }
 
 fn maybe_expire_extension_gate_idle(st: &mut IpcState) {
@@ -53,17 +73,18 @@ fn maybe_expire_extension_gate_idle(st: &mut IpcState) {
     let idle_ms = extension_gate_idle_secs() as u128 * 1000;
     let last = st.extension_gate_last_native_ms;
     if last > 0 && now_ms() > last + idle_ms {
-        st.extension_gate_expires_ms = 0;
-        clear_persisted_extension_gate();
+        revoke_extension_gate(st);
     }
 }
 
-fn grant_extension_gate(st: &mut IpcState, ttl_secs: u64) {
+fn grant_extension_gate(st: &mut IpcState, session: uuid::Uuid, ttl_secs: u64) {
+    if st.extension_gate_session != Some(session) { st.pending_fills.clear(); }
     let ttl = ttl_secs.max(1);
     let until = now_ms() + ttl as u128 * 1000;
     st.extension_gate_expires_ms = until;
     st.extension_gate_last_native_ms = now_ms();
-    let _ = persist_extension_gate_until(until);
+    st.extension_gate_session = Some(session);
+    st.extension_gate_pending_session = None;
 }
 
 fn touch_extension_gate_native_activity(st: &mut IpcState) {
@@ -74,43 +95,20 @@ fn touch_extension_gate_native_activity(st: &mut IpcState) {
     let extend = now_ms() + extension_gate_idle_secs() as u128 * 1000;
     if extend > st.extension_gate_expires_ms {
         st.extension_gate_expires_ms = extend;
-        let _ = persist_extension_gate_until(extend);
     }
 }
 
 pub fn load_extension_gate_into_state(st: &mut IpcState) {
-    let until = read_persisted_extension_gate_until();
-    if until > now_ms() {
-        st.extension_gate_expires_ms = until;
-        if st.extension_gate_last_native_ms == 0 {
-            st.extension_gate_last_native_ms = now_ms();
-        }
-    }
+    // App/Agent 重启后不恢复旧授权；磁盘上只允许保留待确认标记。
+    revoke_extension_gate(st);
 }
 
 /// Chrome Native Host 不得直接调用的高危/旁路接口。
 fn native_host_request_forbidden(req: &AgentRequest) -> bool {
-    matches!(
-        req,
-        AgentRequest::TotpReveal { .. }
-            | AgentRequest::RecoveryCodesList
-            | AgentRequest::RecoveryCodesCreate { .. }
-            | AgentRequest::RecoveryCodesUpdate { .. }
-            | AgentRequest::CredentialList { .. }
-            | AgentRequest::CredentialGet { .. }
-            | AgentRequest::CredentialUpdate { .. }
-            | AgentRequest::ImportBitwarden { .. }
-            | AgentRequest::SecuritySummary
-            | AgentRequest::SshKeyList
-            | AgentRequest::SshKeyGenerate { .. }
-            | AgentRequest::SshSelectKey { .. }
-            | AgentRequest::SshSessionPrepare { .. }
-            | AgentRequest::SshAskpass { .. }
-            | AgentRequest::VaultExportOvb { .. }
-            | AgentRequest::VaultChangePassword { .. }
-            | AgentRequest::DiagnosticLogTail { .. }
-            | AgentRequest::DiagnosticLogSetLevel { .. }
-    )
+    !matches!(req, AgentRequest::Ping | AgentRequest::Status | AgentRequest::ExtensionConnect
+        | AgentRequest::CredentialSave { .. } | AgentRequest::CredentialSuggest { .. }
+        | AgentRequest::CredentialFillPrepare { .. } | AgentRequest::CredentialFillConsume { .. }
+        | AgentRequest::TotpCode { .. } | AgentRequest::CancelRequest { .. })
 }
 
 fn req_requires_extension_gate(req: &AgentRequest) -> bool {
@@ -153,7 +151,7 @@ async fn handle_ipc_connection(
         .map_err(|e| AgentError::Protocol(e.to_string()))?;
 
     let peer_pid = peer_pid(stream)?;
-    let peer = match peer_context_for_pid(peer_pid, &state).await {
+    let mut peer = match peer_context_for_pid(peer_pid, &state).await {
         Ok(p) => p,
         Err(e) => {
             return write_ipc_response(
@@ -162,6 +160,17 @@ async fn handle_ipc_connection(
             )
             .await;
         }
+    };
+
+    let req = match req {
+        AgentRequest::BrowserRequest { session_id, request } if peer.from_native_host => {
+            match uuid::Uuid::parse_str(&session_id) {
+                Ok(id) => { peer.browser_session = Some(id); *request }
+                Err(_) => return write_ipc_response(stream, AgentResponse::err("bad_args", "invalid browser session")).await,
+            }
+        }
+        req if !peer.from_native_host => req,
+        _ => return write_ipc_response(stream, AgentResponse::err("protocol_mismatch", "reload the updated CredPivot extension")).await,
     };
 
     expire_idle_session(&state).await;
@@ -196,6 +205,8 @@ async fn peer_context_for_pid(
         let from_native_host = peer_is_native_host_executable(&path, &cfg);
         let from_askpass = peer_is_askpass_executable(&path);
         Ok(RequestPeerContext {
+            from_app: false,
+            browser_session: None,
             from_native_host,
             from_askpass,
         })
@@ -232,7 +243,7 @@ pub async fn handle_request(
             match code.as_str() {
                 "locked" => crate::diagnostics::warn(operation, "request rejected: vault locked"),
                 "bad_unlock" => crate::diagnostics::warn(operation, "authentication failed"),
-                "extension_gate_required" => {
+                "extension_gate_required" | "auth_required" => {
                     crate::diagnostics::debug(operation, "identity confirmation required");
                 }
                 "forbidden" | "peer_denied" | "askpass_denied" => {
@@ -259,6 +270,12 @@ async fn handle_request_inner(
     if st.shutting_down {
         return AgentResponse::err("shutting_down", "agent is shutting down");
     }
+    if matches!(&req, AgentRequest::LocalUnlockPolicySet { .. } | AgentRequest::LocalUnlockMaterial
+        | AgentRequest::UnlockLocal { .. } | AgentRequest::VerifyMasterPassword { .. }
+        | AgentRequest::SensitiveAuthGrant | AgentRequest::ExtensionGateGrant { .. }
+        | AgentRequest::UnlockPassword { .. } | AgentRequest::VaultCreate { .. }) && !peer.from_app {
+        return AgentResponse::err("forbidden", "authentication control is App-only");
+    }
     {
         let mut v = st.vault.lock().await;
         if v.unlocked {
@@ -266,6 +283,11 @@ async fn handle_request_inner(
         }
     }
     maybe_expire_extension_gate_idle(st);
+    let vault_locked = !st.vault.lock().await.unlocked;
+    if vault_locked {
+        st.pending_ssh_sessions.clear();
+        if st.extension_gate_session.is_some() { revoke_extension_gate(st); }
+    }
     if peer.from_native_host && native_host_request_forbidden(&req) {
         return AgentResponse::err(
             "forbidden",
@@ -273,8 +295,8 @@ async fn handle_request_inner(
         );
     }
     if peer.from_native_host && req_requires_extension_gate(&req) {
-        if !extension_gate_active(st) {
-            let _ = crate::paths::touch_extension_gate_pending_if_absent();
+        if !extension_gate_active(st) || st.extension_gate_session != peer.browser_session {
+            if let Some(session) = peer.browser_session { request_extension_gate(st, session); }
             return AgentResponse::err(
                 "extension_gate_required",
                 "请在 CredPivot App 中完成指纹确认后重试",
@@ -282,17 +304,32 @@ async fn handle_request_inner(
         }
     }
     let bump_gate_activity = peer.from_native_host && req_requires_extension_gate(&req);
+    if peer.from_app && matches!(&req,
+        AgentRequest::CredentialGet { .. } | AgentRequest::CredentialUpdate { .. }
+        | AgentRequest::CredentialTrash { .. } | AgentRequest::TotpCode { .. }
+        | AgentRequest::TotpReveal { .. } | AgentRequest::RecoveryCodesGet { .. }
+        | AgentRequest::RecoveryCodesUpdate { .. }
+        | AgentRequest::ServerProfileUpdate { .. } | AgentRequest::SshSessionPrepare { .. }
+        | AgentRequest::ImportBitwarden { .. } | AgentRequest::VaultChangePassword { .. }
+        | AgentRequest::VaultExportOvb { .. } | AgentRequest::RestorePointRecover { .. }
+        | AgentRequest::VaultMigrate { .. } | AgentRequest::VaultSecurityRebuild { .. }) {
+        let v = st.vault.lock().await;
+        if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
+        if !v.sensitive_auth_active() { return AgentResponse::err("auth_required", "identity verification required"); }
+    }
     let resp = match req {
+        AgentRequest::BrowserRequest { .. } => AgentResponse::err("forbidden", "nested browser request"),
         AgentRequest::Ping => AgentResponse::ok(json!({ "pong": true })),
         AgentRequest::ExtensionConnect => {
             let v = st.vault.lock().await;
             let unlocked = v.unlocked;
-            let gate = extension_gate_active(st);
-            if unlocked && !gate {
-                let _ = crate::paths::touch_extension_gate_pending_if_absent();
+            let gate = extension_gate_active(st) && st.extension_gate_session == peer.browser_session;
+            drop(v);
+            if !gate {
+                if let Some(session) = peer.browser_session { request_extension_gate(st, session); }
                 return AgentResponse::err(
                     "extension_gate_required",
-                    "请在 CredPivot App 中完成指纹或系统密码确认",
+                    "请在 CredPivot App 中完成指纹或主密码确认",
                 );
             }
             AgentResponse::ok(json!({
@@ -302,13 +339,15 @@ async fn handle_request_inner(
                 "extension_gate_idle_secs": extension_gate_idle_secs(),
             }))
         }
-        AgentRequest::ExtensionGateGrant { ttl_secs } => {
-            if peer.from_native_host {
-                return AgentResponse::err("peer_denied", "extension gate grant from app only");
+        AgentRequest::ExtensionGateGrant { session_id, ttl_secs } => {
+            let session = uuid::Uuid::parse_str(&session_id).ok();
+            if session.is_none() || session != st.extension_gate_pending_session {
+                return AgentResponse::err("conflict", "browser request changed; retry connection");
             }
+            if !st.vault.lock().await.sensitive_auth_active() { return AgentResponse::err("auth_required", "identity verification required"); }
             let idle = extension_gate_idle_secs();
-            let ttl = if ttl_secs == 0 { idle } else { ttl_secs };
-            grant_extension_gate(st, ttl);
+            let ttl = if ttl_secs == 0 { idle } else { ttl_secs.min(idle) };
+            grant_extension_gate(st, session.unwrap(), ttl);
             let _ = crate::paths::clear_extension_gate_pending();
             AgentResponse::ok(json!({
                 "extension_gate_active": true,
@@ -322,7 +361,7 @@ async fn handle_request_inner(
             if let Some(obj) = payload.as_object_mut() {
                 obj.insert(
                     "extension_gate_active".into(),
-                    json!(extension_gate_active(st)),
+                    json!(extension_gate_active(st) && (!peer.from_native_host || st.extension_gate_session == peer.browser_session)),
                 );
                 obj.insert(
                     "extension_gate_idle_secs".into(),
@@ -333,10 +372,8 @@ async fn handle_request_inner(
         }
         AgentRequest::Lock => {
             st.vault.lock().await.lock();
-            st.pending_fills.clear();
-            st.extension_gate_expires_ms = 0;
-            st.extension_gate_last_native_ms = 0;
-            clear_persisted_extension_gate();
+            revoke_extension_gate(st);
+            st.pending_ssh_sessions.clear();
             AgentResponse::ok(json!({ "locked": true }))
         }
         AgentRequest::UnlockPassword { password } => {
@@ -363,12 +400,17 @@ async fn handle_request_inner(
                 return AgentResponse::err("locked", "vault locked");
             }
             match v.change_password(&old_password, &new_password) {
-                Ok(()) => AgentResponse::ok(json!({ "changed": true })),
+                Ok(()) => {
+                    drop(v);
+                    revoke_extension_gate(st);
+                    st.pending_ssh_sessions.clear();
+                    AgentResponse::ok(json!({ "changed": true }))
+                }
                 Err(e) => AgentResponse::err("change_password", e.to_string()),
             }
         }
         AgentRequest::VaultExportOvb { output_path, password } => {
-            let v = st.vault.lock().await;
+            let mut v = st.vault.lock().await;
             if !v.unlocked {
                 return AgentResponse::err("locked", "vault locked");
             }
@@ -404,18 +446,33 @@ async fn handle_request_inner(
                 Err(e) => AgentResponse::err("open_dir", e.to_string()),
             }
         }
-        AgentRequest::UnlockTouchIdToken { token } => {
-            let bytes = token.into_bytes();
-            if st.vault.lock().await.unlock_touch_id_token(&bytes) {
-                AgentResponse::ok(json!({ "unlocked": true, "via": "touch_id_gate" }))
-            } else {
-                AgentResponse::err("bad_unlock", "touch id token mismatch")
+        AgentRequest::LocalUnlockPolicySet { policy } => {
+            st.vault.lock().await.load_local_unlock_policy(policy);
+            AgentResponse::ok(json!({ "configured": true }))
+        }
+        AgentRequest::LocalUnlockMaterial => {
+            match st.vault.lock().await.local_unlock_material() {
+                Ok(material) => AgentResponse::ok(json!({ "material": material })),
+                Err(_) => AgentResponse::err("locked", "master password required"),
             }
         }
-        AgentRequest::SetTouchIdToken { token } => {
-            // M0：仅配置本机门槛令牌，可在锁定状态预置。
-            st.vault.lock().await.touch_id_wrapped_token = Some(token.into_bytes());
-            AgentResponse::ok(json!({ "configured": true }))
+        AgentRequest::UnlockLocal { material } => {
+            match st.vault.lock().await.unlock_local(material) {
+                Ok(()) => AgentResponse::ok(json!({ "unlocked": true })),
+                Err(_) => AgentResponse::err("bad_unlock", "local unlock unavailable; use master password"),
+            }
+        }
+        AgentRequest::VerifyMasterPassword { password } => {
+            match st.vault.lock().await.verify_master_password(&password) {
+                Ok(()) => AgentResponse::ok(json!({ "verified": true })),
+                Err(_) => AgentResponse::err("bad_unlock", "master password verification failed"),
+            }
+        }
+        AgentRequest::SensitiveAuthGrant => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked || v.master_password_required() { return AgentResponse::err("locked", "master password required"); }
+            v.grant_sensitive_auth();
+            AgentResponse::ok(json!({ "verified": true }))
         }
         AgentRequest::CredentialSave {
             request_id,
@@ -796,11 +853,30 @@ async fn handle_request_inner(
         }
         AgentRequest::RecoveryCodesList => {
             let v = st.vault.lock().await;
-            if !v.unlocked {
-                return AgentResponse::err("locked", "vault locked");
-            }
+            if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
             match v.list_recovery_codes() {
-                Ok(items) => AgentResponse::ok(json!({ "items": items })),
+                Ok(items) => {
+                    // 列表仅返回元数据，二次验证后再按条目读取恢复码。
+                    let items: Vec<_> = items.into_iter().map(|item| {
+                        let mut value = json!(item);
+                        let count = value["codes"].as_array().map_or(0, Vec::len);
+                        value.as_object_mut().unwrap().remove("codes");
+                        value["code_count"] = json!(count);
+                        value
+                    }).collect();
+                    AgentResponse::ok(json!({ "items": items }))
+                }
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::RecoveryCodesGet { id } => {
+            let v = st.vault.lock().await;
+            if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
+            match v.list_recovery_codes() {
+                Ok(items) => match items.into_iter().find(|item| item.id == id) {
+                    Some(item) => AgentResponse::ok(json!({ "item": item })),
+                    None => AgentResponse::err("not_found", "recovery codes not found"),
+                },
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }
@@ -879,10 +955,15 @@ async fn handle_request_inner(
             }
             v.touch_activity();
             match v.security_rebuild(&password, &recovery_key) {
-                Ok(new_recovery_key) => AgentResponse::ok(json!({
-                    "rebuilt": true,
-                    "new_recovery_key": new_recovery_key,
-                })),
+                Ok(new_recovery_key) => {
+                    drop(v);
+                    revoke_extension_gate(st);
+                    st.pending_ssh_sessions.clear();
+                    AgentResponse::ok(json!({
+                        "rebuilt": true,
+                        "new_recovery_key": new_recovery_key,
+                    }))
+                }
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }

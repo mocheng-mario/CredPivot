@@ -32,6 +32,8 @@
 		CP10F0032044CP0030003C045 /* LifecycleBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = CP10R0032044CP0030003C045 /* LifecycleBridge.swift */; };
 		CP10F0042044CP0040003C045 /* CredPivotRustFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CP10R0052044CP0050003C045 /* CredPivotRustFFI.swift */; };
 		CP10F0062044CP0060003C045 /* ProcessMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = CP10R0062044CP0060003C045 /* ProcessMemory.swift */; };
+		A17C0101204400010003C045 /* credpivot-native-host in Resources */ = {isa = PBXBuildFile; fileRef = A17C0102204400010003C045 /* credpivot-native-host */; };
+		A17C0103204400010003C045 /* credpivot-chrome-extension in Resources */ = {isa = PBXBuildFile; fileRef = A17C0104204400010003C045 /* credpivot-chrome-extension */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -89,6 +91,8 @@
 		CP10R0042044CP0040003C045 /* RustFFI.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = RustFFI.xcconfig; sourceTree = "<group>"; };
 		CP10R0052044CP0050003C045 /* CredPivotRustFFI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredPivotRustFFI.swift; sourceTree = "<group>"; };
 		CP10R0062044CP0060003C045 /* ProcessMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessMemory.swift; sourceTree = "<group>"; };
+		A17C0102204400010003C045 /* credpivot-native-host */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = "credpivot-native-host"; sourceTree = "<group>"; };
+		A17C0104204400010003C045 /* credpivot-chrome-extension */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "credpivot-chrome-extension"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -174,6 +178,8 @@
 		33FAB671232836740065AC1E /* Runner */ = {
 			isa = PBXGroup;
 			children = (
+				A17C0102204400010003C045 /* credpivot-native-host */,
+				A17C0104204400010003C045 /* credpivot-chrome-extension */,
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
 				CP10R0052044CP0050003C045 /* CredPivotRustFFI.swift */,
 				CP10R0062044CP0060003C045 /* ProcessMemory.swift */,
@@ -300,6 +306,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A17C0101204400010003C045 /* credpivot-native-host in Resources */,
+				A17C0103204400010003C045 /* credpivot-chrome-extension in Resources */,
 				33CC10F32044A3C60003C045 /* Assets.xcassets in Resources */,
 				33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */,
 			);

@@ -55,7 +55,7 @@ async function handshake() {
   let resp = await handshakeOnce();
   if (!resp?.ok && resp?.code === "extension_gate_required") {
     statusEl.textContent =
-      "Vault 已解锁：请在 CredPivot App 完成指纹或系统密码。\n" +
+      "请在 CredPivot App 完成指纹或保险库主密码验证。\n" +
       "可点系统弹窗「取消」关闭；完成后点「连接」或等待自动检测（不会反复抢焦点）。";
     for (let i = 0; i < 90; i++) {
       await new Promise((r) => setTimeout(r, 2000));
@@ -81,8 +81,8 @@ async function handshake() {
   const idle = payload.extension_gate_idle_secs ?? 300;
   statusEl.textContent =
     `Agent 已连接\n` +
-    `Vault: ${unlocked ? (attached ? "已解锁" : "已解锁（须主密码写库）") : "已锁定"}\n` +
-    `扩展指纹: ${gate ? `已通过（${idle}s 无操作需重验）` : unlocked ? "未完成（请点连接并重试）" : "（Vault 锁定时不校验）"}\n` +
+    `Vault: ${unlocked ? (attached ? "已解锁" : "解锁状态异常，请在 App 重试") : "已锁定"}\n` +
+    `扩展授权: ${gate ? `已通过（${idle}s 无操作需重验）` : unlocked ? "未完成（请点连接并重试）" : "（请在 App 解锁并授权）"}\n` +
     `凭据数: ${count}`;
   if (unlocked && gate) {
     await refreshMfaHint();
@@ -93,7 +93,7 @@ async function handshake() {
 
 function formatFillError(result) {
   if (result?.needs_gate) {
-    return `${result.error}\n\n请在 CredPivot App 完成指纹后重试。`;
+    return `${result.error}\n\n请在 CredPivot App 完成指纹或主密码验证后重试。`;
   }
   return JSON.stringify(result, null, 2);
 }

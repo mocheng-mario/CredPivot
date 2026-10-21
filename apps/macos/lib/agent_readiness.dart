@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'agent_bridge.dart';
+import 'app_ui.dart';
 
 /// 轮询后台 Agent 是否可响应 ping。
 class AgentReadinessScope extends StatefulWidget {
@@ -66,34 +67,48 @@ class AgentNotReadyPane extends StatelessWidget {
   final String? log;
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget build(BuildContext context) => ListView(
+        padding: const EdgeInsets.all(24),
         children: [
-          Text('后台 Agent 未启动', style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 12),
-          const Text(
-            '保险库与 SSH 一键连接都依赖本机 Agent。请先尝试重启 Agent；'
-            '仍失败请完全退出应用（Cmd+Q）后重新打开。',
+          AppPanel(
+            title: '正在等待本机 Agent',
+            icon: Icons.hub_outlined,
+            subtitle: '保险库与服务器连接依赖本机 Agent。服务就绪后，这里会自动恢复。',
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const AppNotice('如果长时间没有恢复，请尝试重启 Agent；仍失败时可完全退出应用后重新打开。'),
+                  const SizedBox(height: 10),
+                  Wrap(spacing: 10, runSpacing: 10, children: [
+                    FilledButton.icon(
+                        onPressed: onRestartAgent,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const Text('重启 Agent')),
+                    OutlinedButton(
+                        onPressed: onRelaunchApp, child: const Text('重新打开应用')),
+                  ]),
+                ]),
           ),
-          const SizedBox(height: 24),
-          FilledButton(onPressed: onRestartAgent, child: const Text('重启 Agent')),
-          const SizedBox(height: 8),
-          OutlinedButton(onPressed: onRelaunchApp, child: const Text('重新打开应用')),
           if (log != null && log!.isNotEmpty) ...[
-            const SizedBox(height: 24),
-            Text('诊断', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 8),
-            Expanded(
-              child: SingleChildScrollView(
-                child: Text(log!, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-              ),
-            ),
+            const SizedBox(height: 16),
+            Card(
+                child: ExpansionTile(
+              shape: const Border(),
+              collapsedShape: const Border(),
+              title: const Text('查看诊断信息'),
+              leading: const Icon(Icons.info_outline_rounded),
+              childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              children: [
+                Align(
+                    alignment: Alignment.centerLeft,
+                    child: SelectableText(log!,
+                        style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            height: 1.6)))
+              ],
+            )),
           ],
         ],
-      ),
-    );
-  }
+      );
 }

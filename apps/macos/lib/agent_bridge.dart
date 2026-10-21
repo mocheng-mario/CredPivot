@@ -99,6 +99,7 @@ class AgentBridge {
           (e.message.contains('agent_not_started') || e.message.contains('agent not started')));
 
   static String friendlyMessage(AgentException e) {
+    if (e.code == 'auth_required') return '身份验证已过期，请重新确认操作';
     if (isAgentNotStartedError(e)) {
       return '后台 Agent 未启动。请先点「重启 Agent」；仍失败请「重新打开应用」（或 Cmd+Q 退出后重开）。';
     }
@@ -113,6 +114,8 @@ class AgentBridge {
         return '保险库已锁定，请重新解锁';
       case 'bad_unlock':
         return '身份验证失败';
+      case 'auth_required':
+        return '身份验证已过期，请重新确认操作';
       case 'conflict':
         return '记录已更新，请刷新后重试';
       case 'not_found':
@@ -137,7 +140,7 @@ class AgentBridge {
     return await _channel.invokeMethod<bool>('unlockTouchId') ?? false;
   }
 
-  /// Touch ID / Mac 登录密码门槛，不触发 Vault 解锁。
+  /// 身份验证在 Agent 内固定复用 2 分钟，过期后优先 Touch ID、可回退主密码。
   static Future<bool> authenticateTouchId([String reason = 'CredPivot 需要验证您的身份']) async {
     return await _channel.invokeMethod<bool>('authenticateTouchId', reason) ?? false;
   }
