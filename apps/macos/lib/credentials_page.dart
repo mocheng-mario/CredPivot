@@ -986,7 +986,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       _recoveryCodes = await AgentBridge.listRecoveryCodes();
       setState(() {});
     } on AgentException catch (e) {
-      setState(() => _log = e.message);
+      setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
   }
 
@@ -999,7 +999,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       setState(() => _log = const JsonEncoder.withIndent('  ').convert(report));
       await _loadAll();
     } on AgentException catch (e) {
-      setState(() => _log = e.message);
+      setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
   }
 
@@ -1021,7 +1021,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       await _loadAll();
       setState(() => _log = '已保存网站恢复码');
     } on AgentException catch (e) {
-      setState(() => _log = e.message);
+      setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
   }
 
@@ -1036,7 +1036,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       widget.onVaultSwitched?.call();
       setState(() => _log = '已恢复到：$target。工作库已切换，请重新解锁。');
     } on AgentException catch (e) {
-      setState(() => _log = e.message);
+      setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
   }
 
@@ -1048,7 +1048,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       setState(() => _log = '已迁移工作库到：$target');
       await _loadAll();
     } on AgentException catch (e) {
-      setState(() => _log = e.message);
+      setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
   }
 
@@ -1059,7 +1059,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       setState(() => _log = '安全重建完成。请保存新的恢复密钥。');
       await _loadAll();
     } on AgentException catch (e) {
-      setState(() => _log = e.message);
+      setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
   }
 
@@ -1071,7 +1071,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       setState(() => _log = 'OVB 验证通过');
       await _loadAll();
     } on AgentException catch (e) {
-      setState(() => _log = e.message);
+      setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
   }
 
@@ -1116,7 +1116,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       widget.onVaultSwitched?.call();
       setState(() => _log = 'OVB 已恢复到：$target。工作库已切换，请重新解锁。');
     } on AgentException catch (e) {
-      setState(() => _log = e.message);
+      setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
   }
 
@@ -1126,7 +1126,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       setState(() => _log = '恢复密钥验证通过');
       await _loadAll();
     } on AgentException catch (e) {
-      setState(() => _log = e.message);
+      setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
   }
 

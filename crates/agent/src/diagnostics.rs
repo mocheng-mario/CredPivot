@@ -1,53 +1,188 @@
-use crate::paths::runtime_dir;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::PathBuf;
+use crate::paths::{ensure_runtime_dir, runtime_dir};
+use fs2::FileExt;
+use serde::{Deserialize, Serialize};
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 static LOG_MUTEX: Mutex<()> = Mutex::new(());
+const LOG_HEADER: &[u8] = b"# CredPivot events v1\n";
+const MAX_LOG_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_TAIL_BYTES: u64 = 512 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl LogLevel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Debug => "debug",
+            Self::Info => "info",
+            Self::Warn => "warn",
+            Self::Error => "error",
+        }
+    }
+}
 
 pub fn log_file_path() -> PathBuf {
     runtime_dir().join("logs").join("agent.log")
 }
 
-pub fn init() {
-    let _ = write_line("INFO", "agent", "diagnostics initialized");
-}
-
-pub fn error(target: &str, message: impl AsRef<str>) {
-    let _ = write_line("ERROR", target, message.as_ref());
-}
-
-fn write_line(level: &str, target: &str, message: &str) -> std::io::Result<()> {
-    let _guard = LOG_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-    let path = log_file_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+/// 每次读取小配置文件，使已运行的 Native Host / askpass 也立即沿用新级别。
+pub fn level() -> LogLevel {
+    match fs::read_to_string(runtime_dir().join("log_level"))
+        .unwrap_or_default()
+        .trim()
+    {
+        "debug" => LogLevel::Debug,
+        "warn" => LogLevel::Warn,
+        "error" => LogLevel::Error,
+        _ => LogLevel::Info,
     }
-    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-    let line = format!("{ts}\t{level}\t{target}\t{message}\n");
-    let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
-    f.write_all(line.as_bytes())?;
+}
+
+pub fn set_level(level: LogLevel) -> std::io::Result<()> {
+    let _guard = LOG_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    let _file_lock = lock_log_directory()?;
+    let next = runtime_dir().join("log_level.next");
+    let mut file = private_file(&next)?;
+    file.set_len(0)?;
+    file.write_all(level.as_str().as_bytes())?;
+    file.sync_all()?;
+    fs::rename(next, runtime_dir().join("log_level"))?;
     Ok(())
 }
 
-/// 读取日志尾部若干行（按行截断，默认最多约 512KB）。
-pub fn tail_lines(max_lines: usize) -> String {
-    let path = log_file_path();
-    let data = match fs::read(&path) {
-        Ok(b) => b,
-        Err(_) => return String::new(),
-    };
-    const MAX_BYTES: usize = 512 * 1024;
-    let slice = if data.len() > MAX_BYTES {
-        &data[data.len() - MAX_BYTES..]
-    } else {
-        &data[..]
-    };
-    let text = String::from_utf8_lossy(slice);
-    let lines: Vec<&str> = text.lines().collect();
-    if lines.len() <= max_lines {
-        return lines.join("\n");
+pub fn init() {
+    info("agent", "diagnostics initialized");
+}
+
+// 只接受静态事件文案；禁止传入异常全文、请求/响应、路径、用户名或凭据。
+pub fn debug(target: &'static str, event: &'static str) {
+    log(LogLevel::Debug, target, event);
+}
+
+pub fn info(target: &'static str, event: &'static str) {
+    log(LogLevel::Info, target, event);
+}
+
+pub fn warn(target: &'static str, event: &'static str) {
+    log(LogLevel::Warn, target, event);
+}
+
+pub fn error(target: &'static str, event: &'static str) {
+    log(LogLevel::Error, target, event);
+}
+
+fn log(level: LogLevel, target: &'static str, event: &'static str) {
+    if level < self::level() {
+        return;
     }
-    lines[lines.len() - max_lines..].join("\n")
+    if write_line(level, target, event).is_err() {
+        // 写日志失败不能影响凭据操作，也不能把可能含路径的 I/O 异常写入 stderr。
+        eprintln!("ERROR credpivot diagnostics write failed");
+    }
+}
+
+fn private_file(path: &Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.create(true).truncate(false).read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(file)
+}
+
+fn lock_log_directory() -> std::io::Result<File> {
+    ensure_runtime_dir()?;
+    let dir = runtime_dir().join("logs");
+    fs::create_dir_all(&dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
+    }
+    let file = private_file(&dir.join("write.lock"))?;
+    // 多进程共用日志；文件关闭时释放锁，避免轮转与其他进程的追加互相覆盖。
+    file.lock_exclusive()?;
+    Ok(file)
+}
+
+fn open_current_log(rotate: bool) -> std::io::Result<File> {
+    let path = log_file_path();
+    let mut file = private_file(&path)?;
+    let mut header = vec![0; LOG_HEADER.len()];
+    let valid_header = match file.read_exact(&mut header) {
+        Ok(()) => header.as_slice() == LOG_HEADER,
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => false,
+        Err(e) => return Err(e),
+    };
+    if !valid_header {
+        // 旧版本可能记录异常中的隐私数据，不把旧格式内容继续展示或保留为备份。
+        let backup = path.with_extension("log.1");
+        match fs::remove_file(backup) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+        file.set_len(0)?;
+        file.seek(SeekFrom::Start(0))?;
+        file.write_all(LOG_HEADER)?;
+    }
+    if rotate && file.metadata()?.len() >= MAX_LOG_BYTES {
+        fs::rename(&path, path.with_extension("log.1"))?;
+        file = private_file(&path)?;
+        file.write_all(LOG_HEADER)?;
+    }
+    Ok(file)
+}
+
+fn write_line(level: LogLevel, target: &str, event: &str) -> std::io::Result<()> {
+    let _guard = LOG_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    let _file_lock = lock_log_directory()?;
+    let mut file = open_current_log(true)?;
+    file.seek(SeekFrom::End(0))?;
+    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+    writeln!(
+        file,
+        "{ts}\t{}\t{target}\t{event}",
+        level.as_str().to_ascii_uppercase()
+    )
+}
+
+/// 只读取最后约 512KB，避免日志变大时整文件载入内存。
+pub fn tail_lines(max_lines: usize) -> String {
+    let _guard = LOG_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    let read = || -> std::io::Result<String> {
+        let _file_lock = lock_log_directory()?;
+        let mut file = open_current_log(false)?;
+        let start = file.metadata()?.len().saturating_sub(MAX_TAIL_BYTES);
+        file.seek(SeekFrom::Start(start))?;
+        let mut data = Vec::new();
+        file.take(MAX_TAIL_BYTES).read_to_end(&mut data)?;
+        let text = String::from_utf8_lossy(&data);
+        let mut lines = text.lines();
+        if start > 0 {
+            // 截断点可能落在一行或一个 UTF-8 字符中，丢弃第一条不完整事件。
+            lines.next();
+        }
+        let lines: Vec<_> = lines.filter(|line| !line.starts_with('#')).collect();
+        Ok(lines[lines.len().saturating_sub(max_lines.min(2000))..].join("\n"))
+    };
+    read().unwrap_or_else(|_| "ERROR diagnostics log unavailable".into())
 }

@@ -13,6 +13,7 @@ class DiagnosticsTab extends StatefulWidget {
 class _DiagnosticsTabState extends State<DiagnosticsTab> {
   String _logText = '';
   String _logPath = '';
+  String _logLevel = 'info';
   bool _loading = false;
   String _repairMsg = '';
 
@@ -44,19 +45,42 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
   }
 
   Future<void> _refresh() async {
+    if (!mounted) return;
     setState(() => _loading = true);
     try {
       final data = await AgentBridge.fetchDiagnosticLog();
       if (!mounted) return;
       setState(() {
         _logPath = data['path']?.toString() ?? '';
+        final level = data['level'];
+        if (const ['debug', 'info', 'warn', 'error'].contains(level)) {
+          _logLevel = level as String;
+        }
         _logText = data['text']?.toString() ?? '';
         if (_logText.isEmpty) {
           _logText = '（暂无日志，Agent 启动后会写入 ~/.credpivot/logs/agent.log）';
         }
       });
-    } on AgentException catch (e) {
-      setState(() => _logText = '读取失败: ${e.message}');
+    } catch (_) {
+      if (mounted) setState(() => _logText = '读取日志失败，请确认 Agent 已就绪');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _setLogLevel(String? level) async {
+    if (level == null || level == _logLevel || _loading) return;
+    setState(() {
+      _loading = true;
+      _repairMsg = '';
+    });
+    try {
+      await AgentBridge.setDiagnosticLogLevel(level);
+      if (!mounted) return;
+      setState(() => _logLevel = level);
+      await _refresh();
+    } catch (_) {
+      if (mounted) setState(() => _repairMsg = '日志级别保存失败，请重试');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -77,6 +101,22 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
             style: const TextStyle(fontSize: 13),
           ),
           const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              const Text('记录级别'),
+              DropdownButton<String>(
+                value: _logLevel,
+                items: const ['debug', 'info', 'warn', 'error']
+                    .map((level) => DropdownMenuItem(value: level, child: Text(level)))
+                    .toList(),
+                onChanged: _loading ? null : _setLogLevel,
+              ),
+              const Text('记录所选级别及更严重的事件；立即生效，重启后保留。'),
+            ],
+          ),
+          const SizedBox(height: 8),
           const Text(
             '若扩展报 unsupported action 或连接失败，可一键重启 Agent 并按已保存的扩展 ID 重装 Native Host（仍须在 Chrome 重载扩展）。',
             style: TextStyle(fontSize: 13),

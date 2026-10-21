@@ -19,8 +19,8 @@ pub async fn serve_ssh_agent(listener: UnixListener, vault: Arc<Mutex<VaultSessi
         let (mut stream, _) = listener.accept().await?;
         let vault = vault.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_ssh_connection(&mut stream, vault).await {
-                tracing::debug!("ssh agent connection ended: {e}");
+            if handle_ssh_connection(&mut stream, vault).await.is_err() {
+                crate::diagnostics::debug("ssh", "connection ended with transport or protocol error");
             }
         });
     }

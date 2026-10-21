@@ -49,15 +49,15 @@ impl AgentRuntime {
 
         let ipc_state = state.clone();
         let ipc_task = tokio::spawn(async move {
-            if let Err(e) = serve_ipc(ipc_listener, ipc_state).await {
-                tracing::error!("ipc server stopped: {e}");
+            if serve_ipc(ipc_listener, ipc_state).await.is_err() {
+                crate::diagnostics::error("ipc", "server stopped unexpectedly");
             }
         });
 
         let ssh_vault = vault.clone();
         let ssh_task = tokio::spawn(async move {
-            if let Err(e) = serve_ssh_agent(ssh_listener, ssh_vault).await {
-                tracing::error!("ssh agent stopped: {e}");
+            if serve_ssh_agent(ssh_listener, ssh_vault).await.is_err() {
+                crate::diagnostics::error("ssh", "agent stopped unexpectedly");
             }
         });
 
@@ -69,7 +69,9 @@ impl AgentRuntime {
                 interval.tick().await;
                 let mut v = restore_tick_vault.lock().await;
                 if v.unlocked {
-                    let _ = v.try_restore_point_if_due();
+                    if v.try_restore_point_if_due().is_err() {
+                        crate::diagnostics::warn("backup", "scheduled restore point failed");
+                    }
                 }
             }
         });
@@ -84,6 +86,7 @@ impl AgentRuntime {
             }
         });
 
+        crate::diagnostics::info("agent", "runtime started");
         Ok(Self {
             _lock: lock,
             state,
@@ -112,6 +115,7 @@ impl AgentRuntime {
             self.restore_task,
             self.idle_task,
         );
+        crate::diagnostics::info("agent", "runtime stopped");
     }
 }
 

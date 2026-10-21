@@ -108,6 +108,8 @@ fn native_host_request_forbidden(req: &AgentRequest) -> bool {
             | AgentRequest::SshAskpass { .. }
             | AgentRequest::VaultExportOvb { .. }
             | AgentRequest::VaultChangePassword { .. }
+            | AgentRequest::DiagnosticLogTail { .. }
+            | AgentRequest::DiagnosticLogSetLevel { .. }
     )
 }
 
@@ -128,8 +130,8 @@ pub async fn serve_ipc(listener: UnixListener, state: Arc<Mutex<IpcState>>) -> R
         let (mut stream, _) = listener.accept().await?;
         let state = state.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_ipc_connection(&mut stream, state).await {
-                tracing::debug!("ipc connection ended: {e}");
+            if handle_ipc_connection(&mut stream, state).await.is_err() {
+                crate::diagnostics::debug("ipc", "connection ended with transport or protocol error");
             }
         });
     }
@@ -206,6 +208,50 @@ async fn peer_context_for_pid(
 }
 
 pub async fn handle_request(
+    st: &mut IpcState,
+    req: AgentRequest,
+    peer: RequestPeerContext,
+) -> AgentResponse {
+    let operation = req.operation();
+    crate::diagnostics::debug(operation, "request started");
+    let response = handle_request_inner(st, req, peer).await;
+    match &response {
+        AgentResponse::Ok { .. } => match operation {
+            "credential_save" | "credential_update" | "credential_trash"
+            | "import_bitwarden" | "totp_create" | "ssh_key_generate" | "ssh_select_key"
+            | "ssh_session_prepare" | "vault_change_password" | "vault_export_ovb"
+            | "vault_recover_ovb" | "vault_open_dir" | "restore_point_recover"
+            | "vault_migrate" | "vault_security_rebuild" | "recovery_codes_create"
+            | "recovery_codes_update" | "server_profile_create" | "server_profile_update" => {
+                crate::diagnostics::info(operation, "operation completed");
+            }
+            _ => crate::diagnostics::debug(operation, "request completed"),
+        },
+        AgentResponse::Err { code, .. } => {
+            // 错误正文可能含用户输入或本地路径，只记录固定分类。
+            match code.as_str() {
+                "locked" => crate::diagnostics::warn(operation, "request rejected: vault locked"),
+                "bad_unlock" => crate::diagnostics::warn(operation, "authentication failed"),
+                "extension_gate_required" => {
+                    crate::diagnostics::debug(operation, "identity confirmation required");
+                }
+                "forbidden" | "peer_denied" | "askpass_denied" => {
+                    crate::diagnostics::warn(operation, "request denied");
+                }
+                "bad_args" | "conflict" | "not_found" | "request_gone" => {
+                    crate::diagnostics::warn(operation, "request rejected: invalid or stale input");
+                }
+                "origin_mismatch" | "frame_mismatch" => {
+                    crate::diagnostics::warn(operation, "fill context mismatch");
+                }
+                _ => crate::diagnostics::error(operation, "request failed"),
+            }
+        }
+    }
+    response
+}
+
+async fn handle_request_inner(
     st: &mut IpcState,
     req: AgentRequest,
     peer: RequestPeerContext,
@@ -998,7 +1044,17 @@ pub async fn handle_request(
             AgentResponse::ok(json!({
                 "path": crate::diagnostics::log_file_path().to_string_lossy(),
                 "text": text,
+                "level": crate::diagnostics::level(),
             }))
+        }
+        AgentRequest::DiagnosticLogSetLevel { level } => {
+            match crate::diagnostics::set_level(level) {
+                Ok(()) => {
+                    crate::diagnostics::info("diagnostics", "log level updated");
+                    AgentResponse::ok(json!({ "level": level }))
+                }
+                Err(_) => AgentResponse::err("log_config", "日志级别保存失败"),
+            }
         }
     };
     if bump_gate_activity && matches!(&resp, AgentResponse::Ok { .. }) {

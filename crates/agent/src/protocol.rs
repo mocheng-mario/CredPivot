@@ -201,6 +201,67 @@ pub enum AgentRequest {
         #[serde(default = "default_log_tail_lines")]
         max_lines: usize,
     },
+    DiagnosticLogSetLevel { level: crate::diagnostics::LogLevel },
+}
+
+impl AgentRequest {
+    /// 仅记录固定操作名，不序列化含密码、令牌或导入内容的请求。
+    pub fn operation(&self) -> &'static str {
+        match self {
+            Self::Ping => "ping",
+            Self::Status => "status",
+            Self::ExtensionConnect => "extension_connect",
+            Self::ExtensionGateGrant { .. } => "extension_gate_grant",
+            Self::Lock => "lock",
+            Self::UnlockPassword { .. } => "unlock_password",
+            Self::UnlockTouchIdToken { .. } => "unlock_touch_id_token",
+            Self::SetTouchIdToken { .. } => "set_touch_id_token",
+            Self::CredentialSave { .. } => "credential_save",
+            Self::CredentialSuggest { .. } => "credential_suggest",
+            Self::CredentialFillPrepare { .. } => "credential_fill_prepare",
+            Self::CredentialFillConsume { .. } => "credential_fill_consume",
+            Self::CancelRequest { .. } => "cancel_request",
+            Self::CredentialList { .. } => "credential_list",
+            Self::CredentialGet { .. } => "credential_get",
+            Self::CredentialUpdate { .. } => "credential_update",
+            Self::CredentialTrash { .. } => "credential_trash",
+            Self::SecuritySummary => "security_summary",
+            Self::ImportBitwarden { .. } => "import_bitwarden",
+            Self::TotpList => "totp_list",
+            Self::TotpCreate { .. } => "totp_create",
+            Self::TotpCode { .. } => "totp_code",
+            Self::TotpReveal { .. } => "totp_reveal",
+            Self::CredentialGroupList { .. } => "credential_group_list",
+            Self::CredentialGroupCreate { .. } => "credential_group_create",
+            Self::CredentialGroupDelete { .. } => "credential_group_delete",
+            Self::CredentialItemSetGroup { .. } => "credential_item_set_group",
+            Self::ServerProfileList => "server_profile_list",
+            Self::ServerProfileCreate { .. } => "server_profile_create",
+            Self::ServerProfileUpdate { .. } => "server_profile_update",
+            Self::SshKeyList => "ssh_key_list",
+            Self::SshKeyGenerate { .. } => "ssh_key_generate",
+            Self::SshSelectKey { .. } => "ssh_select_key",
+            Self::SshSessionPrepare { .. } => "ssh_session_prepare",
+            Self::SshAskpass { .. } => "ssh_askpass",
+            Self::VaultCreate { .. } => "vault_create",
+            Self::VaultChangePassword { .. } => "vault_change_password",
+            Self::VaultExportOvb { .. } => "vault_export_ovb",
+            Self::VaultRecoverOvb { .. } => "vault_recover_ovb",
+            Self::VaultOpenDir { .. } => "vault_open_dir",
+            Self::RecoveryCodesList => "recovery_codes_list",
+            Self::RecoveryCodesCreate { .. } => "recovery_codes_create",
+            Self::RecoveryCodesUpdate { .. } => "recovery_codes_update",
+            Self::RestorePointsList => "restore_points_list",
+            Self::RestorePointRecover { .. } => "restore_point_recover",
+            Self::VaultMigrate { .. } => "vault_migrate",
+            Self::VaultSecurityRebuild { .. } => "vault_security_rebuild",
+            Self::BackupStatus => "backup_status",
+            Self::VaultVerifyOvb { .. } => "vault_verify_ovb",
+            Self::VaultVerifyRecoveryKey { .. } => "vault_verify_recovery_key",
+            Self::DiagnosticLogTail { .. } => "diagnostic_log_tail",
+            Self::DiagnosticLogSetLevel { .. } => "diagnostic_log_set_level",
+        }
+    }
 }
 
 fn default_log_tail_lines() -> usize {
@@ -239,7 +300,6 @@ impl AgentResponse {
 
     pub fn err(code: &str, message: impl Into<String>) -> Self {
         let message = message.into();
-        crate::diagnostics::error("agent", format!("code={code} {message}"));
         Self::Err {
             protocol_version: PROTOCOL_VERSION,
             code: code.into(),

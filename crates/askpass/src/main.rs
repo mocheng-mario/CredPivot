@@ -1,11 +1,12 @@
-use credpivot_agent::{agent_socket_path, call_agent, AgentRequest, AgentResponse};
+use credpivot_agent::{agent_socket_path, call_agent, diagnostics, AgentRequest, AgentResponse};
 use std::env;
 use std::io::{self, Write};
 use std::process;
 
 fn main() {
-    if let Err(e) = run() {
-        eprintln!("credpivot-askpass: {e}");
+    if run().is_err() {
+        diagnostics::error("askpass", "secret request failed");
+        eprintln!("credpivot-askpass: secret request failed");
         process::exit(1);
     }
 }

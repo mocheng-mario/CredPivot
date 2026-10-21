@@ -1,5 +1,5 @@
 mod client;
-mod diagnostics;
+pub mod diagnostics;
 mod extension_gate;
 mod error;
 mod ipc;

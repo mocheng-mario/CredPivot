@@ -2,7 +2,9 @@ mod chrome_parent;
 mod launch_app;
 
 use chrome_parent::verify_chrome_parent;
-use credpivot_agent::{agent_socket_path, call_agent, AgentRequest, AgentResponse, PROTOCOL_VERSION};
+use credpivot_agent::{
+    agent_socket_path, call_agent, diagnostics, AgentRequest, AgentResponse, PROTOCOL_VERSION,
+};
 use launch_app::{
     launch_credpivot_app, launch_credpivot_app_for_extension_gate, wait_for_agent_socket,
 };
@@ -10,19 +12,19 @@ use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
-
-    if let Err(e) = verify_chrome_parent() {
-        eprintln!("credpivot-native-host: parent check failed: {e}");
+    if verify_chrome_parent().is_err() {
+        diagnostics::error("native_host", "parent verification failed");
+        eprintln!("credpivot-native-host: parent verification failed");
         std::process::exit(1);
     }
 
-    if let Err(e) = run_native_messaging_loop() {
-        eprintln!("credpivot-native-host: {e}");
+    diagnostics::info("native_host", "started");
+    if run_native_messaging_loop().is_err() {
+        diagnostics::error("native_host", "messaging loop failed");
+        eprintln!("credpivot-native-host: messaging loop failed");
         std::process::exit(1);
     }
+    diagnostics::info("native_host", "stopped");
 }
 
 fn run_native_messaging_loop() -> Result<(), Box<dyn std::error::Error>> {
@@ -45,6 +47,7 @@ fn run_native_messaging_loop() -> Result<(), Box<dyn std::error::Error>> {
                 match forward_to_agent(value).await {
                     Ok(v) => v,
                     Err(e) => {
+                        diagnostics::warn("native_host", "forward to agent failed");
                         let msg = e.to_string();
                         error_envelope("forward_failed", &msg, request_id)
                     }

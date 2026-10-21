@@ -118,13 +118,13 @@ class _VaultHomePageState extends State<VaultHomePage> {
     try {
       await action();
     } on AgentException catch (e) {
-      final msg = AgentBridge.friendlyMessage(e);
+      final msg = AgentBridge.diagnosticMessage(e);
       _appendLog('$label 失败: $msg');
       if (AgentBridge.isAgentNotStartedError(e)) {
         _showAgentNotStartedHint();
       }
-    } catch (e) {
-      _appendLog('$label 失败: $e');
+    } catch (_) {
+      _appendLog('$label 失败，请查看「诊断」页的事件记录');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -177,8 +177,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
         }
       }
       await _refreshStatus();
-    } catch (e) {
-      _appendLog('错误: $e');
+    } catch (_) {
+      _appendLog('初始化失败，请查看「诊断」页的事件记录');
     }
   }
 

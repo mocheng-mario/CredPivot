@@ -50,7 +50,7 @@ pub fn authorize_peer(pid: u32, cfg: &PeerAuthConfig) -> Result<()> {
         if !path_is_trusted_native_host(&path, cfg)? {
             crate::diagnostics::error(
                 "peer_auth",
-                format!("peer executable not trusted: {}", path.display()),
+                "peer executable not trusted",
             );
             return Err(AgentError::PeerDenied(format!(
                 "peer executable not trusted: {}",

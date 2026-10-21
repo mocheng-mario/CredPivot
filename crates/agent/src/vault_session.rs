@@ -98,8 +98,8 @@ impl VaultSession {
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         self.db = Some(db);
         self.sync_ssh_from_db()?;
-        if let Err(e) = self.try_restore_point_if_due() {
-            tracing::warn!("scheduled restore point skipped: {e}");
+        if self.try_restore_point_if_due().is_err() {
+            crate::diagnostics::warn("backup", "scheduled restore point skipped");
         }
         Ok(())
     }
@@ -191,7 +191,10 @@ impl VaultSession {
 
     pub fn lock(&mut self) {
         if self.unlocked {
-            let _ = self.try_restore_point_if_due();
+            if self.try_restore_point_if_due().is_err() {
+                crate::diagnostics::warn("backup", "restore point before lock failed");
+            }
+            crate::diagnostics::info("vault", "locked");
         }
         self.unlocked = false;
         self.vmk = None;
@@ -235,6 +238,7 @@ impl VaultSession {
         }
         self.unlocked = true;
         self.touch_activity();
+        crate::diagnostics::info("vault", "created and unlocked");
         Ok(material.recovery_display)
     }
 
@@ -255,6 +259,7 @@ impl VaultSession {
         }
         self.unlocked = true;
         self.touch_activity();
+        crate::diagnostics::info("vault", "unlocked");
         Ok(())
     }
 

@@ -105,6 +105,28 @@ class AgentBridge {
     return e.message;
   }
 
+  /// 日志区域只显示固定错误分类，避免异常中的导入内容或路径被复制、留存。
+  static String diagnosticMessage(AgentException e) {
+    if (isAgentNotStartedError(e)) return '后台 Agent 未启动，请重启 Agent';
+    switch (e.code) {
+      case 'locked':
+        return '保险库已锁定，请重新解锁';
+      case 'bad_unlock':
+        return '身份验证失败';
+      case 'conflict':
+        return '记录已更新，请刷新后重试';
+      case 'not_found':
+        return '记录不存在或已删除';
+      case 'peer_denied':
+      case 'forbidden':
+        return '操作未获授权';
+      case 'log_config':
+        return '日志级别保存失败';
+      default:
+        return '操作失败，请查看「诊断」页的事件记录';
+    }
+  }
+
   static Future<void> lockVault() => _channel.invokeMethod('lockVault');
 
   static Future<bool> unlockWithPassword(String password) async {
@@ -261,6 +283,10 @@ class AgentBridge {
       'max_lines': maxLines,
     });
     return payloadOf(resp);
+  }
+
+  static Future<void> setDiagnosticLogLevel(String level) async {
+    await request({'type': 'diagnostic_log_set_level', 'level': level});
   }
 
   static Future<Map<String, dynamic>> getTerminalApplication() async {

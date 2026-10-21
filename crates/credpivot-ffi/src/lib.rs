@@ -36,7 +36,10 @@ pub extern "C" fn credpivot_agent_start() -> i32 {
         let agent = st
             .runtime
             .block_on(AgentRuntime::start())
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                credpivot_agent::diagnostics::error("agent", "runtime start failed");
+                e.to_string()
+            })?;
         st.agent = Some(agent);
         Ok(())
     })
@@ -60,7 +63,10 @@ pub extern "C" fn credpivot_agent_restart() -> i32 {
         let agent = st
             .runtime
             .block_on(AgentRuntime::start())
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                credpivot_agent::diagnostics::error("agent", "runtime restart failed");
+                e.to_string()
+            })?;
         st.agent = Some(agent);
         Ok(())
     })
@@ -94,7 +100,10 @@ pub extern "C" fn credpivot_agent_request_json(request_json: *const c_char) -> *
             .as_ref()
             .ok_or_else(|| "agent_not_started".to_string())?;
         let req: AgentRequest =
-            serde_json::from_str(&req_str).map_err(|e| format!("bad json: {e}"))?;
+            serde_json::from_str(&req_str).map_err(|_| {
+                credpivot_agent::diagnostics::warn("ffi", "invalid request JSON");
+                "bad json: invalid request".to_string()
+            })?;
         let resp = st
             .runtime
             .block_on(call_in_process(&agent.state, req));
