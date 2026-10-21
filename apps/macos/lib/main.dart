@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'agent_bridge.dart';
 import 'build_stamp.dart';
@@ -54,6 +53,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
   bool get _unlocked => _status['unlocked'] == true;
 
   Timer? _vaultLockPoll;
+  bool _vaultLockPolling = false;
+  int _statusRequestGeneration = 0;
   int _lastVaultLockGen = 0;
 
   @override
@@ -66,9 +67,12 @@ class _VaultHomePageState extends State<VaultHomePage> {
   }
 
   Future<void> _pollVaultLockGeneration() async {
-    if (!_unlocked) return;
+    if (!_unlocked || _vaultLockPolling || !mounted) return;
+    _vaultLockPolling = true;
+    final generation = _statusRequestGeneration;
     try {
       final raw = await AgentBridge.request({'type': 'status'});
+      if (!mounted || generation != _statusRequestGeneration) return;
       final payload = AgentBridge.payloadOf(raw);
       final gen = (payload['vault_lock_generation'] as num?)?.toInt() ?? 0;
       final agentUnlocked = payload['unlocked'] == true;
@@ -78,10 +82,15 @@ class _VaultHomePageState extends State<VaultHomePage> {
         notifyVaultLocked();
       }
       _lastVaultLockGen = gen;
-    } catch (_) {}
+    } catch (_) {
+      // 短暂通信失败由后续轮询重试，保留当前界面状态。
+    } finally {
+      _vaultLockPolling = false;
+    }
   }
 
   void _onVaultLockedExternally() {
+    _statusRequestGeneration++;
     clearSensitiveAuthGrace();
     _password.clear();
     _recoveryKey.clear();
@@ -122,14 +131,20 @@ class _VaultHomePageState extends State<VaultHomePage> {
   }
 
   void _appendLog(String line) {
+    if (!mounted) return;
     setState(() => _log = line);
   }
 
   Future<void> _refreshStatus() async {
+    if (!mounted) return;
+    final generation = ++_statusRequestGeneration;
     final raw = await AgentBridge.request({'type': 'status'});
     final payload = AgentBridge.payloadOf(raw);
     final chrome = await AgentBridge.chromeHostStatus();
-    _memoryBytes = await AgentBridge.residentMemoryBytes();
+    final memoryBytes = await AgentBridge.residentMemoryBytes();
+    // 锁定通知或较新的刷新已经到达时，不再应用旧的解锁状态。
+    if (!mounted || generation != _statusRequestGeneration) return;
+    _memoryBytes = memoryBytes;
     if (payload['unlocked'] != true) {
       clearSensitiveAuthGrace();
     }
@@ -145,7 +160,6 @@ class _VaultHomePageState extends State<VaultHomePage> {
 
   Future<void> _bootstrap() async {
     try {
-      await AgentBridge.startAgent();
       if (!await AgentBridge.ensureAgentReady()) {
         _appendLog(
           '后台 Agent 未就绪。可点「重启 Agent」或「重新打开应用」。'
@@ -242,9 +256,11 @@ class _VaultHomePageState extends State<VaultHomePage> {
           content: SelectableText(recovery),
           actions: [
             TextButton(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: recovery));
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制')));
+              onPressed: () async {
+                await AgentBridge.copyConcealed(recovery);
+                if (ctx.mounted) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('已复制')));
+                }
               },
               child: const Text('复制'),
             ),

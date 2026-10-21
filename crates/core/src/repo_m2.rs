@@ -81,6 +81,21 @@ pub fn list_logins(conn: &Connection, query: Option<&str>, limit: u32) -> Result
     Ok(out)
 }
 
+/// 按 ID 读取写入结果，避免受列表分页和相同更新时间的排序影响。
+fn get_login_row(conn: &Connection, credential_id: &str) -> Result<LoginListRow> {
+    conn.query_row(
+        &format!(
+            "{LOGIN_LIST_SELECT}
+             FROM login_credentials c
+             INNER JOIN items i ON i.id = c.item_id
+             WHERE c.id = ?1 AND i.trashed = 0"
+        ),
+        params![credential_id],
+        map_login_row,
+    )
+    .map_err(|e| CoreError::format(e.to_string()))
+}
+
 fn map_login_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LoginListRow> {
     Ok(LoginListRow {
         id: row.get(0)?,
@@ -150,11 +165,9 @@ pub fn insert_login_extended(
         ],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
+    let row = get_login_row(&tx, &cred_id)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
-    list_logins(conn, None, 500)?
-        .into_iter()
-        .find(|r| r.id == cred_id)
-        .ok_or_else(|| CoreError::format("credential not found after insert"))
+    Ok(row)
 }
 
 /// 更新登录凭据；`expected_revision` 不匹配时返回 Conflict。
@@ -263,12 +276,9 @@ pub fn update_login_credential(
         params![title, group_id, revision, ts, item_id],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
+    let row = get_login_row(&tx, credential_id)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
-
-    list_logins(conn, None, 1)?
-        .into_iter()
-        .find(|r| r.id == credential_id)
-        .ok_or_else(|| CoreError::format("credential not found"))
+    Ok(row)
 }
 
 fn trim_password_history(conn: &Connection, credential_id: &str) -> Result<()> {

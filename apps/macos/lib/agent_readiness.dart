@@ -16,6 +16,7 @@ class AgentReadinessScope extends StatefulWidget {
 
 class _AgentReadinessScopeState extends State<AgentReadinessScope> {
   bool _ready = false;
+  bool _polling = false;
   Timer? _timer;
 
   @override
@@ -32,9 +33,15 @@ class _AgentReadinessScopeState extends State<AgentReadinessScope> {
   }
 
   Future<void> _poll() async {
-    final ok = await AgentBridge.ensureAgentReady();
-    if (mounted && ok != _ready) {
-      setState(() => _ready = ok);
+    if (_polling || !mounted) return;
+    _polling = true;
+    try {
+      final ok = await AgentBridge.ensureAgentReady();
+      if (mounted && ok != _ready) {
+        setState(() => _ready = ok);
+      }
+    } finally {
+      _polling = false;
     }
   }
 

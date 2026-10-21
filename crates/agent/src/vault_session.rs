@@ -147,8 +147,9 @@ impl VaultSession {
         if !path.join("vault.json").exists() {
             return Err(AgentError::Vault("vault.json not found in directory".into()));
         }
+        crate::paths::persist_active_vault_dir(&path)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
         self.vault_dir = path;
-        let _ = crate::paths::persist_active_vault_dir(&self.vault_dir);
         Ok(())
     }
 
@@ -601,18 +602,12 @@ impl VaultSession {
         let rec = db
             .get_login(credential_id)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
-        let linked_totp_id = db
-            .list_logins(None, 500)
-            .map_err(|e| AgentError::Vault(e.to_string()))?
-            .into_iter()
-            .find(|r| r.id == credential_id)
-            .and_then(|r| r.linked_totp_id);
         Ok(FakeCredential {
             id: rec.id,
             origin: rec.origin,
             username: rec.username,
             password: rec.password,
-            linked_totp_id,
+            linked_totp_id: rec.linked_totp_id,
         })
     }
 

@@ -21,6 +21,7 @@ pub struct LoginCredentialRecord {
     pub username: String,
     pub password: String,
     pub current_revision: String,
+    pub linked_totp_id: Option<String>,
 }
 
 pub(crate) fn now_ms() -> i64 {
@@ -81,6 +82,7 @@ pub fn insert_login_credential_in_tx(
         username: username.to_string(),
         password: password.to_string(),
         current_revision: revision,
+        linked_totp_id: None,
     })
 }
 
@@ -114,7 +116,7 @@ pub fn list_login_by_origin(conn: &Connection, origin: &str) -> Result<Vec<Login
 
 pub fn get_login_secret(conn: &Connection, credential_id: &str) -> Result<LoginCredentialRecord> {
     conn.query_row(
-        "SELECT c.id, c.item_id, c.origin, c.username, c.secret, c.current_revision
+        "SELECT c.id, c.item_id, c.origin, c.username, c.secret, c.current_revision, c.linked_totp_id
          FROM login_credentials c
          INNER JOIN items i ON i.id = c.item_id
          WHERE c.id = ?1 AND i.trashed = 0",
@@ -127,6 +129,7 @@ pub fn get_login_secret(conn: &Connection, credential_id: &str) -> Result<LoginC
                 username: row.get(3)?,
                 password: row.get(4)?,
                 current_revision: row.get(5)?,
+                linked_totp_id: row.get(6)?,
             })
         },
     )

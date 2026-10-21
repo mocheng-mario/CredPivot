@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 /// 通过 Swift 平台通道调用进程内 Agent（Rust FFI 在 Runner 内链接）。
 class AgentBridge {
   static const _channel = MethodChannel('credpivot/agent');
+  static Future<bool>? _agentReadyCheck;
 
   /// 接收菜单栏/系统触发的锁定通知。
   static void Function()? _onVaultLocked;
@@ -55,7 +56,16 @@ class AgentBridge {
   static Future<void> relaunchApp() => _channel.invokeMethod('relaunchApp');
 
   /// 确保 Agent 可用；失败时返回 false（不抛异常）。
-  static Future<bool> ensureAgentReady() async {
+  static Future<bool> ensureAgentReady() {
+    // 启动页、轮询和用户操作复用同一次检查，避免同时启动或重启 Agent。
+    return _agentReadyCheck ??= _checkAgentReady()
+        .catchError((Object _) => false)
+        .whenComplete(() {
+          _agentReadyCheck = null;
+        });
+  }
+
+  static Future<bool> _checkAgentReady() async {
     if (await agentIsRunning()) {
       try {
         await request({'type': 'ping'});
@@ -105,7 +115,7 @@ class AgentBridge {
     return await _channel.invokeMethod<bool>('unlockTouchId') ?? false;
   }
 
-  /// 仅生物识别门槛，不触发 Vault 解锁。
+  /// Touch ID / Mac 登录密码门槛，不触发 Vault 解锁。
   static Future<bool> authenticateTouchId([String reason = 'CredPivot 需要验证您的身份']) async {
     return await _channel.invokeMethod<bool>('authenticateTouchId', reason) ?? false;
   }

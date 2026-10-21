@@ -127,11 +127,24 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
   }
 
   Future<void> _refresh() async {
+    if (!mounted) return;
     setState(() => _busy = true);
     try {
       final q = _search.text.trim();
-      _items = await AgentBridge.listCredentials(q.isEmpty ? null : q);
-      _groups = await loadCredentialGroups('login');
+      final items = await AgentBridge.listCredentials(q.isEmpty ? null : q);
+      final groups = await loadCredentialGroups('login');
+      if (!mounted) return;
+      final selectedId = _selected?['id'];
+      _items = items;
+      _groups = groups;
+      // 刷新后使用当前版本，避免连续编辑仍携带上一次的 revision。
+      _selected = null;
+      for (final row in _items) {
+        if (row['id'] == selectedId) {
+          _selected = row;
+          break;
+        }
+      }
       _filterGroupId = dropdownValueIfPresent(_filterGroupId, _groups);
       _status = '共 ${_items.length} 条登录';
     } on AgentException catch (e) {
