@@ -11,7 +11,6 @@ pub const SETTINGS_RESTORE_DIRTY: &str = "restore_dirty";
 pub const SETTINGS_LAST_RESTORE_MS: &str = "restore_last_created_ms";
 pub const RESTORE_POINTS_DIR: &str = "restore-points";
 pub const MAX_RESTORE_POINTS: usize = 10;
-const MS_PER_DAY: i64 = 86_400_000;
 
 fn now_ms() -> i64 {
     SystemTime::now()
@@ -60,7 +59,7 @@ fn last_restore_ms(conn: &Connection) -> i64 {
         .unwrap_or(0)
 }
 
-/// 已解锁且脏、且距上次恢复点超过 24 小时。
+/// 仅在有变更、已解锁且达到用户配置的间隔时创建自动恢复点。
 pub fn should_create_restore_point(conn: &Connection) -> bool {
     let dirty = get_setting(conn, SETTINGS_RESTORE_DIRTY)
         .ok()
@@ -71,7 +70,8 @@ pub fn should_create_restore_point(conn: &Connection) -> bool {
         return false;
     }
     let last = last_restore_ms(conn);
-    now_ms() - last >= MS_PER_DAY
+    let interval_ms = crate::effective_app_settings().restore_interval_hours as i64 * 3_600_000;
+    now_ms() - last >= interval_ms
 }
 
 /// 创建一份恢复点并裁剪旧副本；成功则清除 dirty 并更新 last 时间。
@@ -149,7 +149,7 @@ pub fn list_restore_points(vault_dir: &Path) -> Result<Vec<RestorePointInfo>> {
     Ok(out)
 }
 
-/// 高风险操作前强制创建恢复点（不依赖 24h 规则）。
+/// 高风险操作前强制创建恢复点，不受自动恢复点间隔影响。
 pub fn create_restore_point_for_risky_op(
     vault_dir: &Path,
     vmk: &[u8; 32],
@@ -175,10 +175,11 @@ pub fn prune_restore_points(vault_dir: &Path) -> Result<()> {
         }
     }
     dirs.sort_by(|a, b| b.0.cmp(&a.0));
-    if dirs.len() <= MAX_RESTORE_POINTS {
+    let keep = crate::effective_app_settings().restore_keep_count;
+    if dirs.len() <= keep {
         return Ok(());
     }
-    for (_, path) in dirs.into_iter().skip(MAX_RESTORE_POINTS) {
+    for (_, path) in dirs.into_iter().skip(keep) {
         fs::remove_dir_all(&path).map_err(|e| CoreError::io(e.to_string()))?;
     }
     Ok(())

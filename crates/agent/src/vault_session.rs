@@ -9,16 +9,14 @@ use credpivot_core::{
 };
 use std::path::Path;
 use ed25519_dalek::{SigningKey, VerifyingKey};
-use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 use base64::{engine::general_purpose::STANDARD, Engine};
 
-const MASTER_PASSWORD_INTERVAL_MS: u64 = 7 * 24 * 60 * 60 * 1000;
-const UNLOCK_INTERVAL_MS: u64 = 24 * 60 * 60 * 1000;
-const SENSITIVE_AUTH_INTERVAL: Duration = Duration::from_secs(120);
+// “每次验证”仍需为验证完成到实际请求之间保留一次性执行窗口。
+const SENSITIVE_REQUEST_HANDOFF: Duration = Duration::from_secs(30);
 
 fn authentication_time_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
@@ -53,8 +51,9 @@ pub struct VaultSession {
     pub db: Option<VaultDatabase>,
     pub unlocked: bool,
     pub local_unlock_policy: LocalUnlockPolicy,
+    settings: credpivot_core::AppSettings,
     sensitive_authenticated_at: Option<Instant>,
-    pub ssh_signing_key: SigningKey,
+    pub ssh_signing_key: Option<SigningKey>,
     pub idle_timeout: Duration,
     pub last_activity: Instant,
 }
@@ -107,7 +106,7 @@ impl VaultSession {
     }
 
     pub fn new_at(vault_dir: PathBuf) -> Self {
-        let signing_key = SigningKey::generate(&mut OsRng);
+        let settings = credpivot_core::effective_app_settings();
         Self {
             vault_dir,
             vmk: None,
@@ -115,8 +114,9 @@ impl VaultSession {
             unlocked: false,
             local_unlock_policy: LocalUnlockPolicy::default(),
             sensitive_authenticated_at: None,
-            ssh_signing_key: signing_key,
-            idle_timeout: Duration::from_secs(5 * 60),
+            ssh_signing_key: None,
+            idle_timeout: Duration::from_secs(settings.vault_idle_seconds),
+            settings,
             last_activity: Instant::now(),
         }
     }
@@ -140,7 +140,7 @@ impl VaultSession {
         self.unlocked = false;
         self.vmk = None;
         self.db = None;
-        self.ssh_signing_key = SigningKey::generate(&mut OsRng);
+        self.ssh_signing_key = None;
     }
 
     pub fn try_restore_point_if_due(&mut self) -> Result<()> {
@@ -161,10 +161,9 @@ impl VaultSession {
             .as_ref()
             .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
         let rec = db
-            .ensure_default_ssh()
+            .default_ssh()
             .map_err(|e| AgentError::Vault(e.to_string()))?;
-        let sk = SigningKey::from_bytes(&rec.seed);
-        self.ssh_signing_key = sk;
+        self.ssh_signing_key = rec.map(|key| SigningKey::from_bytes(&key.seed));
         Ok(())
     }
 
@@ -205,6 +204,7 @@ impl VaultSession {
             "ssh_pubkey": self.ssh_public_key_openssh(),
             "master_password_required": self.master_password_required(),
             "sensitive_auth_active": self.sensitive_auth_active(),
+            "settings_valid": credpivot_core::read_app_settings().is_ok(),
             "vault_lock_generation": crate::paths::read_vault_lock_generation(),
         });
         if self.vault_exists() {
@@ -218,6 +218,14 @@ impl VaultSession {
 
     pub fn touch_activity(&mut self) {
         self.last_activity = Instant::now();
+    }
+
+    pub fn apply_settings(&mut self, settings: credpivot_core::AppSettings) -> bool {
+        let security_changed = self.settings.security_differs(&settings);
+        if security_changed { self.sensitive_authenticated_at = None; }
+        self.idle_timeout = Duration::from_secs(settings.vault_idle_seconds);
+        self.settings = settings;
+        security_changed
     }
 
     pub fn idle_expired(&self) -> bool {
@@ -235,7 +243,7 @@ impl VaultSession {
         self.sensitive_authenticated_at = None;
         self.vmk = None;
         self.db = None;
-        self.ssh_signing_key = SigningKey::generate(&mut OsRng);
+        self.ssh_signing_key = None;
         crate::paths::bump_vault_lock_generation();
     }
 
@@ -251,7 +259,7 @@ impl VaultSession {
         let rec = db
             .load_ssh_key(key_id)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
-        self.ssh_signing_key = SigningKey::from_bytes(&rec.seed);
+        self.ssh_signing_key = Some(SigningKey::from_bytes(&rec.seed));
         Ok(())
     }
 
@@ -268,7 +276,10 @@ impl VaultSession {
         let material = bootstrap_vault_dir(&self.vault_dir, password)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         self.vmk = Some(material.vmk);
-        if let Err(e) = self.attach_database() {
+        // 默认密钥只在新建保险库时生成，读取或重新解锁不能复活已删除的密钥。
+        if let Err(e) = self.attach_database().and_then(|_| {
+            self.generate_ssh_key("Default", true, None).map(|_| ())
+        }) {
             self.abort_partial_unlock();
             return Err(AgentError::Vault(e.to_string()));
         }
@@ -327,8 +338,8 @@ impl VaultSession {
         let policy = &self.local_unlock_policy;
         policy.last_master_ms == 0 || policy.last_unlock_ms == 0
             || now < policy.last_master_ms || now < policy.last_unlock_ms
-            || now.saturating_sub(policy.last_master_ms) >= MASTER_PASSWORD_INTERVAL_MS
-            || now.saturating_sub(policy.last_unlock_ms) >= UNLOCK_INTERVAL_MS
+            || now.saturating_sub(policy.last_master_ms) >= self.settings.master_password_days * 86_400_000
+            || now.saturating_sub(policy.last_unlock_ms) >= self.settings.master_password_idle_hours * 3_600_000
     }
 
     fn record_master_verification(&mut self) -> Result<()> {
@@ -349,7 +360,7 @@ impl VaultSession {
             self.lock();
             return Err(AgentError::Vault("vault changed; unlock again".into()));
         }
-        // 验证身份不重新打开数据库，也不延长“上次解锁”的 24 小时窗口。
+        // 验证身份不重新打开数据库，也不延长“上次解锁”的强制主密码窗口。
         self.local_unlock_policy.last_master_ms = authentication_time_ms();
         self.grant_sensitive_auth();
         Ok(())
@@ -388,7 +399,17 @@ impl VaultSession {
 
     pub fn sensitive_auth_active(&self) -> bool {
         self.unlocked && !self.master_password_required()
-            && self.sensitive_authenticated_at.is_some_and(|t| t.elapsed() < SENSITIVE_AUTH_INTERVAL)
+            && self.settings.sensitive_auth_seconds > 0
+            && self.sensitive_authenticated_at.is_some_and(|t| t.elapsed() < Duration::from_secs(self.settings.sensitive_auth_seconds))
+    }
+
+    pub fn authorize_sensitive_operation(&mut self) -> bool {
+        if self.settings.sensitive_auth_seconds > 0 { return self.sensitive_auth_active(); }
+        let authorized = self.unlocked && !self.master_password_required()
+            && self.sensitive_authenticated_at.is_some_and(|t| t.elapsed() < SENSITIVE_REQUEST_HANDOFF);
+        // 0 秒表示只允许刚刚确认的这一个请求，不能作为下一次操作的复用凭据。
+        self.sensitive_authenticated_at = None;
+        authorized
     }
 
     pub fn change_password(&mut self, old: &str, new: &str) -> Result<()> {
@@ -461,7 +482,8 @@ impl VaultSession {
     }
 
     pub fn ssh_public_key_openssh(&self) -> String {
-        let vk: VerifyingKey = self.ssh_signing_key.verifying_key();
+        let Some(key) = &self.ssh_signing_key else { return String::new(); };
+        let vk: VerifyingKey = key.verifying_key();
         let bytes = vk.to_bytes();
         credpivot_core::format_ssh_ed25519_openssh(&bytes, "credpivot-m2")
     }
@@ -566,12 +588,22 @@ impl VaultSession {
             })
     }
 
-    pub fn trash_credential_item(&self, item_id: &str) -> Result<()> {
+    pub fn trash_credential_item(&mut self, item_id: &str) -> Result<()> {
         let db = self
             .db
             .as_ref()
             .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
-        db.trash_item(item_id).map_err(|e| AgentError::Vault(e.to_string()))
+        let active_public = self.ssh_public_key_openssh();
+        let deleting_active = db.list_ssh().map_err(|e| AgentError::Vault(e.to_string()))?
+            .iter().any(|row| row.item_id == item_id
+                && row.public_openssh.split_whitespace().nth(1) == active_public.split_whitespace().nth(1));
+        db.trash_item(item_id).map_err(|e| AgentError::Vault(e.to_string()))?;
+        if deleting_active {
+            // 数据库删除后立即清空缓存，不能让已删除的密钥继续签名。
+            self.ssh_signing_key = None;
+            self.sync_ssh_from_db()?;
+        }
+        Ok(())
     }
 
     pub fn security_summary(&self) -> Result<credpivot_core::SecuritySummary> {

@@ -3,6 +3,7 @@ import FlutterMacOS
 
 @main
 class AppDelegate: FlutterAppDelegate {
+  static let launchedForBrowser = ProcessInfo.processInfo.arguments.contains("--credpivot-browser-background")
   private var menuBar: MenuBarController?
   private var platform: CredPivotPlatform?
 
@@ -15,6 +16,10 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   override func applicationDidFinishLaunching(_ notification: Notification) {
+    if Self.launchedForBrowser {
+      mainFlutterWindow?.orderOut(nil)
+      NSApp.setActivationPolicy(.accessory)
+    }
     menuBar = MenuBarController(appDelegate: self)
     LifecycleBridge.shared.start()
 
@@ -26,13 +31,18 @@ class AppDelegate: FlutterAppDelegate {
       TerminalLauncher.purgeTerminalLaunchScripts()
       platform = CredPivotPlatform(messenger: controller.engine.binaryMessenger)
       let code = CredPivotRustFFI.start()
-      if code == 0 { ExtensionGateCoordinator.start() }
+      if code == 0 {
+        _ = LoginItemRegistrar.applyPreference()
+        ExtensionGateCoordinator.start()
+      }
       if code != 0 {
         NSLog("CredPivot: agent start failed at launch (code \(code))")
       }
     }
 
-    showMainWindow()
+    if !Self.launchedForBrowser {
+      showMainWindow()
+    }
   }
 
   @objc func showMainWindow() {

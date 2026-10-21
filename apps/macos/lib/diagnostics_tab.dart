@@ -5,7 +5,14 @@ import 'agent_bridge.dart';
 import 'app_ui.dart';
 
 class DiagnosticsTab extends StatefulWidget {
-  const DiagnosticsTab({super.key});
+  const DiagnosticsTab({super.key, this.onOpenSettings, this.active = true,
+    this.busy = false, required this.onRestartAgent, required this.onRelaunchApp});
+
+  final VoidCallback? onOpenSettings;
+  final bool active;
+  final bool busy;
+  final Future<void> Function() onRestartAgent;
+  final Future<void> Function() onRelaunchApp;
 
   @override
   State<DiagnosticsTab> createState() => _DiagnosticsTabState();
@@ -16,9 +23,10 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
   String _logText = '';
   String _logPath = '';
   String _logLevel = 'info';
+  String _recordLevel = 'info';
   bool _loading = false;
   bool _repairing = false;
-  bool get _busy => _loading || _repairing;
+  bool get _busy => widget.busy || _loading || _repairing;
   String _repairMsg = '';
 
   String get _filteredLogText {
@@ -40,6 +48,12 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
     _refresh();
   }
 
+  @override
+  void didUpdateWidget(covariant DiagnosticsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active && !_busy) _refresh();
+  }
+
   Future<void> _repairAgentAndHost() async {
     if (_busy) return;
     setState(() {
@@ -58,7 +72,7 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
       final extId = host['stored_extension_id']?.toString() ?? '';
       if (extId.isEmpty) {
         setState(
-            () => _repairMsg = 'Agent 已重启。请在「浏览器连接」页填写扩展 ID 并更新 Native Host。');
+            () => _repairMsg = 'Agent 已重启。请在「设置」页保存扩展 ID，再到「浏览器连接」更新 Native Host。');
       } else {
         final r = await AgentBridge.installChromeHost(extId);
         if (!mounted) return;
@@ -85,7 +99,7 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
         _logPath = data['path']?.toString() ?? '';
         final level = data['level'];
         if (_logLevels.contains(level)) {
-          _logLevel = level as String;
+          _recordLevel = level as String;
         }
         _logText = data['text']?.toString() ?? '';
         if (_logText.isEmpty) {
@@ -99,154 +113,176 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
     }
   }
 
-  Future<void> _setLogLevel(String? level) async {
-    if (level == null || level == _logLevel || _busy) return;
-    setState(() {
-      _loading = true;
-      _repairMsg = '';
-    });
-    try {
-      await AgentBridge.setDiagnosticLogLevel(level);
-      if (!mounted) return;
-      setState(() => _logLevel = level);
-      await _refresh();
-    } catch (_) {
-      if (mounted) setState(() => _repairMsg = '日志级别保存失败，请重试');
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final path = _logPath.isEmpty ? '~/.credpivot/logs/agent.log' : _logPath;
     final filteredLogText = _filteredLogText;
-    return Padding(
+    return ListView(
       padding: const EdgeInsets.fromLTRB(24, 6, 24, 24),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        AppSectionHeader(
-          title: '运行日志',
-          subtitle: '本地记录 · 用于排查 Agent 与浏览器连接问题',
-          action: Wrap(spacing: 8, runSpacing: 8, children: [
-            OutlinedButton.icon(
-              onPressed: filteredLogText.isEmpty
-                  ? null
-                  : () {
-                      Clipboard.setData(ClipboardData(text: filteredLogText));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('已复制当前筛选日志')));
-                    },
-              icon: const Icon(Icons.copy_outlined),
-              label: const Text('复制'),
-            ),
-            FilledButton.icon(
-                onPressed: _busy ? null : _refresh,
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('刷新')),
-          ]),
-        ),
+      children: [
         Card(
-            child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Wrap(
-              spacing: 16,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.filter_list_rounded,
-                      size: 18, color: AppColors.muted),
-                  const SizedBox(width: 8),
-                  const Text('日志级别', style: TextStyle(color: AppColors.ink)),
-                  const SizedBox(width: 12),
-                  DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                    value: _logLevel,
-                    isDense: true,
-                    dropdownColor: Colors.white,
-                    style: const TextStyle(
-                        color: AppColors.ink,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600),
-                    items: _logLevels
-                        .map((level) => DropdownMenuItem(
-                            value: level, child: Text(level.toUpperCase())))
-                        .toList(),
-                    onChanged: _busy ? null : _setLogLevel,
-                  )),
-                  const SizedBox(width: 8),
-                  const Tooltip(
-                      message:
-                          '记录所选级别及更严重的事件，并筛选下方已读取的日志；立即生效，重启后保留。降低级别不会补回之前未记录的日志。',
-                      child: Icon(Icons.info_outline_rounded,
-                          size: 16, color: AppColors.muted)),
-                ]),
-                Tooltip(
-                  message:
-                      '重启 Agent 并按已保存的扩展 ID 重装 Native Host，完成后请在 Chrome 重新加载扩展。',
-                  child: TextButton.icon(
+          child: ExpansionTile(
+            initiallyExpanded: true,
+            shape: const Border(),
+            collapsedShape: const Border(),
+            leading: const Icon(Icons.build_outlined, color: AppColors.primary),
+            title: const Text('故障排查'),
+            subtitle: const Text('连接异常时使用；重启后可能需要重新解锁和验证浏览器。'),
+            childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(spacing: 10, runSpacing: 10, children: [
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : widget.onRestartAgent,
+                    icon: const Icon(Icons.restart_alt_rounded),
+                    label: const Text('重启后台（Agent）')),
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : widget.onRelaunchApp,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('重新打开 App')),
+                  Tooltip(
+                    message: '重启 Agent 并按已保存的扩展 ID 重装 Native Host，完成后请在 Chrome 重新加载扩展。',
+                    child: OutlinedButton.icon(
                       onPressed: _busy ? null : _repairAgentAndHost,
-                      icon: const Icon(Icons.build_outlined, size: 17),
-                      label: Text(_repairing ? '修复中…' : '修复本机连接')),
-                ),
-              ]),
-        )),
-        if (_repairMsg.isNotEmpty)
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 86),
-            child: SingleChildScrollView(child: AppNotice(_repairMsg)),
+                      icon: const Icon(Icons.build_outlined),
+                      label: Text(_repairing ? '修复中…' : '修复本机连接'))),
+                ]),
+              ),
+            ],
           ),
+        ),
+        if (_repairMsg.isNotEmpty) AppNotice(_repairMsg),
         const SizedBox(height: 16),
-        Expanded(
-            child: Container(
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-              color: const Color(0xFF202637),
-              borderRadius: BorderRadius.circular(14)),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: const BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Color(0xFF343B4C)))),
-              child: Row(children: [
-                const Icon(Icons.terminal_rounded,
-                    size: 16, color: Color(0xFF99A4BD)),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: Tooltip(
-                        message: path,
-                        child: Text(path,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 11,
-                                color: Color(0xFFB7C1D8))))),
-              ]),
-            ),
-            if (_busy)
-              const LinearProgressIndicator(minHeight: 2)
-            else
-              const SizedBox(height: 2),
-            Expanded(
-                child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: SelectableText(
-                  _logText.isEmpty
-                      ? '正在读取运行日志…'
-                      : (filteredLogText.isEmpty
-                          ? '暂无 ${_logLevel.toUpperCase()} 及以上级别的日志'
-                          : filteredLogText),
-                  style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                      height: 1.8,
-                      color: Color(0xFFD5DDF0))),
-            )),
-          ]),
-        )),
-      ]),
+        Card(
+          child: ExpansionTile(
+            title: const Text('运行日志'),
+            subtitle: const Text('展开查看日志、筛选级别或复制运行记录'),
+            leading: const Icon(Icons.article_outlined, color: AppColors.primary),
+            shape: const Border(),
+            collapsedShape: const Border(),
+            initiallyExpanded: false,
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            children: [
+              AppSectionHeader(
+                title: '日志记录',
+                subtitle: '本地记录 · 用于排查 Agent 与浏览器连接问题',
+                action: Wrap(spacing: 8, runSpacing: 8, children: [
+                  OutlinedButton.icon(
+                    onPressed: filteredLogText.isEmpty
+                        ? null
+                        : () {
+                            Clipboard.setData(ClipboardData(text: filteredLogText));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('已复制当前筛选日志')));
+                          },
+                    icon: const Icon(Icons.copy_outlined),
+                    label: const Text('复制'),
+                  ),
+                  FilledButton.icon(
+                      onPressed: _busy ? null : _refresh,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('刷新')),
+                ]),
+              ),
+              Card(
+                  child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Wrap(
+                    spacing: 16,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.filter_list_rounded,
+                            size: 18, color: AppColors.muted),
+                        const SizedBox(width: 8),
+                        const Text('查看级别', style: TextStyle(color: AppColors.ink)),
+                        const SizedBox(width: 12),
+                        DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                          value: _logLevel,
+                          isDense: true,
+                          dropdownColor: Colors.white,
+                          style: const TextStyle(
+                              color: AppColors.ink,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600),
+                          items: _logLevels
+                              .map((level) => DropdownMenuItem(
+                                  value: level, child: Text(level.toUpperCase())))
+                              .toList(),
+                          onChanged: _busy ? null : (level) {
+                            if (level != null) setState(() => _logLevel = level);
+                          },
+                        )),
+                        const SizedBox(width: 8),
+                        const Tooltip(
+                            message:
+                                '仅筛选下方已读取的日志，不改变记录级别，也不会补回之前未记录的事件。',
+                            child: Icon(Icons.info_outline_rounded,
+                                size: 16, color: AppColors.muted)),
+                      ]),
+                      TextButton(
+                          onPressed: widget.onOpenSettings,
+                          child: Text('记录级别 ${_recordLevel.toUpperCase()} · 前往设置')),
+                    ]),
+              )),
+              const SizedBox(height: 16),
+              SizedBox(
+                  height: 360,
+                  child: Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                    color: const Color(0xFF202637),
+                    borderRadius: BorderRadius.circular(14)),
+                child:
+                    Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: const BoxDecoration(
+                        border: Border(bottom: BorderSide(color: Color(0xFF343B4C)))),
+                    child: Row(children: [
+                      const Icon(Icons.terminal_rounded,
+                          size: 16, color: Color(0xFF99A4BD)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                          child: Tooltip(
+                              message: path,
+                              child: Text(path,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontSize: 11,
+                                      color: Color(0xFFB7C1D8))))),
+                    ]),
+                  ),
+                  if (_busy)
+                    const LinearProgressIndicator(minHeight: 2)
+                  else
+                    const SizedBox(height: 2),
+                  Expanded(
+                      child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: SelectableText(
+                        _logText.isEmpty
+                            ? '正在读取运行日志…'
+                            : (filteredLogText.isEmpty
+                                ? '暂无 ${_logLevel.toUpperCase()} 及以上级别的日志'
+                                : filteredLogText),
+                        style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            height: 1.8,
+                            color: Color(0xFFD5DDF0))),
+                  )),
+                ]),
+              )),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

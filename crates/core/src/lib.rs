@@ -1,4 +1,5 @@
 mod atomic_config;
+mod app_settings;
 mod backup_status;
 mod canonical_json;
 mod cpvc1;
@@ -26,6 +27,7 @@ mod vault_pipeline;
 pub use atomic_config::{
     read_vault_json, recover_pending_next, write_file_atomic, write_vault_json_atomic,
 };
+pub use app_settings::{app_settings_path, backup_app_settings, effective_app_settings, read_app_settings, write_app_settings, AppSettings};
 pub use backup_status::{
     mark_local_restore_verified, mark_ovb_decrypt_verified, mark_ovb_export_verified,
     mark_recovery_key_verified, read_backup_status, BackupVerificationStatus,
@@ -37,7 +39,7 @@ pub use key_slot::{KeySlot, SlotType};
 pub use ovb1::{build_ovb_file, decrypt_snapshot, parse_ovb_file, parse_ovb_with_aad, OvbHeader};
 pub use password_change::change_master_password;
 pub use recovery_key::{format_display, generate as generate_recovery_key, parse_display as parse_recovery_display};
-pub use local_db::{open_database, sqlcipher_sidecar_paths, verify_database, SQLCIPHER_M1_LABEL};
+pub use local_db::{open_database, sqlcipher_sidecar_paths, verify_database, DB_FILENAME, SQLCIPHER_M1_LABEL};
 pub use migrate::{migrate_to_latest, SCHEMA_USER_VERSION};
 pub use bitwarden_import::{import_bitwarden_json, ImportReport};
 pub use repo::{

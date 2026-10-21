@@ -8,7 +8,6 @@ use std::sync::Mutex;
 
 static LOG_MUTEX: Mutex<()> = Mutex::new(());
 const LOG_HEADER: &[u8] = b"# CredPivot events v1\n";
-const MAX_LOG_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TAIL_BYTES: u64 = 512 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -35,12 +34,9 @@ pub fn log_file_path() -> PathBuf {
     runtime_dir().join("logs").join("agent.log")
 }
 
-/// 每次读取小配置文件，使已运行的 Native Host / askpass 也立即沿用新级别。
+/// 各进程读取统一配置，使已运行的 Native Host / askpass 也沿用新级别。
 pub fn level() -> LogLevel {
-    match fs::read_to_string(runtime_dir().join("log_level"))
-        .unwrap_or_default()
-        .trim()
-    {
+    match credpivot_core::effective_app_settings().log_level.as_str() {
         "debug" => LogLevel::Debug,
         "warn" => LogLevel::Warn,
         "error" => LogLevel::Error,
@@ -49,15 +45,9 @@ pub fn level() -> LogLevel {
 }
 
 pub fn set_level(level: LogLevel) -> std::io::Result<()> {
-    let _guard = LOG_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-    let _file_lock = lock_log_directory()?;
-    let next = runtime_dir().join("log_level.next");
-    let mut file = private_file(&next)?;
-    file.set_len(0)?;
-    file.write_all(level.as_str().as_bytes())?;
-    file.sync_all()?;
-    fs::rename(next, runtime_dir().join("log_level"))?;
-    Ok(())
+    let mut settings = credpivot_core::read_app_settings()?;
+    settings.log_level = level.as_str().into();
+    credpivot_core::write_app_settings(&settings)
 }
 
 pub fn init() {
@@ -124,6 +114,7 @@ fn lock_log_directory() -> std::io::Result<File> {
 }
 
 fn open_current_log(rotate: bool) -> std::io::Result<File> {
+    let settings = credpivot_core::effective_app_settings();
     let path = log_file_path();
     let mut file = private_file(&path)?;
     let mut header = vec![0; LOG_HEADER.len()];
@@ -134,17 +125,33 @@ fn open_current_log(rotate: bool) -> std::io::Result<File> {
     };
     if !valid_header {
         // 旧版本可能记录异常中的隐私数据，不把旧格式内容继续展示或保留为备份。
-        let backup = path.with_extension("log.1");
-        match fs::remove_file(backup) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e),
+        for index in 1..=10 {
+            match fs::remove_file(path.with_extension(format!("log.{index}"))) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
         }
         file.set_len(0)?;
         file.seek(SeekFrom::Start(0))?;
         file.write_all(LOG_HEADER)?;
     }
-    if rotate && file.metadata()?.len() >= MAX_LOG_BYTES {
+    // 降低保留数量后清理多余轮转文件，不影响当前日志。
+    for index in (settings.log_backup_count + 1)..=10 {
+        match fs::remove_file(path.with_extension(format!("log.{index}"))) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
+    if rotate && file.metadata()?.len() >= settings.log_max_mb * 1024 * 1024 {
+        for index in (1..settings.log_backup_count).rev() {
+            match fs::rename(path.with_extension(format!("log.{index}")), path.with_extension(format!("log.{}", index + 1))) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
+        }
         fs::rename(&path, path.with_extension("log.1"))?;
         file = private_file(&path)?;
         file.write_all(LOG_HEADER)?;

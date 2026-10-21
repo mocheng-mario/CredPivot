@@ -121,9 +121,7 @@ impl VaultDatabase {
     }
 
     pub fn trash_item(&self, item_id: &str) -> Result<()> {
-        trash_item(&self.conn, item_id)?;
-        mark_restore_dirty(&self.conn)?;
-        Ok(())
+        trash_item(&self.conn, item_id)
     }
 
     pub fn security_summary(&self) -> Result<SecuritySummary> {

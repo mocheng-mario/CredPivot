@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 
 import 'app_ui.dart';
 
-const appPageTitles = ['保险库', '凭据', '浏览器连接', '安全中心', '诊断'];
+const appPageTitles = ['保险库', '凭据', '浏览器连接', '安全中心', '诊断', '设置'];
 const appPageDescriptions = [
-  '管理你的保险库与本机连接',
+  '管理保险库、主密码与备份',
   '让密码、验证码与服务器井然有序',
   '连接 Chrome，安全地保存与填充',
   '管理恢复码、备份与数据迁移',
-  '查看运行记录与连接状态',
+  '查看运行日志、排查连接问题与重启应用',
+  '按你的习惯管理安全策略与本机偏好',
 ];
 
 class AppSidebar extends StatelessWidget {
@@ -81,7 +82,8 @@ class AppSidebar extends StatelessWidget {
                 padding: EdgeInsets.symmetric(horizontal: 12),
                 child: Divider(height: 30)),
             _item(context, 3, Icons.verified_user_outlined),
-            _item(context, 4, Icons.tune_rounded),
+            _item(context, 4, Icons.monitor_heart_outlined),
+            _item(context, 5, Icons.settings_outlined),
           ])),
           if (compact)
             Tooltip(

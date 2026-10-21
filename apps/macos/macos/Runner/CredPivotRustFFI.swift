@@ -21,7 +21,10 @@ private func credpivot_string_free(_ ptr: UnsafeMutablePointer<CChar>)
 enum CredPivotRustFFI {
   static func start() -> Int32 {
     let code = credpivot_agent_start()
-    if code == 0 { LocalVaultUnlock.restorePolicy() }
+    if code == 0 {
+      LocalVaultUnlock.restorePolicy()
+      AppPreferences.migrateLegacyPreferences()
+    }
     return code
   }
   static func stop() -> Int32 { credpivot_agent_stop() }
@@ -29,7 +32,10 @@ enum CredPivotRustFFI {
   static func restart() -> Int32 {
     TouchIdGate.invalidateInFlightAuthentication()
     let code = credpivot_agent_restart()
-    if code == 0 { LocalVaultUnlock.restorePolicy() }
+    if code == 0 {
+      LocalVaultUnlock.restorePolicy()
+      AppPreferences.migrateLegacyPreferences()
+    }
     return code
   }
 }

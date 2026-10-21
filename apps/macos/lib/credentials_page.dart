@@ -37,7 +37,7 @@ Future<void> _showTextRevealDialog(
               await AgentBridge.copyConcealed(body);
               if (ctx.mounted) {
                 ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(content: Text('已复制（30 秒后清除剪贴板）')),
+                  const SnackBar(content: Text('已复制，将按设置自动清除剪贴板')),
                 );
               }
             },
@@ -300,7 +300,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
     final detail = await AgentBridge.getCredential(id);
     await AgentBridge.copyConcealed(detail['password'] as String? ?? '');
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('密码已复制（30 秒后清除剪贴板）')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('密码已复制，将按设置自动清除剪贴板')));
     }
   }
 
@@ -752,7 +752,7 @@ class _TotpPanelState extends State<_TotpPanel> {
                         await AgentBridge.copyConcealed(_liveCode!);
                         if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('验证码已复制（30 秒后清除）')),
+                          const SnackBar(content: Text('验证码已复制，将按设置自动清除剪贴板')),
                         );
                       },
                     ),
@@ -859,6 +859,9 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
   String? _filterGroupId;
   Map<String, dynamic>? _selected;
   String _status = '';
+  String _storagePath = '';
+  String _agentSocket = '';
+  bool _deleting = false;
 
   @override
   void initState() {
@@ -868,23 +871,35 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
 
   Future<void> _refresh() async {
     try {
-      _items = await AgentBridge.listSshKeys();
-      _groups = await loadCredentialGroups('ssh');
-      _filterGroupId = dropdownValueIfPresent(_filterGroupId, _groups);
-      if (_items.isEmpty) {
-        await AgentBridge.generateSshKey(label: 'Default', setDefault: true);
-        _items = await AgentBridge.listSshKeys();
+      final response = await AgentBridge.request({'type': 'ssh_key_list'});
+      final payload = AgentBridge.payloadOf(response);
+      final items = (payload['items'] as List<dynamic>? ?? [])
+          .map((item) => Map<String, dynamic>.from(item as Map)).toList();
+      if (!mounted) return;
+      final groups = await loadCredentialGroups('ssh');
+      if (!mounted) return;
+      Map<String, dynamic>? selected;
+      for (final row in items) {
+        if (row['id'] == _selected?['id']) selected = row;
       }
-      _status = '';
-      setState(() {});
+      setState(() {
+        _items = items;
+        _groups = groups;
+        _selected = selected;
+        _filterGroupId = dropdownValueIfPresent(_filterGroupId, groups);
+        _storagePath = payload['storage_path']?.toString() ?? '';
+        _agentSocket = payload['agent_socket']?.toString() ?? '';
+        _status = '';
+      });
     } on AgentException catch (e) {
-      setState(() => _status = e.message);
+      if (mounted) setState(() => _status = AgentBridge.friendlyMessage(e));
     }
   }
 
   Future<void> _generate() async {
+    if (_deleting) return;
     final labelCtl = TextEditingController(text: 'Key ${_items.length + 1}');
-    bool setDefault = false;
+    bool setDefault = _items.isEmpty;
     var groupId = dropdownValueIfPresent(_filterGroupId, _groups);
     final ok = await showDialog<bool>(
       context: context,
@@ -929,7 +944,9 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
         ),
       ),
     );
-    if (ok != true) return;
+    final label = labelCtl.text.trim();
+    labelCtl.dispose();
+    if (ok != true || !mounted) return;
     if (!await confirmCredentialDanger(
       context,
       title: '生成新 SSH 密钥',
@@ -938,15 +955,16 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
     )) {
       return;
     }
+    if (!mounted) return;
     try {
       await AgentBridge.generateSshKey(
-        label: labelCtl.text.trim(),
+        label: label,
         setDefault: setDefault,
         groupId: groupId,
       );
       await _refresh();
     } on AgentException catch (e) {
-      setState(() => _status = e.message);
+      if (mounted) setState(() => _status = AgentBridge.friendlyMessage(e));
     }
   }
 
@@ -956,13 +974,40 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('公钥已复制')));
   }
 
+  Future<void> _delete(Map<String, dynamic> row) async {
+    if (_deleting) return;
+    final itemId = row['item_id'] as String?;
+    if (itemId == null) return;
+    setState(() => _deleting = true);
+    try {
+      if (!await confirmCredentialDanger(context,
+          title: '删除 SSH 密钥',
+          message: '删除「${row['label'] ?? 'SSH'}」？\n\n'
+              '删除默认密钥时会由剩余密钥接替；没有剩余时暂停 SSH 签名。'
+              '如需撤销服务器访问权限，还需移除服务器端公钥。')) return;
+      if (!mounted || !await requireTouchId(context,
+          reason: '删除 SSH 密钥', confirmed: true)) return;
+      await AgentBridge.trashCredential(itemId);
+      await _refresh();
+      if (mounted) setState(() => _status = 'SSH 密钥已删除。历史备份中可能仍保留副本。');
+    } on AgentException catch (e) {
+      if (mounted) setState(() => _status = AgentBridge.friendlyMessage(e));
+    } catch (_) {
+      if (mounted) setState(() => _status = '删除未完成，请刷新后确认当前状态');
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final visibleItems = _items
         .where((row) =>
             _filterGroupId == null || row['group_id'] == _filterGroupId)
         .toList();
-    return Padding(
+    return AbsorbPointer(
+      absorbing: _deleting,
+      child: Padding(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -976,6 +1021,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                 label: const Text('生成密钥')),
           ),
           if (_status.isNotEmpty) AppNotice(_status),
+          if (_deleting) const LinearProgressIndicator(minHeight: 2),
           buildGroupFilterBar(
             groups: _groups,
             selectedGroupId: _filterGroupId,
@@ -1024,7 +1070,11 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                     icon: Icons.terminal_rounded,
                     fields: {
                       '公钥': _selected!['public_openssh']?.toString() ?? '',
-                      '默认密钥': _selected!['is_default'] == true ? '是' : '否'
+                      '默认密钥': _selected!['is_default'] == true ? '是' : '否',
+                      '存储方式': '私钥加密保存在保险库数据库中，由 SSH Agent 完成签名。',
+                      '数据库文件': _storagePath,
+                      'SSH Agent 连接': _agentSocket,
+                      '独立私钥文件': '不生成，也无需手动指定私钥文件。',
                     },
                   ),
             actions: _selected == null
@@ -1050,16 +1100,21 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                         },
                         child: const Text('移到分组'),
                       ),
+                      OutlinedButton.icon(
+                        onPressed: () => _delete(_selected!),
+                        icon: const Icon(Icons.delete_outline_rounded),
+                        label: const Text('删除'),
+                      ),
                     ],
                   ),
           )),
           const Text(
-            '选中密钥后可复制公钥或调整分组；在「保险库」页可配置 SSH IdentityAgent。',
+            '支持查看和复制公钥、分组及删除。私钥不以明文展示；在「保险库」页配置 SSH IdentityAgent。',
             style: TextStyle(fontSize: 11, color: Colors.black54),
           ),
         ],
       ),
-    );
+    ));
   }
 }
 

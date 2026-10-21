@@ -451,7 +451,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     await AgentBridge.copyConcealed(detail['password'] as String? ?? '');
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('密码已复制（30 秒后清除）')),
+        const SnackBar(content: Text('密码已复制，将按设置自动清除剪贴板')),
       );
     }
   }

@@ -58,6 +58,11 @@ final class CredPivotPlatform: NSObject {
         result(FlutterError(code: "bad_args", message: "expected json string", details: nil))
         return
       }
+      var requestObject: [String: Any]?
+      if let data = json.data(using: .utf8) {
+        requestObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+      }
+      let previousSettings = requestObject?["type"] as? String == "app_settings_set" ? AppPreferences.settings() : nil
       var response = credpivotAgentRequestJsonString(json)
       if let requestData = json.data(using: .utf8),
          let request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any],
@@ -67,6 +72,7 @@ final class CredPivotPlatform: NSObject {
          var payload = object["payload"] as? [String: Any] {
         payload["local_unlock_configured"] = LocalVaultUnlock.configured
         payload["local_unlock_notice"] = LocalVaultUnlock.setupNotice
+        payload["browser_background_launch"] = AppDelegate.launchedForBrowser
         object["payload"] = payload
         if let data = try? JSONSerialization.data(withJSONObject: object),
            let updated = String(data: data, encoding: .utf8) { response = updated }
@@ -79,6 +85,27 @@ final class CredPivotPlatform: NSObject {
           LocalVaultUnlock.enroll()
         case "vault_export_ovb": _ = LocalVaultUnlock.persist(enroll: false)
         case "vault_open_dir": LocalVaultUnlock.invalidate()
+        case "app_settings_set":
+          var notices: [String] = []
+          let next = AppPreferences.settings()
+          // 显式保存时也重试应用系统偏好，避免上次注册失败后只能反复切换开关。
+          if let notice = LoginItemRegistrar.applyPreference() { notices.append(notice) }
+          if (previousSettings?["chrome_extension_id"] as? String) != (next["chrome_extension_id"] as? String) {
+            let installation = ChromeHostInstaller.applyPreference()
+            if installation["ok"] as? Bool != true {
+              notices.append("配置已保存，但浏览器连接尚未更新，请在「浏览器连接」页修复。")
+            } else {
+              notices.append((next["chrome_extension_id"] as? String ?? "").isEmpty ? "本机浏览器连接已停用。" : "浏览器连接已更新，请完全退出 Chrome 后重开。")
+            }
+          }
+          if let data = response.data(using: .utf8),
+             var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+             var payload = object["payload"] as? [String: Any] {
+            payload["platform_notice"] = notices.joined(separator: "\n")
+            object["payload"] = payload
+            if let updated = try? JSONSerialization.data(withJSONObject: object),
+               let text = String(data: updated, encoding: .utf8) { response = text }
+          }
         default: break
         }
       }
@@ -106,6 +133,8 @@ final class CredPivotPlatform: NSObject {
     case "registerLoginItem":
       let enabled = (call.arguments as? Bool) ?? true
       LoginItemRegistrar.setEnabled(enabled, result: result)
+    case "loginItemStatus":
+      result(LoginItemRegistrar.status())
     case "getChromeExtensionId":
       result(ChromeHostInstaller.storedExtensionId() ?? "")
     case "chromeHostStatus":
@@ -117,6 +146,8 @@ final class CredPivotPlatform: NSObject {
       result(ChromeHostInstaller.revealExtensionDirectory())
     case "openChromeExtensionsPage":
       result(ChromeHostInstaller.openChromeExtensionsPage())
+    case "sshIdentityAgentStatus":
+      result(SshIdentityAgentHelper.status())
     case "appendSshIdentityAgent":
       if !agentIsUnlocked() {
         result([
@@ -173,7 +204,8 @@ final class CredPivotPlatform: NSObject {
         result(FlutterError(code: "bad_args", message: "secret required", details: nil))
         return
       }
-      ConcealedPasteboard.copyConcealed(secret, clearAfterSeconds: 30)
+      let seconds = (AppPreferences.settings()["clipboard_clear_seconds"] as? NSNumber)?.doubleValue ?? 5
+      ConcealedPasteboard.copyConcealed(secret, clearAfterSeconds: seconds)
       result(nil)
     case "getTerminalPreference":
       result(TerminalLauncher.preferencePayload())
@@ -182,8 +214,7 @@ final class CredPivotPlatform: NSObject {
         result(FlutterError(code: "bad_args", message: "map required", details: nil))
         return
       }
-      TerminalLauncher.applyLaunchConfig(args)
-      result(nil)
+      result(TerminalLauncher.applyLaunchConfig(args) ? nil : FlutterError(code: "settings_write", message: "终端配置保存失败", details: nil))
     case "pickTerminalApplication":
       if let picked = TerminalLauncher.pickApplication() {
         result(picked)
@@ -287,7 +318,7 @@ enum ExtensionGateCoordinator {
           let session = try? String(contentsOf: pendingPath, encoding: .utf8),
           UUID(uuidString: session) != nil else { return }
     pending = true
-    NSApp.activate(ignoringOtherApps: true)
+    // LocalAuthentication 自行展示系统弹窗，不激活 App，避免打断 Chrome。
     TouchIdGate.shared.authenticateForExtensionGate(reason: "允许当前 Chrome 会话访问保险库") { ok in
       pending = false
       let current = try? String(contentsOf: pendingPath, encoding: .utf8)
@@ -302,6 +333,46 @@ enum ExtensionGateCoordinator {
         try? FileManager.default.removeItem(at: pendingPath)
       }
     }
+  }
+}
+
+// MARK: - 用户偏好统一由 Rust 校验和原子写入 settings.json
+
+enum AppPreferences {
+  static func settings() -> [String: Any] {
+    LocalVaultUnlock.request(["type": "app_settings_get"])?["settings"] as? [String: Any] ?? [:]
+  }
+
+  @discardableResult
+  static func update(_ changes: [String: Any]) -> Bool {
+    guard let payload = LocalVaultUnlock.request(["type": "app_settings_get"]),
+          (payload["warning"] as? String ?? "").isEmpty,
+          var current = payload["settings"] as? [String: Any] else { return false }
+    current.merge(changes) { _, new in new }
+    return LocalVaultUnlock.request(["type": "app_settings_set", "settings": current]) != nil
+  }
+
+  static func migrateLegacyPreferences() {
+    let current = settings()
+    guard !current.isEmpty else { return }
+    var changes: [String: Any] = [:]
+    let legacyChrome = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".credpivot/chrome_extension_id")
+    if current["terminal_app_path"] as? String == nil {
+      changes["terminal_app_path"] = UserDefaults.standard.string(forKey: "credpivot.terminal.app_path") ?? ""
+    }
+    if current["chrome_extension_id"] as? String == nil {
+      let old = (try? String(contentsOf: legacyChrome, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      changes["chrome_extension_id"] = old.range(of: "^[a-p]{32}$", options: .regularExpression) != nil ? old : ""
+    }
+    if current["launch_at_login"] as? Bool == nil {
+      let login = LoginItemRegistrar.status()
+      changes["launch_at_login"] = login["enabled"] as? Bool == true || login["requires_approval"] as? Bool == true
+    }
+    guard !changes.isEmpty, update(changes) else { return }
+    // 只有统一配置写入成功后才移除旧存储，防止迁移失败丢失偏好。
+    UserDefaults.standard.removeObject(forKey: "credpivot.terminal.app_path")
+    UserDefaults.standard.removeObject(forKey: "credpivot.terminal.app")
+    try? FileManager.default.removeItem(at: legacyChrome)
   }
 }
 
@@ -564,22 +635,37 @@ final class TouchIdGate {
 }
 
 enum LoginItemRegistrar {
-  static func setEnabled(_ enabled: Bool, result: @escaping FlutterResult) {
+  static func status() -> [String: Any] {
+    if #available(macOS 13.0, *) {
+      return ["supported": true, "enabled": SMAppService.mainApp.status == .enabled,
+              "requires_approval": SMAppService.mainApp.status == .requiresApproval]
+    }
+    return ["supported": false, "enabled": false, "requires_approval": false]
+  }
+
+  /// JSON 保存用户意图，系统实际状态另行展示；注册失败不能伪装成已启用。
+  static func applyPreference() -> String? {
+    guard let desired = AppPreferences.settings()["launch_at_login"] as? Bool else { return nil }
     if #available(macOS 13.0, *) {
       let service = SMAppService.mainApp
+      if desired && service.status == .requiresApproval { return "登录启动等待批准，请在系统设置的「登录项」中允许 CredPivot。" }
+      if desired && service.status == .enabled { return nil }
+      if !desired && service.status != .enabled && service.status != .requiresApproval { return nil }
       do {
-        if enabled {
-          try service.register()
-        } else {
-          try service.unregister()
-        }
-        result(nil)
-      } catch {
-        result(FlutterError(code: "login_item", message: error.localizedDescription, details: nil))
-      }
-    } else {
-      result(FlutterError(code: "login_item", message: "requires macOS 13+", details: nil))
+        if desired { try service.register() } else { try service.unregister() }
+        if service.status == .requiresApproval { return "登录启动等待系统批准，请检查系统设置的「登录项」。" }
+        return (service.status == .enabled) == desired ? nil : "配置已保存，但登录项状态尚未同步，请重试或检查系统设置。"
+      } catch { return "配置已保存，但登录项注册未生效，请检查系统设置。" }
     }
+    return desired ? "当前系统不支持登录项注册，需要 macOS 13 或更新版本。" : nil
+  }
+
+  static func setEnabled(_ enabled: Bool, result: @escaping FlutterResult) {
+    guard AppPreferences.update(["launch_at_login": enabled]) else {
+      result(FlutterError(code: "settings_write", message: "登录启动配置保存失败", details: nil)); return
+    }
+    if let notice = applyPreference() { result(FlutterError(code: "login_item", message: notice, details: nil)) }
+    else { result(nil) }
   }
 }
 
@@ -589,7 +675,6 @@ enum ChromeHostInstaller {
     FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".credpivot", isDirectory: true)
   }()
-  private static let configPath: URL = credPivotDir.appendingPathComponent("chrome_extension_id")
   private static let installedHostPath: URL = credPivotDir.appendingPathComponent("credpivot-native-host")
   private static let manifestURL: URL = {
     FileManager.default.homeDirectoryForCurrentUser
@@ -739,7 +824,7 @@ enum ChromeHostInstaller {
   }
 
   static func storedExtensionId() -> String? {
-    guard let raw = try? String(contentsOf: configPath, encoding: .utf8) else { return nil }
+    guard let raw = AppPreferences.settings()["chrome_extension_id"] as? String else { return nil }
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
   }
@@ -767,21 +852,13 @@ enum ChromeHostInstaller {
   static func install(extensionId: String?) -> [String: Any] {
     let candidate = extensionId ?? storedExtensionId() ?? ""
     let extId = normalizeExtensionId(candidate)
-    if extId.isEmpty || extId.contains("REPLACE") {
+    if extId.range(of: "^[a-p]{32}$", options: .regularExpression) == nil {
       return [
         "ok": false,
         "message": "请填写 Chrome 扩展 ID（在 chrome://extensions 打开开发者模式后复制）",
       ]
     }
-    do {
-      try FileManager.default.createDirectory(
-        at: configPath.deletingLastPathComponent(),
-        withIntermediateDirectories: true
-      )
-      try extId.write(to: configPath, atomically: true, encoding: .utf8)
-    } catch {
-      return ["ok": false, "message": "无法保存扩展 ID: \(error.localizedDescription)"]
-    }
+    guard AppPreferences.update(["chrome_extension_id": extId]) else { return ["ok": false, "message": "扩展 ID 保存失败"] }
 
     do {
       let host = try materializeHostBinary()
@@ -808,11 +885,37 @@ enum ChromeHostInstaller {
       return ["ok": false, "message": error.localizedDescription]
     }
   }
+
+  static func applyPreference() -> [String: Any] {
+    if let id = storedExtensionId() { return install(extensionId: id) }
+    do {
+      if FileManager.default.fileExists(atPath: manifestURL.path) { try FileManager.default.removeItem(at: manifestURL) }
+      return ["ok": true]
+    } catch { return ["ok": false, "message": "浏览器连接配置清理失败"] }
+  }
 }
 
 enum SshIdentityAgentHelper {
   private static let markerStart = "# >>> CredPivot M0 IdentityAgent"
   private static let markerEnd = "# <<< CredPivot M0"
+
+  static func status() -> [String: Any] {
+    let config = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh/config")
+    guard FileManager.default.fileExists(atPath: config.path) else {
+      return ["ok": true, "configured": false]
+    }
+    do {
+      let text = try String(contentsOf: config, encoding: .utf8)
+      // 只识别本应用管理的片段，不将用户自己的 IdentityAgent 配置视为已接入。
+      if let start = text.range(of: markerStart),
+         text.range(of: markerEnd, range: start.upperBound..<text.endIndex) == nil {
+        return ["ok": false, "message": "CredPivot SSH 配置片段不完整，请检查 ~/.ssh/config"]
+      }
+      return ["ok": true, "configured": text.contains(markerStart)]
+    } catch {
+      return ["ok": false, "message": "无法读取 ~/.ssh/config，请检查文件权限后刷新状态"]
+    }
+  }
 
   /// 写入 ~/.ssh/config；返回给 Flutter 展示结果（M0 无静默成功）。
   static func appendSnippet() -> [String: Any] {
@@ -976,7 +1079,6 @@ enum ConcealedPasteboard {
 }
 
 enum TerminalLauncher {
-  private static let appPathKey = "credpivot.terminal.app_path"
   private static let legacyIdKey = "credpivot.terminal.app"
   /// 旧版自定义启动项，已不再使用。
   private static let legacyLaunchModeKey = "credpivot.terminal.launch_mode"
@@ -995,11 +1097,12 @@ enum TerminalLauncher {
     return ["path": "", "name": ""]
   }
 
-  static func applyLaunchConfig(_ map: [String: Any]) {
+  static func applyLaunchConfig(_ map: [String: Any]) -> Bool {
     if let appPath = map["path"] as? String, !appPath.isEmpty {
-      setAppPath(appPath)
+      guard setAppPath(appPath) else { return false }
     }
     clearLegacyLaunchExtras()
+    return true
   }
 
   private static func clearLegacyLaunchExtras() {
@@ -1010,12 +1113,12 @@ enum TerminalLauncher {
   }
 
   static func currentAppPath() -> String? {
-    UserDefaults.standard.string(forKey: appPathKey)
+    let path = AppPreferences.settings()["terminal_app_path"] as? String ?? ""
+    return path.isEmpty ? nil : path
   }
 
   /// 旧版预设 id（terminal/iterm/warp），首次选择 .app 后不再使用。
   static func setLegacyPreset(_ id: String) {
-    UserDefaults.standard.set(id, forKey: legacyIdKey)
     if id == "terminal" {
       setAppPath("/System/Applications/Utilities/Terminal.app")
     } else if id == "iterm" {
@@ -1025,9 +1128,11 @@ enum TerminalLauncher {
     }
   }
 
-  static func setAppPath(_ path: String) {
-    UserDefaults.standard.set(path, forKey: appPathKey)
+  @discardableResult
+  static func setAppPath(_ path: String) -> Bool {
+    guard AppPreferences.update(["terminal_app_path": path]) else { return false }
     UserDefaults.standard.removeObject(forKey: legacyIdKey)
+    return true
   }
 
   static func pickApplication() -> [String: String]? {
@@ -1042,8 +1147,7 @@ enum TerminalLauncher {
       return nil
     }
     let path = url.path
-    setAppPath(path)
-    clearLegacyLaunchExtras()
+    // 选择只修改页面草稿，用户点击保存后才写统一配置。
     return ["path": path, "name": url.deletingPathExtension().lastPathComponent]
   }
 

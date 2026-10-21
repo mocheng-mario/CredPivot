@@ -140,7 +140,7 @@ class AgentBridge {
     return await _channel.invokeMethod<bool>('unlockTouchId') ?? false;
   }
 
-  /// 身份验证在 Agent 内固定复用 2 分钟，过期后优先 Touch ID、可回退主密码。
+  /// 身份验证按用户配置限时复用，过期后优先 Touch ID、可回退主密码。
   static Future<bool> authenticateTouchId([String reason = 'CredPivot 需要验证您的身份']) async {
     return await _channel.invokeMethod<bool>('authenticateTouchId', reason) ?? false;
   }
@@ -189,6 +189,20 @@ class AgentBridge {
   static Future<void> registerLoginItem(bool enabled) =>
       _channel.invokeMethod('registerLoginItem', enabled);
 
+  static Future<Map<String, dynamic>> fetchAppSettings() async =>
+      payloadOf(await request({'type': 'app_settings_get'}));
+
+  static Future<String?> backupAppSettings() async =>
+      payloadOf(await request({'type': 'app_settings_backup'}))['path'] as String?;
+
+  static Future<Map<String, dynamic>> saveAppSettings(Map<String, dynamic> settings) async =>
+      payloadOf(await request({'type': 'app_settings_set', 'settings': settings}));
+
+  static Future<Map<String, dynamic>> loginItemStatus() async {
+    final raw = await _channel.invokeMethod<dynamic>('loginItemStatus');
+    return raw is Map ? Map<String, dynamic>.from(raw) : {};
+  }
+
   static Future<String> getChromeExtensionId() async =>
       await _channel.invokeMethod<String>('getChromeExtensionId') ?? '';
 
@@ -222,6 +236,11 @@ class AgentBridge {
       return Map<String, dynamic>.from(raw);
     }
     return {'ok': false, 'message': '未知返回: $raw'};
+  }
+
+  static Future<Map<String, dynamic>> sshIdentityAgentStatus() async {
+    final raw = await _channel.invokeMethod<dynamic>('sshIdentityAgentStatus');
+    return raw is Map ? Map<String, dynamic>.from(raw) : {'ok': false};
   }
 
   static Future<Map<String, dynamic>> appendSshIdentityAgent() async {

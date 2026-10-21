@@ -91,7 +91,10 @@ fn frame(body: &[u8]) -> Vec<u8> {
 }
 
 fn identities_answer(vault: &VaultSession) -> Result<Vec<u8>> {
-    let vk: VerifyingKey = vault.ssh_signing_key.verifying_key();
+    let Some(key) = &vault.ssh_signing_key else {
+        return Ok(frame(&[SSH2_AGENT_IDENTITIES_ANSWER, 0, 0, 0, 0]));
+    };
+    let vk: VerifyingKey = key.verifying_key();
     let key_blob = ed25519_key_blob(&vk);
     let comment = b"credpivot-m0";
     let mut body = vec![SSH2_AGENT_IDENTITIES_ANSWER, 0, 0, 0, 1];
@@ -114,10 +117,11 @@ fn ed25519_key_blob(vk: &VerifyingKey) -> Vec<u8> {
 }
 
 fn sign_request(vault: &VaultSession, msg: &[u8]) -> Result<Vec<u8>> {
+    let Some(key) = &vault.ssh_signing_key else { return Ok(failure_packet()); };
     if msg.len() < 5 {
         return Ok(failure_packet());
     }
-    let expected_blob = ed25519_key_blob(&vault.ssh_signing_key.verifying_key());
+    let expected_blob = ed25519_key_blob(&key.verifying_key());
     let mut idx = 1usize;
     let key_blob_len = read_u32_be(msg, &mut idx)? as usize;
     if idx + key_blob_len > msg.len() {
@@ -133,7 +137,7 @@ fn sign_request(vault: &VaultSession, msg: &[u8]) -> Result<Vec<u8>> {
         return Ok(failure_packet());
     }
     let data = &msg[idx..idx + data_len];
-    let sig = vault.ssh_signing_key.sign(data);
+    let sig = key.sign(data);
     let sig_blob = ssh_ed25519_signature_blob(&sig.to_bytes());
     let mut body = vec![SSH_AGENT_SIGN_RESPONSE];
     body.extend_from_slice(&(sig_blob.len() as u32).to_be_bytes());

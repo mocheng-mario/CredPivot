@@ -1,5 +1,4 @@
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Default runtime paths under `~/.credpivot` (0700). Socket path kept short for AF_UNIX limits.
@@ -77,31 +76,16 @@ pub fn dirs_home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/tmp"))
 }
 
-pub fn active_vault_pointer_path() -> PathBuf {
-    runtime_dir().join("active_vault_dir")
-}
-
 fn read_persisted_vault_dir() -> Option<PathBuf> {
-    let body = fs::read_to_string(active_vault_pointer_path()).ok()?;
-    let path = PathBuf::from(body.trim());
-    if path.join("vault.json").exists() {
-        Some(path)
-    } else {
-        None
-    }
+    credpivot_core::effective_app_settings().vault_directory.map(PathBuf::from)
 }
 
 /// 迁移或切换工作库后写入指针，下次启动沿用（仍可用 `CREDPIVOT_VAULT_DIR` 覆盖）。
 pub fn persist_active_vault_dir(dir: &Path) -> std::io::Result<()> {
     ensure_runtime_dir()?;
-    let pointer = active_vault_pointer_path();
-    let next = runtime_dir().join("active_vault_dir.next");
-    let mut f = fs::File::create(&next)?;
-    f.write_all(dir.to_string_lossy().as_bytes())?;
-    f.write_all(b"\n")?;
-    f.sync_all()?;
-    fs::rename(next, pointer)?;
-    Ok(())
+    let mut settings = credpivot_core::read_app_settings()?;
+    settings.vault_directory = Some(dir.to_string_lossy().into_owned());
+    credpivot_core::write_app_settings(&settings)
 }
 
 pub fn vault_data_dir() -> PathBuf {

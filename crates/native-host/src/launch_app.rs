@@ -1,11 +1,17 @@
 use std::process::Command;
 
-/// Ask macOS to launch CredPivot when the agent socket is unreachable.
+/// 浏览器拉起 App 时保持后台，由原生协调器弹出验证窗口。
 pub fn launch_credpivot_app() {
     #[cfg(target_os = "macos")]
     {
         let _ = Command::new("open")
-            .args(["-b", "com.credpivot.macos"])
+            .args([
+                "-g",
+                "-b",
+                "com.credpivot.macos",
+                "--args",
+                "--credpivot-browser-background",
+            ])
             .status();
     }
 }

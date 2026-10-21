@@ -14,6 +14,7 @@ import 'touch_id_gate.dart';
 import 'memory_format.dart';
 import 'vault_lock_coordinator.dart';
 import 'agent_readiness.dart';
+import 'settings_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,6 +46,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
   String _log = '启动中…';
   String _operationMessage = '';
   final _password = TextEditingController();
+  final _passwordFocus = FocusNode();
   final _newPassword = TextEditingController();
   final _recoveryKey = TextEditingController();
   // 备份可能来自其他保险库，恢复密码不与当前主密码共用输入状态。
@@ -53,11 +55,18 @@ class _VaultHomePageState extends State<VaultHomePage> {
   Map<String, dynamic> _status = {};
   int _memoryBytes = 0;
   bool _busy = false;
+  bool _initializing = true;
+  bool _bootstrapping = false;
+  bool _showMasterPassword = false;
+  String _unlockMessage = '';
   int _pageIndex = 0;
   final Set<int> _visitedPages = {0};
 
   bool get _vaultExists => _status['vault_exists'] == true;
   bool get _unlocked => _status['unlocked'] == true;
+  bool get _needsMasterPassword => _showMasterPassword ||
+      _status['master_password_required'] != false ||
+      _status['local_unlock_configured'] != true;
 
   Timer? _vaultLockPoll;
   bool _vaultLockPolling = false;
@@ -74,7 +83,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
   }
 
   Future<void> _pollVaultLockGeneration() async {
-    if (_vaultLockPolling || !mounted) return;
+    if (_vaultLockPolling || _initializing || !mounted) return;
     _vaultLockPolling = true;
     final generation = _statusRequestGeneration;
     try {
@@ -90,10 +99,14 @@ class _VaultHomePageState extends State<VaultHomePage> {
         await _refreshStatus();
       } else if (agentUnlocked && _lastVaultLockGen != 0 && gen != _lastVaultLockGen) {
         notifyVaultLocked();
+      } else if (_status['master_password_required'] != payload['master_password_required'] ||
+          _vaultExists != (payload['vault_exists'] == true)) {
+        await _refreshStatus();
       }
       _lastVaultLockGen = gen;
     } catch (_) {
-      // 短暂通信失败由后续轮询重试，保留当前界面状态。
+      // 失去后台状态时先遮住内容，不能继续展示上一次解锁会话的数据。
+      if (mounted && _unlocked) notifyVaultLocked();
     } finally {
       _vaultLockPolling = false;
     }
@@ -109,8 +122,11 @@ class _VaultHomePageState extends State<VaultHomePage> {
     if (mounted) {
       setState(() {
         _status = {..._status, 'unlocked': false};
+        _showMasterPassword = false;
+        _unlockMessage = '';
+        _operationMessage = '';
       });
-      _refreshStatus();
+      _refreshStatus().catchError((Object _) {});
     }
   }
 
@@ -118,6 +134,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
   void dispose() {
     _vaultLockPoll?.cancel();
     _password.dispose();
+    _passwordFocus.dispose();
     _newPassword.dispose();
     _recoveryKey.dispose();
     _recoveryPassword.dispose();
@@ -159,19 +176,31 @@ class _VaultHomePageState extends State<VaultHomePage> {
     final generation = ++_statusRequestGeneration;
     final raw = await AgentBridge.request({'type': 'status'});
     final payload = AgentBridge.payloadOf(raw);
-    final chrome = await AgentBridge.chromeHostStatus();
-    final memoryBytes = await AgentBridge.residentMemoryBytes();
+    // 遥测失败不能阻止应用收到真实锁定状态。
+    Map<String, dynamic> chrome = {};
+    var memoryBytes = _memoryBytes;
+    try { chrome = await AgentBridge.chromeHostStatus(); } catch (_) {}
+    try { memoryBytes = await AgentBridge.residentMemoryBytes(); } catch (_) {}
     // 锁定通知或较新的刷新已经到达时，不再应用旧的解锁状态。
     if (!mounted || generation != _statusRequestGeneration) return;
     _memoryBytes = memoryBytes;
     if (payload['unlocked'] != true) {
       clearSensitiveAuthGrace();
       if (_unlocked) {
+        vaultRootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
         _password.clear();
         _newPassword.clear();
         _recoveryKey.clear();
         _recoveryPassword.clear();
+        _showMasterPassword = false;
+        _unlockMessage = '';
+        _operationMessage = '';
       }
+    } else if (!_unlocked) {
+      // 浏览器也可能完成解锁，不把锁定页尚未提交的主密码留在内存中。
+      _password.clear();
+      _showMasterPassword = false;
+      _unlockMessage = '';
     }
     setState(() {
       _status = payload;
@@ -184,35 +213,57 @@ class _VaultHomePageState extends State<VaultHomePage> {
   }
 
   Future<void> _bootstrap() async {
+    if (_bootstrapping || !mounted) return;
+    _bootstrapping = true;
+    setState(() => _initializing = true);
     try {
       if (!await AgentBridge.ensureAgentReady()) {
         _appendLog(
           '后台 Agent 未就绪。可点「重启 Agent」或「重新打开应用」。'
           ' 若从旧构建启动，请先 make macos-build-debug 后重开。',
         );
+        return;
       }
-      _chromeExtensionId.text = await AgentBridge.getChromeExtensionId();
-      final chrome = await AgentBridge.chromeHostStatus();
-      final id = _chromeExtensionId.text.trim();
-      if (id.isNotEmpty &&
-          (chrome['manifest_exists'] != true ||
-              chrome['installed_host_exists'] != true ||
-              chrome['trusted_host_configured'] != true ||
-              chrome['installed_host_current'] != true ||
-              chrome['manifest_host_matches_installed'] != true ||
-              chrome['host_id_matches_manifest'] != true)) {
-        final r = await AgentBridge.installChromeHost(id);
-        if (r['ok'] != true) {
-          _appendLog('Chrome Host: ${r['message']}');
+      try {
+        _chromeExtensionId.text = await AgentBridge.getChromeExtensionId();
+        final chrome = await AgentBridge.chromeHostStatus();
+        final id = _chromeExtensionId.text.trim();
+        if (id.isNotEmpty &&
+            (chrome['manifest_exists'] != true ||
+                chrome['installed_host_exists'] != true ||
+                chrome['trusted_host_configured'] != true ||
+                chrome['installed_host_current'] != true ||
+                chrome['manifest_host_matches_installed'] != true ||
+                chrome['host_id_matches_manifest'] != true)) {
+          final r = await AgentBridge.installChromeHost(id);
+          if (r['ok'] != true) {
+            _appendLog('Chrome Host: ${r['message']}');
+          }
         }
+      } catch (_) {
+        // 浏览器集成不可用时仍须继续显示解锁页和执行启动验证。
+        _appendLog('浏览器连接初始化未完成，解锁后可在「浏览器连接」页修复。');
       }
       await _refreshStatus();
-      if (mounted && !_unlocked && _status['local_unlock_configured'] == true &&
-          _status['master_password_required'] == false) {
-        await _unlockTouchId();
-      }
     } catch (_) {
       _appendLog('初始化失败，请查看「诊断」页的事件记录');
+    } finally {
+      _bootstrapping = false;
+      if (mounted) setState(() => _initializing = false);
+    }
+    // 浏览器后台拉起时由原生协调器统一验证，避免与启动验证重复弹窗。
+    // 普通启动只主动弹一次；取消后停留在锁定页，避免反复抢占焦点。
+    if (mounted &&
+        _vaultExists &&
+        !_unlocked &&
+        _status['browser_background_launch'] != true) {
+      if (_needsMasterPassword) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_unlocked) _passwordFocus.requestFocus();
+        });
+      } else {
+        await _unlockTouchId();
+      }
     }
   }
 
@@ -306,29 +357,54 @@ class _VaultHomePageState extends State<VaultHomePage> {
   }
 
   Future<void> _unlock() async {
+    if (_busy) return;
+    if (_password.text.isEmpty) {
+      setState(() => _unlockMessage = '请输入保险库主密码');
+      _passwordFocus.requestFocus();
+      return;
+    }
+    setState(() => _unlockMessage = '');
     if (!await _guardAgent('解锁')) return;
     await _run('解锁', () async {
       final ok = await AgentBridge.unlockWithPassword(_password.text);
+      if (!mounted) return;
       if (!ok) {
-        _appendLog('解锁失败：主密码不正确');
+        _password.clear();
+        setState(() => _unlockMessage = '主密码不正确，请重新输入');
+        _passwordFocus.requestFocus();
         return;
       }
       _password.clear();
       await _refreshStatus();
     });
+    if (mounted && !_unlocked && _unlockMessage.isEmpty) {
+      setState(() => _unlockMessage = '解锁未完成，请重试');
+    }
   }
 
   Future<void> _unlockTouchId() async {
+    if (_busy) return;
+    setState(() => _unlockMessage = '');
     await _run('Touch ID', () async {
       final ok = await AgentBridge.unlockWithTouchId()
           .timeout(const Duration(seconds: 120), onTimeout: () => false);
       if (!ok) {
-        _appendLog('指纹解锁未完成，请重试或输入主密码。首次使用、满 7 天或超过 24 小时未解锁时必须使用主密码。');
+        if (!mounted) return;
+        setState(() {
+          _showMasterPassword = true;
+          _unlockMessage = '指纹解锁未完成，可以输入主密码或重试指纹';
+        });
         await _refreshStatus();
         return;
       }
       await _refreshStatus();
     });
+    if (mounted && !_unlocked && _unlockMessage.isEmpty) {
+      setState(() {
+        _showMasterPassword = true;
+        _unlockMessage = '解锁未完成，请输入主密码或重试';
+      });
+    }
   }
 
   Future<void> _lock() async {
@@ -398,6 +474,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
   }
 
   void _selectPage(int index) {
+    if (_status.isEmpty || (_vaultExists && !_unlocked)) return;
     setState(() {
       _pageIndex = index;
       _visitedPages.add(index);
@@ -409,7 +486,14 @@ class _VaultHomePageState extends State<VaultHomePage> {
     final vaultLabel = !_vaultExists ? '未创建' : (_unlocked ? '已解锁' : '已锁定');
     return AgentReadinessScope(
       builder: (context, agentReady) => Scaffold(
-        body: SafeArea(
+        // 首次创建/恢复保险库仍需可用；已有保险库锁定后只显示解锁入口。
+        body: _initializing
+            ? const Center(child: CircularProgressIndicator())
+            : !agentReady || _status.isEmpty
+                ? _connectionUnavailable()
+                : _vaultExists && !_unlocked
+                    ? _lockedView()
+                    : SafeArea(
           child: LayoutBuilder(builder: (context, constraints) {
             return Row(children: [
               AppSidebar(
@@ -458,6 +542,11 @@ class _VaultHomePageState extends State<VaultHomePage> {
                       const LinearProgressIndicator(minHeight: 2)
                     else
                       const SizedBox(height: 2),
+                    if (_status['settings_valid'] == false)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 24),
+                        child: AppNotice('配置文件无效，当前使用保守设置。请前往「设置」修复或恢复默认。'),
+                      ),
                     if (_operationMessage.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -477,7 +566,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
                           ? IndexedStack(
                               index: _pageIndex,
                               children: List.generate(
-                                  5,
+                                  appPageTitles.length,
                                   (index) => _visitedPages.contains(index)
                                       ? TickerMode(
                                           enabled: index == _pageIndex,
@@ -500,6 +589,98 @@ class _VaultHomePageState extends State<VaultHomePage> {
     );
   }
 
+  Widget _connectionUnavailable() => Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: AppPanel(
+            title: '正在等待本机后台',
+            subtitle: '确认保险库状态后才能继续使用。',
+            icon: Icons.lock_outline_rounded,
+            child: Wrap(spacing: 10, runSpacing: 10, children: [
+              FilledButton(onPressed: _busy ? null : _bootstrap,
+                  child: const Text('重新连接')),
+              OutlinedButton(onPressed: _busy ? null : () async {
+                await _restartAgent();
+                if (mounted) await _bootstrap();
+              }, child: const Text('重启后台')),
+              TextButton(onPressed: _busy ? null : _relaunchApp,
+                  child: const Text('重新打开应用')),
+            ]),
+          ),
+        ),
+      );
+
+  Widget _lockedView() {
+    final canUseBiometrics = _status['local_unlock_configured'] == true &&
+        _status['master_password_required'] == false;
+    return SafeArea(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(32),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: AppPanel(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.lock_outline_rounded,
+                    size: 44, color: AppColors.primary),
+                const SizedBox(height: 18),
+                Text('CredPivot 已锁定', textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 8),
+                Text(_status['master_password_required'] == true
+                    ? '首次解锁或已达到验证期限，请输入保险库主密码。'
+                    : '完成身份验证后，才能访问凭据、设置和其他功能。',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 24),
+                if (_busy) ...[
+                  const LinearProgressIndicator(minHeight: 2),
+                  const SizedBox(height: 16),
+                ],
+                if (_unlockMessage.isNotEmpty) AppNotice(_unlockMessage),
+                if (_needsMasterPassword) ...[
+                  TextField(
+                    controller: _password,
+                    focusNode: _passwordFocus,
+                    autofocus: true,
+                    obscureText: true,
+                    enabled: !_busy,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: const InputDecoration(
+                        labelText: '保险库主密码',
+                        hintText: '不是 Mac 登录密码',
+                        prefixIcon: Icon(Icons.key_outlined)),
+                    onSubmitted: (_) { if (!_busy) _unlock(); },
+                  ),
+                  const SizedBox(height: 14),
+                  FilledButton.icon(onPressed: _busy ? null : _unlock,
+                      icon: const Icon(Icons.lock_open_rounded),
+                      label: const Text('解锁')),
+                  if (canUseBiometrics)
+                    TextButton.icon(onPressed: _busy ? null : _unlockTouchId,
+                        icon: const Icon(Icons.fingerprint_rounded),
+                        label: const Text('重试指纹验证')),
+                ] else ...[
+                  FilledButton.icon(onPressed: _busy ? null : _unlockTouchId,
+                      icon: const Icon(Icons.fingerprint_rounded),
+                      label: const Text('指纹解锁')),
+                  TextButton(onPressed: _busy ? null : () {
+                    setState(() => _showMasterPassword = true);
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted && !_unlocked) _passwordFocus.requestFocus();
+                    });
+                  }, child: const Text('使用主密码')),
+                ],
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _page(int index) {
     switch (index) {
       case 1:
@@ -507,7 +688,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
             unlocked: _unlocked, onUnlock: () => _selectPage(0));
       case 2:
         return ChromeSetupTab(
-            extensionIdController: _chromeExtensionId, busy: _busy);
+            extensionIdController: _chromeExtensionId, busy: _busy,
+            active: _pageIndex == 2, onOpenSettings: () => _selectPage(5));
       case 3:
         return SecurityCenterTab(
           unlocked: _unlocked,
@@ -518,7 +700,23 @@ class _VaultHomePageState extends State<VaultHomePage> {
           },
         );
       case 4:
-        return const DiagnosticsTab();
+        return DiagnosticsTab(
+            active: _pageIndex == 4,
+            busy: _busy,
+            onRestartAgent: _restartAgent,
+            onRelaunchApp: _relaunchApp,
+            onOpenSettings: () => _selectPage(5));
+      case 5:
+        return SettingsPage(
+            active: _pageIndex == 5,
+            busy: _busy,
+            onConfigureSsh: _unlocked ? _appendSshIdentityAgent : null,
+            onRemoveSsh: _removeSshIdentityAgent,
+            onOpenVault: _openVaultDir,
+            onSaved: () async {
+              _chromeExtensionId.text = await AgentBridge.getChromeExtensionId();
+              await _refreshStatus();
+            });
       default:
         return _vaultOverview();
     }
@@ -563,7 +761,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
                                   ? '保险库已解锁，可以管理凭据或使用浏览器填充。'
                                   : (_vaultExists
                                       ? (_status['master_password_required'] == true
-                                          ? '首次使用、满 7 天或超过 24 小时未解锁，请输入主密码。'
+                                          ? '首次使用或达到设置中的验证期限，请输入主密码。'
                                           : '优先使用指纹解锁，也可以输入主密码。')
                                       : '设置至少 8 位的主密码，并妥善保管创建后的恢复密钥。'),
                               style: Theme.of(context).textTheme.bodySmall),
@@ -719,40 +917,6 @@ class _VaultHomePageState extends State<VaultHomePage> {
               child: ExpansionTile(
             shape: const Border(),
             collapsedShape: const Border(),
-            leading:
-                const Icon(Icons.settings_outlined, color: AppColors.primary),
-            title: const Text('本机设置'),
-            subtitle: const Text('登录启动、SSH 与进程维护'),
-            childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-            children: [
-              Align(
-                  alignment: Alignment.centerLeft,
-                  child: Wrap(spacing: 10, runSpacing: 10, children: [
-                    OutlinedButton(
-                        onPressed: () => _registerLoginItem(true),
-                        child: const Text('开启登录启动')),
-                    OutlinedButton(
-                        onPressed: () => _registerLoginItem(false),
-                        child: const Text('关闭登录启动')),
-                    OutlinedButton(
-                        onPressed: _unlocked ? _appendSshIdentityAgent : null,
-                        child: const Text('配置 SSH IdentityAgent')),
-                    OutlinedButton(
-                        onPressed: _removeSshIdentityAgent,
-                        child: const Text('撤销 SSH 配置')),
-                    OutlinedButton(
-                        onPressed: _restartAgent,
-                        child: const Text('重启 Agent')),
-                    OutlinedButton(
-                        onPressed: _relaunchApp, child: const Text('重新打开应用')),
-                  ])),
-            ],
-          )),
-          const SizedBox(height: 16),
-          Card(
-              child: ExpansionTile(
-            shape: const Border(),
-            collapsedShape: const Border(),
             leading: const Icon(Icons.info_outline_rounded),
             title: const Text('运行信息'),
             subtitle: Text(
@@ -789,13 +953,6 @@ class _VaultHomePageState extends State<VaultHomePage> {
               ])),
         ]),
       );
-
-  Future<void> _registerLoginItem(bool enabled) async {
-    await _run('登录项', () async {
-      await AgentBridge.registerLoginItem(enabled);
-      _appendLog(enabled ? '已注册登录项' : '已取消登录项');
-    });
-  }
 
   Future<void> _appendSshIdentityAgent() async {
     await _run('SSH', () async {

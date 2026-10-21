@@ -9,6 +9,9 @@ pub const MIN_COMPATIBLE_PROTOCOL: u32 = 2;
 pub enum AgentRequest {
     Ping,
     Status,
+    AppSettingsGet,
+    AppSettingsBackup,
+    AppSettingsSet { settings: credpivot_core::AppSettings },
     /// 浏览器会话由扩展的 session storage 持有，不能跨浏览器启动复用。
     BrowserRequest { session_id: String, request: Box<AgentRequest> },
     /// 扩展「连接」：必须由 App 对当前浏览器会话完成指纹/主密码验证。
@@ -217,6 +220,9 @@ impl AgentRequest {
         match self {
             Self::Ping => "ping",
             Self::Status => "status",
+            Self::AppSettingsGet => "app_settings_get",
+            Self::AppSettingsBackup => "app_settings_backup",
+            Self::AppSettingsSet { .. } => "app_settings_set",
             Self::BrowserRequest { .. } => "browser_request",
             Self::ExtensionConnect => "extension_connect",
             Self::ExtensionGateGrant { .. } => "extension_gate_grant",

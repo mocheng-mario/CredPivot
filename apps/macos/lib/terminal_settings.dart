@@ -78,8 +78,12 @@ class _TerminalSettingsDialogState extends State<_TerminalSettingsDialog> {
       setState(() => _status = '请先选择终端 .app');
       return;
     }
-    await AgentBridge.setTerminalLaunchConfig({'path': _appPath.text.trim()});
-    if (mounted) Navigator.pop(context, true);
+    try {
+      await AgentBridge.setTerminalLaunchConfig({'path': _appPath.text.trim()});
+      if (mounted) Navigator.pop(context, true);
+    } catch (_) {
+      if (mounted) setState(() => _status = '终端配置保存失败，请重试或前往设置页检查配置');
+    }
   }
 
   @override

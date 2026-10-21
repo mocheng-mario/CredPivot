@@ -273,6 +273,7 @@ async fn handle_request_inner(
     if matches!(&req, AgentRequest::LocalUnlockPolicySet { .. } | AgentRequest::LocalUnlockMaterial
         | AgentRequest::UnlockLocal { .. } | AgentRequest::VerifyMasterPassword { .. }
         | AgentRequest::SensitiveAuthGrant | AgentRequest::ExtensionGateGrant { .. }
+        | AgentRequest::AppSettingsGet | AgentRequest::AppSettingsBackup | AgentRequest::AppSettingsSet { .. }
         | AgentRequest::UnlockPassword { .. } | AgentRequest::VaultCreate { .. }) && !peer.from_app {
         return AgentResponse::err("forbidden", "authentication control is App-only");
     }
@@ -313,13 +314,61 @@ async fn handle_request_inner(
         | AgentRequest::ImportBitwarden { .. } | AgentRequest::VaultChangePassword { .. }
         | AgentRequest::VaultExportOvb { .. } | AgentRequest::RestorePointRecover { .. }
         | AgentRequest::VaultMigrate { .. } | AgentRequest::VaultSecurityRebuild { .. }) {
-        let v = st.vault.lock().await;
+        let mut v = st.vault.lock().await;
         if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
-        if !v.sensitive_auth_active() { return AgentResponse::err("auth_required", "identity verification required"); }
+        if !v.authorize_sensitive_operation() { return AgentResponse::err("auth_required", "identity verification required"); }
     }
     let resp = match req {
         AgentRequest::BrowserRequest { .. } => AgentResponse::err("forbidden", "nested browser request"),
         AgentRequest::Ping => AgentResponse::ok(json!({ "pong": true })),
+        AgentRequest::AppSettingsGet => {
+            let warning = if credpivot_core::read_app_settings().is_err() {
+                "配置文件无法读取或内容无效，当前使用保守设置；请修正后重新加载，或恢复默认并保存。"
+            } else { "" };
+            let v = st.vault.lock().await;
+            AgentResponse::ok(json!({
+                "settings": credpivot_core::effective_app_settings(),
+                "defaults": credpivot_core::AppSettings::default(),
+                "path": credpivot_core::app_settings_path().to_string_lossy(),
+                "warning": warning,
+                "vault_exists": v.vault_exists(),
+                "vault_path": v.vault_dir.to_string_lossy(),
+            }))
+        }
+        AgentRequest::AppSettingsBackup => {
+            match credpivot_core::backup_app_settings() {
+                Ok(path) => AgentResponse::ok(json!({ "path": path })),
+                Err(_) => AgentResponse::err("settings_backup", "配置备份失败，未恢复默认值"),
+            }
+        }
+        AgentRequest::AppSettingsSet { settings } => {
+            if let Err(e) = settings.validate() { return AgentResponse::err("bad_settings", e.to_string()); }
+            let old = credpivot_core::effective_app_settings();
+            if old.vault_directory != settings.vault_directory {
+                return AgentResponse::err("bad_settings", "请使用切换保险库入口修改目录，避免跳过锁定流程");
+            }
+            let security_changed = old.security_differs(&settings);
+            let protection_changed = security_changed
+                || old.restore_interval_hours != settings.restore_interval_hours
+                || old.restore_keep_count != settings.restore_keep_count;
+            let mut v = st.vault.lock().await;
+            if protection_changed && v.vault_exists() && !v.authorize_sensitive_operation() {
+                return AgentResponse::err("auth_required", "identity verification required");
+            }
+            if credpivot_core::write_app_settings(&settings).is_err() {
+                return AgentResponse::err("settings_write", "配置保存失败，原配置未变更");
+            }
+            v.apply_settings(settings.clone());
+            let locked = v.idle_expired();
+            if locked { v.lock(); }
+            drop(v);
+            if security_changed || old.chrome_extension_id != settings.chrome_extension_id || locked {
+                revoke_extension_gate(st);
+            }
+            if locked { st.pending_ssh_sessions.clear(); }
+            crate::diagnostics::info("settings", "application settings updated");
+            AgentResponse::ok(json!({ "settings": settings }))
+        }
         AgentRequest::ExtensionConnect => {
             let v = st.vault.lock().await;
             let unlocked = v.unlocked;
@@ -344,7 +393,7 @@ async fn handle_request_inner(
             if session.is_none() || session != st.extension_gate_pending_session {
                 return AgentResponse::err("conflict", "browser request changed; retry connection");
             }
-            if !st.vault.lock().await.sensitive_auth_active() { return AgentResponse::err("auth_required", "identity verification required"); }
+            if !st.vault.lock().await.authorize_sensitive_operation() { return AgentResponse::err("auth_required", "identity verification required"); }
             let idle = extension_gate_idle_secs();
             let ttl = if ttl_secs == 0 { idle } else { ttl_secs.min(idle) };
             grant_extension_gate(st, session.unwrap(), ttl);
@@ -383,6 +432,9 @@ async fn handle_request_inner(
             }
         }
         AgentRequest::VaultCreate { password } => {
+            if credpivot_core::read_app_settings().is_err() {
+                return AgentResponse::err("bad_settings", "请先在设置页修复配置文件，再创建保险库");
+            }
             match st.vault.lock().await.create_vault(&password) {
                 Ok(recovery_display) => AgentResponse::ok(json!({
                     "created": true,
@@ -756,7 +808,11 @@ async fn handle_request_inner(
                 return AgentResponse::err("locked", "vault locked");
             }
             match v.list_ssh_keys() {
-                Ok(items) => AgentResponse::ok(json!({ "items": items })),
+                Ok(items) => AgentResponse::ok(json!({
+                    "items": items,
+                    "storage_path": v.vault_dir.join(credpivot_core::DB_FILENAME).to_string_lossy(),
+                    "agent_socket": crate::paths::ssh_agent_socket_path().to_string_lossy(),
+                })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }

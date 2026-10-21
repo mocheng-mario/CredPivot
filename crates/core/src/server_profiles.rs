@@ -74,6 +74,10 @@ pub fn insert_server_profile(
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| CoreError::format(e.to_string()))?;
+    if let Some(key_id) = linked_ssh_key_id {
+        // 下拉选项可能已过期，不能把服务器重新关联到已删除的密钥。
+        crate::repo_m2::load_ssh_key_by_id(&tx, key_id)?;
+    }
     tx.execute(
         "INSERT INTO items (id, kind, title, trashed, group_id, current_revision, created_at_ms, updated_at_ms)
          VALUES (?1, 'server_login', ?2, 0, ?3, ?4, ?5, ?5)",
@@ -132,6 +136,9 @@ pub fn update_server_profile(
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| CoreError::format(e.to_string()))?;
+    if let Some(key_id) = linked_ssh_key_id {
+        crate::repo_m2::load_ssh_key_by_id(&tx, key_id)?;
+    }
     let (item_id, current_rev): (String, String) = tx
         .query_row(
             "SELECT s.item_id, s.current_revision FROM server_login_profiles s

@@ -1,6 +1,6 @@
 use crate::error::{CoreError, Result};
 use crate::repo::{new_revision, now_ms};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
 pub const PASSWORD_HISTORY_MAX: usize = 20;
@@ -305,7 +305,24 @@ fn trim_password_history(conn: &Connection, credential_id: &str) -> Result<()> {
 pub fn trash_item(conn: &Connection, item_id: &str) -> Result<()> {
     let ts = now_ms();
     let revision = new_revision();
-    let n = conn
+    let tx = conn.unchecked_transaction().map_err(|e| CoreError::format(e.to_string()))?;
+    let ssh_key: Option<(String, bool)> = tx.query_row(
+        "SELECT s.id, s.is_default FROM ssh_keys s INNER JOIN items i ON i.id = s.item_id
+         WHERE s.item_id = ?1 AND i.trashed = 0",
+        params![item_id],
+        |row| Ok((row.get(0)?, row.get::<_, i64>(1)? != 0)),
+    ).optional().map_err(|e| CoreError::format(e.to_string()))?;
+    if let Some((key_id, _)) = &ssh_key {
+        let references: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM server_login_profiles s INNER JOIN items i ON i.id = s.item_id
+             WHERE s.linked_ssh_key_id = ?1 AND i.trashed = 0",
+            params![key_id], |row| row.get(0),
+        ).map_err(|e| CoreError::format(e.to_string()))?;
+        if references > 0 {
+            return Err(CoreError::format("SSH 密钥仍被服务器配置引用，请先编辑服务器解除关联"));
+        }
+    }
+    let n = tx
         .execute(
             "UPDATE items SET trashed = 1, current_revision = ?1, updated_at_ms = ?2 WHERE id = ?3 AND trashed = 0",
             params![revision, ts, item_id],
@@ -314,6 +331,20 @@ pub fn trash_item(conn: &Connection, item_id: &str) -> Result<()> {
     if n == 0 {
         return Err(CoreError::format("item not found"));
     }
+    if let Some((key_id, was_default)) = ssh_key {
+        tx.execute("UPDATE ssh_keys SET is_default = 0 WHERE id = ?1", params![key_id])
+            .map_err(|e| CoreError::format(e.to_string()))?;
+        if was_default {
+            // 不生成替代密钥；有剩余密钥时沿用最近的一把，没有时允许空列表。
+            tx.execute(
+                "UPDATE ssh_keys SET is_default = 1 WHERE id = (
+                   SELECT s.id FROM ssh_keys s INNER JOIN items i ON i.id = s.item_id
+                   WHERE i.trashed = 0 ORDER BY s.updated_at_ms DESC, s.id LIMIT 1)", [],
+            ).map_err(|e| CoreError::format(e.to_string()))?;
+        }
+    }
+    crate::restore_point::mark_restore_dirty(&tx)?;
+    tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(())
 }
 
