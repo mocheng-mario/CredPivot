@@ -1019,42 +1019,42 @@ enum TerminalLauncher {
     let bundleId = Bundle(path: appPath)?.bundleIdentifier ?? ""
     let appFile = (appPath as NSString).lastPathComponent.lowercased()
 
+    let err: String?
     switch bundleId {
     case "com.apple.Terminal":
       let script = "tell application \"Terminal\" to do script \"\(escapeAppleScript(command))\""
-      return runOsascript(script)
+      err = runOsascript(script)
     case "com.googlecode.iterm2":
       let script =
         "tell application \"iTerm\" to create window with default profile command \"\(escapeAppleScript(command))\""
-      return runOsascript(script)
+      err = runOsascript(script)
     case "dev.warp.Warp-Stable", "dev.warp.Warp":
       let enc = command.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? command
       let url = "warp://action/new_tab?command=\(enc)"
       NSWorkspace.shared.open(URL(string: url)!)
-      return nil
+      err = nil
     default:
-      break
-    }
-
-    if appFile.contains("tabby") || bundleId.lowercased().contains("tabby") || tabbyCliPath(appPath: appPath) != nil {
-      if let err = launchTabbyShellCommand(
-        appPath: appPath,
-        command: command,
-        launchSessionId: launchSessionId
-      ) {
-        return err
+      if appFile.contains("tabby") || bundleId.lowercased().contains("tabby") || tabbyCliPath(appPath: appPath) != nil {
+        err = launchTabbyShellCommand(
+          appPath: appPath,
+          command: command,
+          launchSessionId: launchSessionId
+        )
+      } else if let script = writeLaunchScript(shellCommand: command, sessionId: launchSessionId) {
+        err = runProcess(
+          executable: "/usr/bin/open",
+          arguments: ["-na", appPath, "--args", "/bin/zsh", script],
+          waitForExit: false
+        )
+      } else {
+        err = "无法写入启动脚本 ~/.credpivot/terminal_launch.sh"
       }
-      return nil
     }
 
-    if let script = writeLaunchScript(shellCommand: command, sessionId: launchSessionId) {
-      return runProcess(
-        executable: "/usr/bin/open",
-        arguments: ["-na", appPath, "--args", "/bin/zsh", script],
-        waitForExit: false
-      )
+    if err == nil {
+      schedulePurgeTerminalLaunchScripts(sessionId: launchSessionId)
     }
-    return "无法写入启动脚本 ~/.credpivot/terminal_launch.sh"
+    return err
   }
 
   private static func launchScriptURL(sessionId: String?) -> URL {
@@ -1062,6 +1062,66 @@ enum TerminalLauncher {
     return FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".credpivot", isDirectory: true)
       .appendingPathComponent(name)
+  }
+
+  private static var credPivotRuntimeDir: URL {
+    FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".credpivot", isDirectory: true)
+  }
+
+  private static func launchScriptContainsLegacySecrets(_ url: URL) -> Bool {
+    guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+      return false
+    }
+    return text.contains("password-file")
+      || text.contains("--password-file")
+      || text.contains("--otp '")
+      || text.contains("--otp \"")
+  }
+
+  /// 旧版一键 SSH 会把密码/MFA 写进 `~/.credpivot/*.sh` 或诊断文件，启动时清掉。
+  static func purgeLegacySensitiveLaunchScripts() {
+    let dir = credPivotRuntimeDir
+    guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else {
+      return
+    }
+    for name in names where name.hasSuffix(".sh") {
+      let url = dir.appendingPathComponent(name)
+      if launchScriptContainsLegacySecrets(url) {
+        try? FileManager.default.removeItem(at: url)
+      }
+    }
+    let diag = lastLaunchPlanURL
+    if launchScriptContainsLegacySecrets(diag) {
+      try? FileManager.default.removeItem(at: diag)
+    }
+  }
+
+  /// 启动脚本仅用于 Tabby/open 拉起 zsh，读后无保留价值。
+  static func purgeTerminalLaunchScripts() {
+    let dir = credPivotRuntimeDir
+    guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else {
+      return
+    }
+    for name in names {
+      let isLaunchScript =
+        name == launchScriptName
+        || (name.hasPrefix("terminal_launch_") && name.hasSuffix(".sh"))
+      if isLaunchScript {
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))
+      }
+    }
+    purgeLegacySensitiveLaunchScripts()
+  }
+
+  /// 终端进程启动后再删当次脚本，避免 Tabby/open 尚未 open(2) 文件。
+  private static func schedulePurgeTerminalLaunchScripts(sessionId: String?) {
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 3) {
+      if let sessionId {
+        try? FileManager.default.removeItem(at: launchScriptURL(sessionId: sessionId))
+      }
+      purgeTerminalLaunchScripts()
+    }
   }
 
   /// 将整条 shell 命令写入 `~/.credpivot/terminal_launch*.sh`，供 `zsh <path>` 执行。
