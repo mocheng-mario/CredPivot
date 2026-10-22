@@ -4,6 +4,10 @@ import {
   runOtpFillOnTab,
   requestPageContext,
 } from "./fill_flow.js";
+import {handlePasskey, cancelPasskey, passkeySiteState, setPasskeySiteState, syncPasskeyScripts} from "./passkey_background.js";
+
+chrome.runtime.onInstalled.addListener(() => { void syncPasskeyScripts().catch(() => {}); });
+chrome.runtime.onStartup.addListener(() => { void syncPasskeyScripts().catch(() => {}); });
 
 const HOST_NAME = "com.credpivot.chrome.m0";
 const NATIVE_IDLE_DISCONNECT_MS = 5 * 60 * 1000;
@@ -200,6 +204,11 @@ async function sendNative(message) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
+      if (sender.id === chrome.runtime.id && sender.tab && ["passkey_request","passkey_cancel"].includes(msg?.type)) {
+        if (msg.type === "passkey_cancel") { cancelPasskey(msg,sender); sendResponse({ok:true}); }
+        else sendResponse(await handlePasskey(msg,sender,sendNative));
+        return;
+      }
       // 只有扩展自己的界面能发起操作；网页及内容脚本不能自行保存或领取秘密。
       if (sender.id !== chrome.runtime.id || sender.tab || !sender.url?.startsWith(chrome.runtime.getURL(""))) {
         sendResponse({ok:false,code:"forbidden",message:"请从扩展面板操作"}); return;
@@ -222,6 +231,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (msg.type === "agent_status") {
         const resp = await sendNative({ action: "status" });
         sendResponse(resp);
+        return;
+      }
+      if (msg.type === "passkey_site_state" || msg.type === "passkey_site_set") {
+        const origin = await originFromSender(sender,msg);
+        if (!origin?.startsWith("https://") || origin !== msg.origin) { sendResponse({ok:false,message:"网站已改变，或当前页面不是 HTTPS 网站"}); return; }
+        if (msg.type === "passkey_site_set") await setPasskeySiteState(origin,msg.enabled === true);
+        sendResponse({ok:true,enabled:await passkeySiteState(origin)});
         return;
       }
       if (msg.type === "select_account") {

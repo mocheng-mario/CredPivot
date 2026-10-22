@@ -20,6 +20,8 @@ class AgentBridge {
         _onVaultLocked?.call();
       } else if (call.method == 'onShortcut' && call.arguments is String) {
         onShortcut?.call(call.arguments as String);
+      } else if (call.method == 'onVaultChanged') {
+        notifyVaultChanged();
       }
       return null;
     });

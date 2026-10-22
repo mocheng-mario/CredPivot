@@ -32,6 +32,7 @@ pbkdf2 = "0.12"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 url = "2.5"
 regex = "1"
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
 
 [dev-dependencies]
 ovb1-structure = { path = "../ovb1-structure" }

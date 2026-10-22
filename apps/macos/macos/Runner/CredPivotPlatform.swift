@@ -16,6 +16,7 @@ final class CredPivotPlatform: NSObject {
   private let channel: FlutterMethodChannel
   private var sshAuthorizationTimer: Timer?
   private var showingSshAuthorization = false
+  private var showingPasskeyAuthorization = false
   private var shortcutController: CredPivotShortcuts?
 
   init(messenger: FlutterBinaryMessenger) {
@@ -42,12 +43,13 @@ final class CredPivotPlatform: NSObject {
     }
     shortcutController?.apply(AppPreferences.settings())
     sshAuthorizationTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+      self?.consumePasskeyAuthorization()
       self?.consumeSshAuthorization()
     }
   }
 
   private func consumeSshAuthorization() {
-    guard !showingSshAuthorization, !TouchIdGate.isAuthenticating, NSApp.modalWindow == nil,
+    guard !showingSshAuthorization, !showingPasskeyAuthorization, !TouchIdGate.isAuthenticating, NSApp.modalWindow == nil,
           let requests = LocalVaultUnlock.request(["type": "ssh_authorizations_pending"])?["requests"] as? [[String: Any]],
           let request = requests.first, let id = request["id"] as? String else { return }
     showingSshAuthorization = true
@@ -88,6 +90,67 @@ final class CredPivotPlatform: NSObject {
     } else {
       TouchIdGate.shared.authenticateSensitiveOperation(reason: policy == "unlock" ? NativePresentation.tr("解锁保险库以使用 SSH 密钥") : NativePresentation.tr("允许 SSH 密钥签名"), completion: complete)
     }
+  }
+
+  private func consumePasskeyAuthorization() {
+    guard !showingPasskeyAuthorization, !showingSshAuthorization, !TouchIdGate.isAuthenticating, NSApp.modalWindow == nil,
+          let requests = LocalVaultUnlock.request(["type": "passkey_requests_pending"])?["requests"] as? [[String: Any]],
+          let request = requests.first, let id = request["id"] as? String else { return }
+    showingPasskeyAuthorization = true
+    let create = request["create"] as? Bool == true
+    let origin = request["origin"] as? String ?? ""
+    let candidates = request["candidates"] as? [[String: Any]] ?? []
+    let alert = NSAlert()
+    alert.messageText = NativePresentation.tr(create ? "保存通行密钥到 CredPivot？" : "使用 CredPivot 通行密钥登录？")
+    let website = NativePresentation.tr("网站：{0}", origin)
+    let account = passkeyAccountLabel(request["username"] as? String ?? "", request["display_name"] as? String ?? "")
+    alert.informativeText = create
+      ? website + "\n" + NativePresentation.tr("账号：{0}\n\n私钥保存在加密保险库中，随 CredPivot 加密备份迁移和恢复。", account)
+      : website + "\n\n" + NativePresentation.tr("选择用于本次登录的账号，确认后验证身份。")
+    let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 380, height: 28), pullsDown: false)
+    if !create {
+      for (index, candidate) in candidates.enumerated() {
+        let label = passkeyAccountLabel(candidate["username"] as? String ?? "", candidate["display_name"] as? String ?? "")
+        picker.addItem(withTitle: "\(index + 1). \(label)")
+        picker.lastItem?.representedObject = candidate["credential_id"] as? String
+      }
+      alert.accessoryView = picker
+    }
+    alert.addButton(withTitle: NativePresentation.tr(create ? "保存到 CredPivot" : "允许登录"))
+    alert.addButton(withTitle: NativePresentation.tr("使用浏览器方式"))
+    alert.addButton(withTitle: NativePresentation.tr("取消"))
+    // 取消、跳转、锁库后关闭失效确认窗；实际签名前 Agent 还会再次校验请求。
+    let expiry = Timer(timeInterval: 0.5, repeats: true) { _ in
+      guard let pending = LocalVaultUnlock.request(["type": "passkey_requests_pending"])?["requests"] as? [[String: Any]],
+            pending.contains(where: { $0["id"] as? String == id }) else {
+        NSApp.abortModal()
+        alert.window.orderOut(nil)
+        return
+      }
+    }
+    RunLoop.main.add(expiry, forMode: .modalPanel)
+    NSApp.activate(ignoringOtherApps: true)
+    let decision = alert.runModal()
+    expiry.invalidate()
+    let selected = picker.selectedItem?.representedObject as? String ?? ""
+    let complete: (Bool) -> Void = { [weak self] approved in
+      let result = LocalVaultUnlock.request(["type": "passkey_resolve", "request_id": id,
+        "approved": approved, "credential_id": selected, "use_browser": decision == .alertSecondButtonReturn])
+      if approved && result?["resolved"] as? Bool == true { self?.channel.invokeMethod("onVaultChanged", arguments: nil) }
+      self?.showingPasskeyAuthorization = false
+    }
+    guard decision == .alertFirstButtonReturn else { complete(false); return }
+    // WebAuthn 的 UV 标志对应本次真实验证，不借用浏览器会话或敏感操作宽限期。
+    TouchIdGate.shared.authenticateForExtensionGate(
+      reason: NativePresentation.tr(create ? "创建网站通行密钥" : "使用网站通行密钥登录"), completion: complete)
+  }
+
+  private func passkeyAccountLabel(_ username: String, _ displayName: String) -> String {
+    // 网站提供的名称只作标签，移除控制/方向字符，避免伪造弹窗中的网站说明。
+    let raw = displayName.isEmpty || displayName == username ? username : "\(username) · \(displayName)"
+    let safe = raw.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) &&
+      ![0x061c, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069].contains(Int($0.value)) }
+    return String(String.UnicodeScalarView(safe)).prefix(160).description
   }
 
   deinit { sshAuthorizationTimer?.invalidate() }

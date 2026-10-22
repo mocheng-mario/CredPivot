@@ -166,7 +166,7 @@ fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
 fn cmd_export_json(vault_dir: &PathBuf, output: &PathBuf) -> i32 {
     use std::io::Write;
     let outcome = (|| -> Result<(), Box<dyn std::error::Error>> {
-        eprintln!("明文导出包含密码、MFA 密钥、SSH 私钥和回收站内容，请妥善保管。");
+        eprintln!("明文导出包含密码、MFA 密钥、SSH 私钥、通行密钥私钥和回收站内容，请妥善保管。");
         let password = rpassword::prompt_password("主密码: ")?;
         let cfg = read_vault_json(vault_dir)?;
         let vmk = cfg.unlock_master(&password)?;

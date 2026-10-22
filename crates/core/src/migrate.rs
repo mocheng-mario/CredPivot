@@ -2,7 +2,7 @@ use crate::error::{CoreError, Result};
 use rusqlite::Connection;
 
 /// SQLCipher `user_version`：与迁移脚本同步递增。
-pub const SCHEMA_USER_VERSION: i32 = 11;
+pub const SCHEMA_USER_VERSION: i32 = 12;
 
 const MIGRATION_V1: &str = "
 CREATE TABLE IF NOT EXISTS vault_meta (
@@ -277,6 +277,21 @@ UPDATE import_mappings SET source_namespace='bitwarden:personal' WHERE source_na
     })?;
     apply_migration_step(conn, 11, |c| {
         crate::website_rules::migrate_mfa_owned_rules(c)?;
+        crate::mark_restore_dirty(c)?;
+        Ok(())
+    })?;
+    apply_migration_step(conn, 12, |c| {
+        c.execute_batch("CREATE TABLE passkey_credentials (
+ credential_id TEXT PRIMARY KEY NOT NULL,
+ item_id TEXT NOT NULL UNIQUE REFERENCES items(id),
+ rp_id TEXT NOT NULL,
+ user_handle TEXT NOT NULL,
+ username TEXT NOT NULL,
+ display_name TEXT NOT NULL,
+ private_key BLOB NOT NULL,
+ created_at_ms INTEGER NOT NULL
+);
+CREATE INDEX idx_passkey_rp_id ON passkey_credentials(rp_id);")?;
         crate::mark_restore_dirty(c)?;
         Ok(())
     })?;

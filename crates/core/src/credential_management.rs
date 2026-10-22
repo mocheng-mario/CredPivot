@@ -435,6 +435,7 @@ fn trash_change(conn: &Connection, item: &str, expected: &str, purge: bool) -> R
         "totp_credentials",
         "ssh_keys",
         "recovery_code_items",
+        "passkey_credentials",
     ] {
         conn.execute(&format!("DELETE FROM {table} WHERE item_id=?1"), [item])?;
     }
@@ -937,6 +938,7 @@ pub fn export_logical_json(conn: &Connection) -> Result<String> {
         "recovery_code_items",
         "recovery_code_entries",
         "server_login_profiles",
+        "passkey_credentials",
         "credential_groups",
         "import_mappings",
     ] {

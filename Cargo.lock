@@ -418,6 +418,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "ovb1-structure",
+ "p256",
  "pbkdf2",
  "rand 0.8.8",
  "regex",

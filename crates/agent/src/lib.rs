@@ -4,6 +4,7 @@ mod extension_gate;
 mod error;
 mod ipc;
 mod paths;
+mod passkey;
 mod peer_auth;
 mod protocol;
 mod runtime;

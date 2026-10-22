@@ -16,6 +16,7 @@ import 'credential_list_tile.dart';
 import 'linked_refs.dart';
 import 'server_login_page.dart';
 import 'touch_id_gate.dart';
+import 'passkeys_page.dart';
 
 Future<void> _showTextRevealDialog(
   BuildContext context, {
@@ -255,7 +256,7 @@ class CredentialsTab extends StatelessWidget {
       );
     }
     return DefaultTabController(
-      length: 5,
+      length: 6,
       child: Column(
         children: [
           Container(
@@ -273,6 +274,7 @@ class CredentialsTab extends StatelessWidget {
                 Tab(child: LText('MFA / TOTP')),
                 Tab(child: LText('SSH 密钥')),
                 Tab(child: LText('服务器')),
+                Tab(child: LText('通行密钥')),
                 Tab(child: LText('笔记 / 管理')),
               ],
             ),
@@ -284,6 +286,7 @@ class CredentialsTab extends StatelessWidget {
                 _TotpPanel(),
                 _SshKeysPanel(),
                 const ServerLoginPanel(),
+                const PasskeysPanel(),
                 const VaultToolsPanel(),
               ],
             ),

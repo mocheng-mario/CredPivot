@@ -115,6 +115,19 @@ fn map_extension_to_agent(
     match action {
         "handshake" | "extension.connect" => Ok(AgentRequest::ExtensionConnect),
         "status" | "agent.status" => Ok(AgentRequest::Status),
+        "passkey.begin" => Ok(AgentRequest::PasskeyBegin {
+            request_id: envelope["passkey_request_id"].as_str().unwrap_or("").into(),
+            kind: envelope["kind"].as_str().unwrap_or("").into(),
+            origin: envelope["origin"].as_str().unwrap_or("").into(),
+            options: envelope["options"].clone(),
+        }),
+        "passkey.poll" => Ok(AgentRequest::PasskeyPoll {
+            request_id: envelope["passkey_request_id"].as_str().unwrap_or("").into(),
+            origin: envelope["origin"].as_str().unwrap_or("").into(),
+        }),
+        "passkey.cancel" => Ok(AgentRequest::PasskeyCancel {
+            request_id: envelope["passkey_request_id"].as_str().unwrap_or("").into(),
+        }),
         "credential.save" => Ok(AgentRequest::CredentialSave {
             password_active_since_ms: None,
             request_id: envelope

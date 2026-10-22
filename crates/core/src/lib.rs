@@ -18,6 +18,7 @@ mod restore_point;
 mod totp;
 mod ovb1;
 mod password_change;
+pub mod passkey;
 mod recovery_key;
 mod snapshot;
 mod vault_db;

@@ -16,6 +16,7 @@ let captured = null;
 let ready = false;
 let busy = false;
 let stopWaiting = false;
+let passkeyEnabled = false;
 
 $("ver").textContent = `v${chrome.runtime.getManifest().version}`;
 
@@ -74,6 +75,7 @@ function updateControls() {
   $("fillOtp").disabled = busy || !ready || !mfaCandidates.some((m) => m.id === selectedTotpId);
   $("otp").disabled = busy || !ready || !mfaCandidates.length || (mfaCandidates.length === 1 && Boolean(selectedTotpId));
   $("otherMfas").disabled = busy || !ready;
+  $("passkeyToggle").disabled = busy || !targetOrigin?.startsWith("https://");
   $("otherMfas").hidden = !ready || !hasMoreMfas || allMfaMatches;
   $("capture").disabled = busy || !ready || !targetOrigin;
   $("saveNew").disabled = busy || !ready || !captured;
@@ -364,6 +366,31 @@ async function saveCaptured(update) {
 $("saveNew").addEventListener("click", () => saveCaptured(false));
 $("update").addEventListener("click", () => saveCaptured(true));
 
+async function refreshPasskeyState() {
+  if (!targetOrigin?.startsWith("https://")) {
+    $("passkeyState").textContent = "需要 HTTPS";
+    return;
+  }
+  const response = await chrome.runtime.sendMessage({type:"passkey_site_state",tab_id:targetTab.id,origin:targetOrigin});
+  if (!response?.ok) return;
+  passkeyEnabled = response.enabled === true;
+  $("passkeyState").textContent = passkeyEnabled ? "此网站已启用" : "未启用";
+  $("passkeyToggle").textContent = passkeyEnabled ? "在此网站停用" : "在此网站启用";
+}
+
+$("passkeyToggle").addEventListener("click", async () => {
+  if (busy) return;
+  setBusy(true);
+  try {
+    const tab = await getTargetTab();
+    const response = await chrome.runtime.sendMessage({type:"passkey_site_set",tab_id:tab.id,origin:targetOrigin,enabled:!passkeyEnabled});
+    if (!response?.ok) throw new Error(response?.message || "设置失败");
+    await refreshPasskeyState();
+    setStatus(passkeyEnabled ? "已启用。请刷新网页，再到网站安全设置中新建通行密钥。" : "已停用，将使用浏览器原有的通行密钥方式。");
+  } catch (e) { showError({error:e.message}); }
+  finally { setBusy(false); }
+});
+
 async function init() {
   [targetTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (/^https?:\/\//.test(targetTab?.url ?? "")) {
@@ -374,6 +401,7 @@ async function init() {
     $("site").textContent = "请选择普通网页";
   }
   renderAccounts();
+  await refreshPasskeyState();
   await handshake();
 }
 init().catch((e) => showError({ error: e.message }));

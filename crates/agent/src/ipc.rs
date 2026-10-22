@@ -109,6 +109,7 @@ fn native_host_request_forbidden(req: &AgentRequest) -> bool {
         | AgentRequest::CredentialSave { .. } | AgentRequest::CredentialSuggest { .. }
         | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::BrowserTotpCode { .. } | AgentRequest::BrowserMfaSuggest { .. }
         | AgentRequest::CredentialFillPrepare { .. } | AgentRequest::CredentialFillConsume { .. }
+        | AgentRequest::PasskeyBegin { .. } | AgentRequest::PasskeyPoll { .. } | AgentRequest::PasskeyCancel { .. }
         | AgentRequest::CancelRequest { .. })
 }
 
@@ -116,6 +117,7 @@ fn req_requires_extension_gate(req: &AgentRequest) -> bool {
     matches!(
         req,
         AgentRequest::CredentialSave { .. }
+            | AgentRequest::PasskeyBegin { .. } | AgentRequest::PasskeyPoll { .. }
             | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::BrowserTotpCode { .. } | AgentRequest::BrowserMfaSuggest { .. }
             | AgentRequest::CredentialSuggest { .. }
             | AgentRequest::CredentialFillPrepare { .. }
@@ -298,6 +300,7 @@ async fn handle_request_inner(
         | AgentRequest::AppSettingsGet | AgentRequest::AppSettingsBackup | AgentRequest::AppSettingsSet { .. }
         | AgentRequest::VaultManage { .. }
         | AgentRequest::SshAuthorizationsPending | AgentRequest::SshAuthorizationResolve { .. }
+        | AgentRequest::PasskeyRequestsPending | AgentRequest::PasskeyResolve { .. } | AgentRequest::PasskeyList
         | AgentRequest::UnlockPassword { .. } | AgentRequest::VaultCreate { .. }) && !peer.from_app {
         return AgentResponse::err("forbidden", "authentication control is App-only");
     }
@@ -321,7 +324,10 @@ async fn handle_request_inner(
     }
     if peer.from_native_host && req_requires_extension_gate(&req) {
         if !extension_gate_active(st) || st.extension_gate_session != peer.browser_session {
-            if let Some(session) = peer.browser_session { request_extension_gate(st, session); }
+            // 已开始的通行密钥请求失去授权时终止，不再触发新一轮解锁。
+            if !matches!(&req, AgentRequest::PasskeyPoll { .. }) {
+                if let Some(session) = peer.browser_session { request_extension_gate(st, session); }
+            }
             return AgentResponse::err(
                 "extension_gate_required",
                 "请在 CredPivot App 中完成指纹确认后重试",
@@ -346,6 +352,98 @@ async fn handle_request_inner(
     let resp = match req {
         AgentRequest::BrowserRequest { .. } => AgentResponse::err("forbidden", "nested browser request"),
         AgentRequest::Ping => AgentResponse::ok(json!({ "pong": true })),
+        AgentRequest::PasskeyList => {
+            let v = st.vault.lock().await;
+            let Some(db) = v.db.as_ref().filter(|_|v.unlocked) else { return AgentResponse::err("locked","vault locked"); };
+            match credpivot_core::passkey::list(db.conn()) {
+                Ok(items) => AgentResponse::ok(json!({"items":items})),
+                Err(_) => AgentResponse::err("vault_error","读取通行密钥失败"),
+            }
+        }
+        AgentRequest::PasskeyBegin { request_id, kind, origin, options } => {
+            let Some(session) = peer.browser_session.filter(|_|peer.from_native_host) else { return AgentResponse::err("forbidden","browser only"); };
+            if uuid::Uuid::parse_str(&request_id).is_err() { return AgentResponse::err("bad_args","invalid request id"); }
+            let request = match credpivot_core::passkey::Request::parse(&kind,&origin,&options) {
+                Ok(r) => r,
+                Err(_) => return AgentResponse::ok(json!({"state":"fallback"})),
+            };
+            let mut v = st.vault.lock().await;
+            v.passkey_requests.expire();
+            let Some(db) = v.db.as_ref().filter(|_|v.unlocked) else { return AgentResponse::err("locked","vault locked"); };
+            let candidates = match request.candidates(db.conn()) {
+                Ok(c) => c,
+                Err(_) => return AgentResponse::err("vault_error","读取通行密钥失败"),
+            };
+            if !request.create && candidates.is_empty() { return AgentResponse::ok(json!({"state":"fallback"})); }
+            if v.passkey_requests.0.contains_key(&request_id) || v.passkey_requests.0.len() >= 8 {
+                return AgentResponse::err("busy","已有通行密钥请求正在处理");
+            }
+            v.passkey_requests.insert(request_id,request,session);
+            v.touch_activity();
+            AgentResponse::ok(json!({"state":"pending"}))
+        }
+        AgentRequest::PasskeyPoll { request_id, origin } => {
+            let mut v = st.vault.lock().await;
+            v.passkey_requests.expire();
+            let Some(pending) = v.passkey_requests.0.get(&request_id).filter(|p|peer.from_native_host && Some(p.session) == peer.browser_session && p.request.origin == origin) else {
+                return AgentResponse::err("request_gone","通行密钥请求已取消或过期");
+            };
+            if let Some(outcome) = pending.outcome.clone() {
+                v.passkey_requests.0.remove(&request_id);
+                AgentResponse::ok(outcome)
+            } else { AgentResponse::ok(json!({"state":"pending"})) }
+        }
+        AgentRequest::PasskeyCancel { request_id } => {
+            let mut v = st.vault.lock().await;
+            if v.passkey_requests.0.get(&request_id).is_some_and(|p|peer.from_native_host && Some(p.session) == peer.browser_session) {
+                v.passkey_requests.0.remove(&request_id);
+            }
+            AgentResponse::ok(json!({"cancelled":true}))
+        }
+        AgentRequest::PasskeyRequestsPending => {
+            let mut v = st.vault.lock().await;
+            v.passkey_requests.expire();
+            if !extension_gate_active(st) { v.passkey_requests.clear(); }
+            let Some(db) = v.db.as_ref().filter(|_|v.unlocked) else { return AgentResponse::ok(json!({"requests":[]})); };
+            let requests: Vec<_> = v.passkey_requests.0.iter().filter(|(_,p)|p.outcome.is_none() && Some(p.session) == st.extension_gate_session).filter_map(|(id,p)| {
+                p.request.candidates(db.conn()).ok().map(|c|json!({"id":id,"create":p.request.create,
+                    "origin":p.request.origin,"rp_id":p.request.rp_id,"username":p.request.username,
+                    "display_name":p.request.display_name,"candidates":c}))
+            }).collect();
+            AgentResponse::ok(json!({"requests":requests}))
+        }
+        AgentRequest::PasskeyResolve { request_id, approved, credential_id, use_browser } => {
+            let mut v = st.vault.lock().await;
+            v.passkey_requests.expire();
+            let Some(pending) = v.passkey_requests.0.get(&request_id).filter(|p|p.outcome.is_none() && Some(p.session) == st.extension_gate_session && extension_gate_active(st)) else {
+                return AgentResponse::err("request_gone","通行密钥请求已取消或过期");
+            };
+            let request = pending.request.clone();
+            let outcome = if use_browser { json!({"state":"fallback"}) }
+            else if !approved { crate::passkey::rejected("NotAllowedError","用户取消了通行密钥操作") }
+            else {
+                if !v.unlocked || !v.authorize_sensitive_operation() { return AgentResponse::err("auth_required","请先验证身份"); }
+                let Some(db) = v.db.as_ref() else { return AgentResponse::err("locked","vault locked"); };
+                if request.excluded(db.conn()).unwrap_or(true) {
+                    crate::passkey::rejected("InvalidStateError","此网站已经注册过该通行密钥")
+                } else {
+                    match request.complete(db.conn(),&credential_id) {
+                        Ok(credential) => json!({"state":"done","credential":credential}),
+                        Err(_) => crate::passkey::rejected("UnknownError","通行密钥操作失败，请重试"),
+                    }
+                }
+            };
+            if outcome.get("credential").is_some() {
+                if request.create {
+                    v.data_revision = uuid::Uuid::new_v4().to_string();
+                    v.ssh_authorization.clear();
+                }
+                crate::diagnostics::info("passkey", if request.create { "credential created" } else { "assertion signed" });
+            }
+            if let Some(pending) = v.passkey_requests.0.get_mut(&request_id) { pending.outcome = Some(outcome); }
+            v.touch_activity();
+            AgentResponse::ok(json!({"resolved":true}))
+        }
         AgentRequest::AppSettingsGet => {
             let warning = if credpivot_core::read_app_settings().is_err() {
                 "配置文件无法读取或内容无效，当前使用保守设置；请修正后重新加载，或恢复默认并保存。"

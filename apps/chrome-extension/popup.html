@@ -37,6 +37,11 @@
         <button id="otherMfas" class="text-button" hidden>查找其他匹配的 MFA</button>
         <p id="otpNote" class="muted">精确来源优先，其次通配符和正则；多个匹配项可自行选择。</p>
       </section>
+      <section class="account-panel" aria-labelledby="passkeyTitle">
+        <div class="section-heading"><h2 id="passkeyTitle">通行密钥 · 预览</h2><span id="passkeyState">未启用</span></div>
+        <button id="passkeyToggle" class="secondary-button" disabled>在此网站启用</button>
+        <p id="passkeyNote" class="muted">启用并刷新网页后，在网站安全设置中新建通行密钥，选择保存到 CredPivot。每次操作需在 App 确认并验证身份；密钥随加密备份保存。</p>
+      </section>
       <div class="fill-actions">
         <button id="fillLogin" class="action-button" disabled>
           <span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="8" cy="9" r="4"/><path d="m11 12 9 9m-5-5 3-3m0 6 3-3"/></svg></span>
