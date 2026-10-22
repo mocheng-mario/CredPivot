@@ -36,6 +36,10 @@ pub struct SecuritySummary {
 }
 
 pub fn list_logins(conn: &Connection, query: Option<&str>, limit: u32) -> Result<Vec<LoginListRow>> {
+    list_logins_page(conn, query, limit, 0)
+}
+
+pub fn list_logins_page(conn: &Connection, query: Option<&str>, limit: u32, offset: u32) -> Result<Vec<LoginListRow>> {
     let lim = limit.clamp(1, 500);
     let q = query.map(|s| s.trim()).filter(|s| !s.is_empty());
     let mut out = Vec::new();
@@ -47,13 +51,14 @@ pub fn list_logins(conn: &Connection, query: Option<&str>, limit: u32) -> Result
                     "{LOGIN_LIST_SELECT}
                  FROM login_credentials c
                  INNER JOIN items i ON i.id = c.item_id
-                 WHERE i.trashed = 0 AND (i.title LIKE ?1 OR c.display_name LIKE ?1 OR c.origin LIKE ?1 OR c.username LIKE ?1)
-                 ORDER BY c.updated_at_ms DESC LIMIT ?2"
+                 WHERE i.trashed = 0 AND (i.title LIKE ?1 OR c.display_name LIKE ?1 OR c.origin LIKE ?1 OR c.username LIKE ?1
+                   OR EXISTS (SELECT 1 FROM json_each(i.details_json, '$.uris') AS rule WHERE json_extract(rule.value, '$.uri') LIKE ?1))
+                 ORDER BY c.updated_at_ms DESC, c.id ASC LIMIT ?2 OFFSET ?3"
                 ),
             )
             .map_err(|e| CoreError::format(e.to_string()))?;
         let rows = stmt
-            .query_map(params![pattern, lim], map_login_row)
+            .query_map(params![pattern, lim, offset], map_login_row)
             .map_err(|e| CoreError::format(e.to_string()))?;
         for r in rows {
             out.push(r.map_err(|e| CoreError::format(e.to_string()))?);
@@ -66,12 +71,12 @@ pub fn list_logins(conn: &Connection, query: Option<&str>, limit: u32) -> Result
                  FROM login_credentials c
                  INNER JOIN items i ON i.id = c.item_id
                  WHERE i.trashed = 0
-                 ORDER BY c.updated_at_ms DESC LIMIT ?1"
+                 ORDER BY c.updated_at_ms DESC, c.id ASC LIMIT ?1 OFFSET ?2"
                 ),
             )
             .map_err(|e| CoreError::format(e.to_string()))?;
         let rows = stmt
-            .query_map(params![lim], map_login_row)
+            .query_map(params![lim, offset], map_login_row)
             .map_err(|e| CoreError::format(e.to_string()))?;
         for r in rows {
             out.push(r.map_err(|e| CoreError::format(e.to_string()))?);
@@ -132,11 +137,15 @@ pub fn insert_login_extended(
     linked_totp_id: Option<&str>,
     group_id: Option<&str>,
     website_rules: Option<&[crate::UriRule]>,
+    linked_mfa_ids: Option<&[String]>,
+    password_active_since_ms: Option<i64>,
 ) -> Result<LoginListRow> {
     let item_id = Uuid::new_v4().to_string();
     let cred_id = Uuid::new_v4().to_string();
     let revision = new_revision();
     let ts = now_ms();
+    let since = password_active_since_ms.unwrap_or(ts);
+    crate::credential_management::validate_password_active_since(since)?;
     let title = login_item_title(display_name, origin, username);
     let tx = conn
         .unchecked_transaction()
@@ -150,7 +159,7 @@ pub fn insert_login_extended(
     tx.execute(
         "INSERT INTO login_credentials (id, item_id, origin, username, secret, display_name, connection_host, linked_totp_id,
          current_revision, created_at_ms, updated_at_ms, password_active_since_ms, active_password_revision)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, 0, ?9)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?11, ?9)",
         params![
             cred_id,
             item_id,
@@ -161,11 +170,26 @@ pub fn insert_login_extended(
             connection_host.trim(),
             linked_totp_id,
             revision,
-            ts
+            ts,
+            since
         ],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     if let Some(rules) = website_rules { crate::website_rules::save_login_website_rules(&tx, &item_id, rules)?; }
+    if let Some(ids) = linked_mfa_ids {
+        crate::website_rules::save_linked_mfas(&tx, &item_id, ids)?;
+        // 服务器仍使用单 MFA：保留仍被选择的旧关联，多条时不任意挑选。
+        let legacy = linked_totp_id.filter(|id| ids.iter().any(|v|v.as_str() == *id))
+            .or_else(|| if ids.len() == 1 { Some(ids[0].as_str()) } else { None });
+        tx.execute("UPDATE login_credentials SET linked_totp_id=?1 WHERE item_id=?2", params![legacy,item_id])?;
+    } else if let Some(id) = linked_totp_id {
+        let mut details = crate::credential_management::details_for(&tx, &item_id)?;
+        if !details.linked_mfa_ids.iter().any(|v|v == id) {
+            details.linked_mfa_ids.push(id.into());
+            crate::website_rules::save_linked_mfas(&tx, &item_id, &details.linked_mfa_ids)?;
+        }
+    }
+
     let row = get_login_row(&tx, &cred_id)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(row)
@@ -184,6 +208,23 @@ pub fn update_login_credential(
     group_id: Option<&str>,
     new_password: Option<&str>,
     website_rules: Option<&[crate::UriRule]>,
+) -> Result<LoginListRow> {
+    update_login_with_mfa(conn, credential_id, expected_revision, origin, username, display_name, connection_host, linked_totp_id, group_id, new_password, website_rules, None)
+}
+
+pub(crate) fn update_login_with_mfa(
+    conn: &Connection,
+    credential_id: &str,
+    expected_revision: &str,
+    origin: &str,
+    username: &str,
+    display_name: &str,
+    connection_host: &str,
+    linked_totp_id: Option<&str>,
+    group_id: Option<&str>,
+    new_password: Option<&str>,
+    website_rules: Option<&[crate::UriRule]>,
+    linked_mfa_ids: Option<&[String]>,
 ) -> Result<LoginListRow> {
     let tx = conn
         .unchecked_transaction()
@@ -220,6 +261,20 @@ pub fn update_login_credential(
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     if let Some(rules) = website_rules { crate::website_rules::save_login_website_rules(&tx, &item_id, rules)?; }
+    if let Some(ids) = linked_mfa_ids {
+        crate::website_rules::save_linked_mfas(&tx, &item_id, ids)?;
+        // 服务器仍使用单 MFA：保留仍被选择的旧关联，多条时不任意挑选。
+        let legacy = linked_totp_id.filter(|id| ids.iter().any(|v|v.as_str() == *id))
+            .or_else(|| if ids.len() == 1 { Some(ids[0].as_str()) } else { None });
+        tx.execute("UPDATE login_credentials SET linked_totp_id=?1 WHERE item_id=?2", params![legacy,item_id])?;
+    } else if let Some(id) = linked_totp_id {
+        let mut details = crate::credential_management::details_for(&tx, &item_id)?;
+        if !details.linked_mfa_ids.iter().any(|v|v == id) {
+            details.linked_mfa_ids.push(id.into());
+            crate::website_rules::save_linked_mfas(&tx, &item_id, &details.linked_mfa_ids)?;
+        }
+    }
+
     let row = get_login_row(&tx, credential_id)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(row)
@@ -266,6 +321,7 @@ pub fn trash_item(conn: &Connection, item_id: &str) -> Result<()> {
             ).map_err(|e| CoreError::format(e.to_string()))?;
         }
     }
+    crate::website_rules::detach_mfa_references(&tx,item_id)?;
     crate::restore_point::mark_restore_dirty(&tx)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(())
@@ -472,6 +528,10 @@ pub struct TotpListRow {
     pub account: String,
     pub group_id: Option<String>,
     pub updated_at_ms: i64,
+    #[serde(default)]
+    pub website_rules: Vec<crate::UriRule>,
+    #[serde(default)]
+    pub pending_rule_count: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -480,6 +540,9 @@ pub struct TotpRevealRow {
     pub account: String,
     pub secret_base32: String,
     pub otpauth_uri: String,
+    pub website_rules: Vec<crate::UriRule>,
+    pub pending_website_rules: Vec<crate::UriRule>,
+    pub current_revision: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -495,7 +558,7 @@ pub struct SshKeyListRow {
 pub fn list_totp_credentials(conn: &Connection) -> Result<Vec<TotpListRow>> {
     let mut stmt = conn
         .prepare(
-            "SELECT t.id, t.item_id, t.issuer, t.account, i.group_id, t.updated_at_ms
+            "SELECT t.id, t.item_id, t.issuer, t.account, i.group_id, t.updated_at_ms, i.details_json
              FROM totp_credentials t
              INNER JOIN items i ON i.id = t.item_id
              WHERE i.trashed = 0
@@ -504,6 +567,9 @@ pub fn list_totp_credentials(conn: &Connection) -> Result<Vec<TotpListRow>> {
         .map_err(|e| CoreError::format(e.to_string()))?;
     let rows = stmt
         .query_map([], |row| {
+            let raw: String = row.get(6)?;
+            let details: crate::credential_management::ItemDetails = serde_json::from_str(&raw)
+                .map_err(|e|rusqlite::Error::FromSqlConversionFailure(6,rusqlite::types::Type::Text,Box::new(e)))?;
             Ok(TotpListRow {
                 id: row.get(0)?,
                 item_id: row.get(1)?,
@@ -511,6 +577,8 @@ pub fn list_totp_credentials(conn: &Connection) -> Result<Vec<TotpListRow>> {
                 account: row.get(3)?,
                 group_id: row.get(4)?,
                 updated_at_ms: row.get(5)?,
+                website_rules: details.uris,
+                pending_rule_count: details.pending_mfa_uris.len(),
             })
         })
         .map_err(|e| CoreError::format(e.to_string()))?;
@@ -598,6 +666,21 @@ pub fn insert_totp(
     secret_base32: &str,
     group_id: Option<&str>,
 ) -> Result<String> {
+    insert_totp_with_rules(conn,issuer,account,secret_base32,group_id,&[])
+}
+
+pub(crate) fn insert_totp_with_rules(
+    conn: &Connection,
+    issuer: &str,
+    account: &str,
+    secret_base32: &str,
+    group_id: Option<&str>,
+    website_rules: &[crate::UriRule],
+) -> Result<String> {
+    crate::website_rules::validate_website_rules(website_rules)?;
+    let parsed = crate::totp::parse_totp_input(secret_base32)?;
+    let issuer = if issuer.trim().is_empty() { parsed.issuer.as_str() } else { issuer.trim() };
+    let account = if account.trim().is_empty() { parsed.account.as_str() } else { account.trim() };
     let params = crate::totp::totp_params_for_storage(secret_base32)?;
     let alg = crate::totp::algorithm_name(params.algorithm);
     let item_id = Uuid::new_v4().to_string();
@@ -632,6 +715,8 @@ pub fn insert_totp(
         ],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
+    let details = crate::credential_management::ItemDetails { uris:website_rules.to_vec(),otp_extra_parameters:parsed.extra_parameters,..Default::default() };
+    tx.execute("UPDATE items SET details_json=?1 WHERE id=?2",params![serde_json::to_string(&details).map_err(|_|CoreError::format("MFA 详情编码失败"))?,item_id])?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(totp_id)
 }
@@ -840,12 +925,19 @@ pub fn totp_reveal_for_id(conn: &Connection, totp_id: &str) -> Result<TotpReveal
         )
         .map_err(|_| CoreError::format("totp not found"))?;
     let params = totp_params_for_id(conn, totp_id)?;
-    let otpauth_uri =
-        crate::totp::build_otpauth_uri_from_params(&issuer, &account, &params)?;
+    let item: String = conn.query_row("SELECT item_id FROM totp_credentials WHERE id=?1",[totp_id],|r|r.get(0))?;
+    let details = crate::credential_management::details_for(conn, &item)?;
+    let mut uri = url::Url::parse(&crate::totp::build_otpauth_uri_from_params(&issuer, &account, &params)?)
+        .map_err(|_|CoreError::format("MFA URI 编码失败"))?;
+    for (key,value) in &details.otp_extra_parameters { uri.query_pairs_mut().append_pair(key,value); }
+    let otpauth_uri = uri.to_string();
     Ok(TotpRevealRow {
         issuer,
         account,
         secret_base32: secret,
         otpauth_uri,
+        website_rules: details.uris,
+        pending_website_rules: details.pending_mfa_uris,
+        current_revision: conn.query_row("SELECT current_revision FROM totp_credentials WHERE id=?1",[totp_id],|r|r.get(0))?,
     })
 }

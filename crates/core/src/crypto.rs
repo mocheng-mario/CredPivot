@@ -23,6 +23,10 @@ pub fn derive_master_kek(password: &[u8], salt: &[u8], memory_kib: u32, iteratio
     if memory_kib > crate::limits::MAX_ARGON2_MEMORY_KIB {
         return Err(CoreError::limit("argon2 memory too large"));
     }
+    // 控制文件/归档在认证前提供 KDF 参数；只限制内存仍可被超大迭代数阻塞。
+    if iterations == 0 || iterations > 10 || parallelism == 0 || parallelism > 16 {
+        return Err(CoreError::limit("argon2 iterations or parallelism out of range"));
+    }
     let params = Params::new(memory_kib, iterations, parallelism, Some(32))
         .map_err(|e| CoreError::format(e.to_string()))?;
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);

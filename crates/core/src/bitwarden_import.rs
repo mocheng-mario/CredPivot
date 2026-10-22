@@ -1,4 +1,4 @@
-use crate::credential_management::{CustomField, ItemDetails, UriRule};
+use crate::credential_management::{details_for, CustomField, ItemDetails, UriRule};
 use crate::repo::{new_revision, now_ms};
 use crate::{CoreError, Result};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -294,6 +294,7 @@ fn details(v: &Value) -> ItemDetails {
         d.uris = uris
             .iter()
             .map(|u| UriRule {
+                id: Uuid::new_v4().to_string(),
                 uri: text(u, "uri").into(),
                 match_mode: match u["match"].as_i64() {
                     Some(1) => "exact_origin".into(),
@@ -389,6 +390,7 @@ pub fn import_with_choices(
             d.history_limit = previous.history_limit;
             d.reminder_days = previous.reminder_days;
             d.related_item_ids = previous.related_item_ids;
+            d.linked_mfa_ids = previous.linked_mfa_ids;
         }
         let group = if let Some(name) = folders.get(text(v, "folderId")) {
             let scope = if kind == 1 { "login" } else { "secure_note" };
@@ -454,6 +456,27 @@ pub fn import_with_choices(
                             tx.execute("INSERT INTO totp_credentials(id,item_id,issuer,account,secret_base32,totp_algorithm,totp_digits,totp_period,current_revision,created_at_ms,updated_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10)",params![tid,ti,text(v,"name"),user,p.secret_base32,crate::totp::algorithm_name(p.algorithm),p.digits as i64,p.period as i64,rev,ts])?;
                             tid
                         };
+                        let rules = crate::website_rules::credential_website_rules(&tx, &credential)?;
+                        crate::website_rules::save_login_website_rules(&tx,&item,&rules)?;
+                        let mut linked = details_for(&tx, &item)?.linked_mfa_ids;
+                        if !linked.contains(&tid) { linked.push(tid.clone()); }
+                        crate::website_rules::save_linked_mfas(&tx,&item,&linked)?;
+                        let mfa_item: String = tx.query_row("SELECT item_id FROM totp_credentials WHERE id=?1",[&tid],|r|r.get(0))?;
+                        let mut mfa_details = details_for(&tx, &mfa_item)?;
+                        let old_rule_count = mfa_details.uris.len();
+                        for rule in rules {
+                            if !mfa_details.uris.iter().any(|r|r.uri == rule.uri && r.match_mode == rule.match_mode) {
+                                let mut rule = rule;
+                                rule.id = uid();
+                                mfa_details.uris.push(rule);
+                            }
+                        }
+                        if mfa_details.uris.len() != old_rule_count {
+                            crate::website_rules::save_login_website_rules(&tx,&mfa_item,&mfa_details.uris)?;
+                            let mfa_revision = new_revision();
+                            tx.execute("UPDATE items SET current_revision=?1,updated_at_ms=?2 WHERE id=?3",params![mfa_revision,ts,mfa_item])?;
+                            tx.execute("UPDATE totp_credentials SET current_revision=?1,updated_at_ms=?2 WHERE id=?3",params![mfa_revision,ts,tid])?;
+                        }
                         tx.execute(
                             "UPDATE login_credentials SET linked_totp_id=?1 WHERE id=?2",
                             params![tid, credential],

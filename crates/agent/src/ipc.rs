@@ -107,7 +107,7 @@ pub fn load_extension_gate_into_state(st: &mut IpcState) {
 fn native_host_request_forbidden(req: &AgentRequest) -> bool {
     !matches!(req, AgentRequest::Ping | AgentRequest::Status | AgentRequest::ExtensionConnect
         | AgentRequest::CredentialSave { .. } | AgentRequest::CredentialSuggest { .. }
-        | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::BrowserTotpCode { .. }
+        | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::BrowserTotpCode { .. } | AgentRequest::BrowserMfaSuggest { .. }
         | AgentRequest::CredentialFillPrepare { .. } | AgentRequest::CredentialFillConsume { .. }
         | AgentRequest::CancelRequest { .. })
 }
@@ -116,7 +116,7 @@ fn req_requires_extension_gate(req: &AgentRequest) -> bool {
     matches!(
         req,
         AgentRequest::CredentialSave { .. }
-            | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::BrowserTotpCode { .. }
+            | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::BrowserTotpCode { .. } | AgentRequest::BrowserMfaSuggest { .. }
             | AgentRequest::CredentialSuggest { .. }
             | AgentRequest::CredentialFillPrepare { .. }
             | AgentRequest::CredentialFillConsume { .. }
@@ -531,6 +531,7 @@ async fn handle_request_inner(
             AgentResponse::ok(json!({ "verified": true }))
         }
         AgentRequest::CredentialSave {
+            password_active_since_ms,
             request_id,
             origin,
             username,
@@ -540,6 +541,7 @@ async fn handle_request_inner(
             linked_totp_id,
             group_id,
             website_rules,
+            linked_mfa_ids,
         } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
@@ -555,6 +557,8 @@ async fn handle_request_inner(
                 linked_totp_id.as_deref().and_then(|s| opt_nonempty(s)),
                 group_id.as_deref().and_then(|s| opt_nonempty(s)),
                 website_rules.as_deref(),
+                linked_mfa_ids.as_deref(),
+                password_active_since_ms,
             ) {
                 Ok(c) => c,
                 Err(e) => return AgentResponse::err("vault", e.to_string()),
@@ -579,16 +583,31 @@ async fn handle_request_inner(
                 Err(_)=>AgentResponse::err("vault","密码更新失败"),
             }
         }
-        AgentRequest::BrowserTotpCode { credential_id, origin } => {
-            if !peer.from_native_host { return AgentResponse::err("forbidden", "browser only"); }
-            let v=st.vault.lock().await;
+        AgentRequest::BrowserMfaSuggest { origin, credential_id, include_other_matches } => {
+            let v = st.vault.lock().await;
             if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
-            if !v.credential_matches_page(&credential_id,&origin) { return AgentResponse::err("origin_mismatch", "网站与凭据不匹配"); }
-            let Ok(cred)=v.get_credential(&credential_id) else { return AgentResponse::err("not_found","credential not found"); };
-            let Some(id)=cred.linked_totp_id else { return AgentResponse::err("not_found","未关联 MFA"); };
+            let Some(db) = v.db.as_ref() else { return AgentResponse::err("locked", "vault locked"); };
+            match credpivot_core::browser_mfa_candidates(db.conn(), &origin, opt_nonempty(&credential_id), include_other_matches) {
+                Ok(payload) => AgentResponse::ok(payload),
+                Err(_) => AgentResponse::err("vault", "MFA 候选读取失败"),
+            }
+        }
+        AgentRequest::BrowserTotpCode { credential_id, origin, totp_id } => {
+            if !peer.from_native_host { return AgentResponse::err("forbidden", "browser only"); }
+            let mut v=st.vault.lock().await;
+            if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
             let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","vault locked"); };
+            if !credential_id.is_empty() && !v.credential_matches_page(&credential_id, &origin) {
+                return AgentResponse::err("origin_mismatch", "账号与网站不匹配");
+            }
+            // 明确选择 MFA 后仅验证该记录；不为读取验证码重新扫描全库。
+            if totp_id.is_empty() { return AgentResponse::err("bad_args", "请选择当前网站的 MFA"); }
+            if !credpivot_core::mfa_matches_origin(db.conn(), &totp_id, &origin).unwrap_or(false) {
+                return AgentResponse::err("origin_mismatch", "MFA 与网站不匹配");
+            }
+            let id = totp_id;
             match credpivot_core::manage_credentials(db.conn(),credpivot_core::VaultAction::TotpStatus {id,min_valid_seconds:5,passive:false}) {
-                Ok(payload)=>AgentResponse::ok(payload),Err(_)=>AgentResponse::err("vault","MFA 读取失败"),
+                Ok(payload)=>{v.touch_activity();AgentResponse::ok(payload)},Err(_)=>AgentResponse::err("vault","MFA 读取失败"),
             }
         }
         AgentRequest::CredentialSuggest { origin } => {
@@ -630,6 +649,8 @@ async fn handle_request_inner(
                 return AgentResponse::err("origin_mismatch", "credential does not match page origin");
             }
             let now = now_ms();
+            // 页面跳转或面板关闭后可能不再 consume，过期授权不能永久留在内存。
+            st.pending_fills.retain(|_, grant| grant.expires_at_ms > now);
             let grant = FillGrant {
                 request_id: request_id.clone(),
                 credential_id,
@@ -703,14 +724,14 @@ async fn handle_request_inner(
                 Err(e) => AgentResponse::err("not_found", e.to_string()),
             }
         }
-        AgentRequest::CredentialList { query, limit } => {
+        AgentRequest::CredentialList { query, limit, offset } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
             let lim = limit.unwrap_or(100);
-            match v.list_credentials(query.as_deref(), lim) {
+            match v.list_credentials(query.as_deref(), lim, offset) {
                 Ok(items) => AgentResponse::ok(json!({ "items": items })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
@@ -726,6 +747,7 @@ async fn handle_request_inner(
             linked_totp_id,
             password,
             website_rules,
+            linked_mfa_ids,
         } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
@@ -743,6 +765,7 @@ async fn handle_request_inner(
                 opt_nonempty(&group_id),
                 password.as_deref(),
                 website_rules.as_deref(),
+                linked_mfa_ids.as_deref(),
             ) {
                 Ok(row) => AgentResponse::ok(json!({ "updated": true, "item": row })),
                 Err(e) => {
@@ -823,6 +846,7 @@ async fn handle_request_inner(
             account,
             secret_base32,
             group_id,
+            website_rules,
         } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
@@ -834,6 +858,7 @@ async fn handle_request_inner(
                 &account,
                 &secret_base32,
                 group_id.as_deref().and_then(|s| opt_nonempty(s)),
+                &website_rules,
             ) {
                 Ok(row) => AgentResponse::ok(json!({ "item": row })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
@@ -1046,12 +1071,13 @@ async fn handle_request_inner(
         AgentRequest::RestorePointRecover {
             created_at_ms,
             target_dir,
+            password,
         } => {
             let v = st.vault.lock().await;
             if !v.unlocked {
                 return AgentResponse::err("locked", "vault locked");
             }
-            match v.recover_restore_point(created_at_ms, &target_dir) {
+            match v.recover_restore_point(created_at_ms, &target_dir, password.as_deref()) {
                 Ok(()) => AgentResponse::ok(json!({ "recovered": true, "target_dir": target_dir })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
@@ -1075,12 +1101,16 @@ async fn handle_request_inner(
             v.touch_activity();
             match v.security_rebuild(&password, &recovery_key) {
                 Ok(new_recovery_key) => {
+                    let warning = if v.unlocked { None } else {
+                        Some("安全重建已完成，但会话恢复失败。请先保存新的恢复密钥，再重新解锁保险库。")
+                    };
                     drop(v);
                     revoke_extension_gate(st);
                     st.pending_ssh_sessions.clear();
                     AgentResponse::ok(json!({
                         "rebuilt": true,
                         "new_recovery_key": new_recovery_key,
+                        "warning": warning,
                     }))
                 }
                 Err(e) => AgentResponse::err("vault", e.to_string()),

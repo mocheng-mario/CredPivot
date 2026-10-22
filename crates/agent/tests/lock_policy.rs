@@ -39,6 +39,7 @@ async fn locked_vault_rejects_sensitive_agent_ops() {
         handle_request(
             &mut st,
             AgentRequest::CredentialSave {
+            password_active_since_ms: None,
                 request_id: "r1".into(),
                 origin: "https://example.com".into(),
                 username: "u".into(),
@@ -48,6 +49,7 @@ async fn locked_vault_rejects_sensitive_agent_ops() {
                 linked_totp_id: None,
                 group_id: None,
                 website_rules: None,
+                linked_mfa_ids: None,
             },
             RequestPeerContext { from_app: true, ..Default::default() },
         )
@@ -71,6 +73,7 @@ async fn unlock_then_save_then_lock_blocks_again() {
     let save = handle_request(
         &mut st,
         AgentRequest::CredentialSave {
+            password_active_since_ms: None,
             request_id: "r2".into(),
             origin: "https://example.com".into(),
             username: "u".into(),
@@ -80,6 +83,7 @@ async fn unlock_then_save_then_lock_blocks_again() {
             linked_totp_id: None,
             group_id: None,
             website_rules: None,
+            linked_mfa_ids: None,
         },
         RequestPeerContext { from_app: true, ..Default::default() },
     )
@@ -98,6 +102,7 @@ async fn unlock_then_save_then_lock_blocks_again() {
         handle_request(
             &mut st,
             AgentRequest::CredentialSave {
+            password_active_since_ms: None,
                 request_id: "r3".into(),
                 origin: "https://example.com".into(),
                 username: "u".into(),
@@ -107,6 +112,7 @@ async fn unlock_then_save_then_lock_blocks_again() {
                 linked_totp_id: None,
                 group_id: None,
                 website_rules: None,
+                linked_mfa_ids: None,
             },
             RequestPeerContext { from_app: true, ..Default::default() },
         )

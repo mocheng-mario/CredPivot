@@ -28,7 +28,14 @@
         </div>
         <label class="account-label" for="account">登录账号 <span id="mfa" hidden></span></label>
         <select id="account" aria-describedby="selectionNote" disabled><option>连接后加载账号</option></select>
-        <p id="selectionNote" class="muted">选择一个账号，密码和 MFA 将使用同一账号。</p>
+        <p id="selectionNote" class="muted">账号和 MFA 可分别选择；没有登录记录也可以填充 MFA。</p>
+      </section>
+      <section class="account-panel" aria-labelledby="otpTitle">
+        <div class="section-heading"><h2 id="otpTitle">MFA 验证码</h2><span id="otpCount">未加载</span></div>
+        <label class="sr-only" for="otp">选择当前网站的 MFA</label>
+        <select id="otp" disabled><option>连接后加载 MFA</option></select>
+        <button id="otherMfas" class="text-button" hidden>查找其他匹配的 MFA</button>
+        <p id="otpNote" class="muted">精确来源优先，其次通配符和正则；多个匹配项可自行选择。</p>
       </section>
       <div class="fill-actions">
         <button id="fillLogin" class="action-button" disabled>

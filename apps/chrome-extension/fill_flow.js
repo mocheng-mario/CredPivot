@@ -164,10 +164,11 @@ export async function runFillLoginOnTab(tabId, sendNative, selectedId) {
       deliver,
     };
   }
-  return { ok: true, filled: true, origin: ctx.origin, login_filled: true, credential_id: suggested.credentialId };
+  return { ok: true, filled: true, origin: ctx.origin, login_filled: true, credential_id: suggested.credentialId,
+    partial: deliver.partial === true, username_filled: deliver.username_filled, password_filled: deliver.password_filled };
 }
 
-export async function runFillOtpFromVaultOnTab(tabId, sendNative, selectedId) {
+export async function runFillOtpFromVaultOnTab(tabId, sendNative, selectedId, totpId) {
   const tab = await chrome.tabs.get(tabId);
   if (!tab?.url || !tab.url.startsWith("http")) {
     return { ok: false, error: "请在普通 http(s) 网页标签页中使用填充" };
@@ -176,22 +177,15 @@ export async function runFillOtpFromVaultOnTab(tabId, sendNative, selectedId) {
   const { ctx, error } = await loadPageContext(tabId, origin);
   if (error) return error;
 
-  const suggested = await suggestFirstCredential(ctx.origin, sendNative, selectedId);
-  if (suggested.error) return suggested.error;
-  const forOtp = suggested;
-  const totpId = forOtp.candidate?.linked_totp_id;
-  if (!totpId) {
-    return {
-      ok: false,
-      error:
-        "当前站点登录未关联 MFA。请在 CredPivot「凭据 → 登录密码」中编辑对应项并选择「关联 MFA / TOTP」（服务器页的 MFA 关联不用于浏览器填充）。",
-    };
-  }
-
-  let codeResp = await sendNative({action: "credential.totp_code", credential_id: forOtp.credentialId, origin: ctx.origin});
+  if (!totpId) return {ok:false,error:"请先选择当前网站的 MFA"};
+  const request = {action:"credential.totp_code", credential_id:selectedId || "", totp_id:totpId, origin:ctx.origin};
+  let codeResp = await sendNative({...request});
   if (codeResp?.ok && codeResp.payload?.wait_seconds != null) {
     await new Promise((resolve) => setTimeout(resolve, (codeResp.payload.wait_seconds + 1) * 1000));
-    codeResp = await sendNative({action: "credential.totp_code", credential_id: forOtp.credentialId, origin: ctx.origin});
+    // 等待新一组验证码后再次获取页面上下文，防止跳转后向旧页面投递。
+    const current = await loadPageContext(tabId, origin);
+    if (current.error || current.ctx.documentId !== ctx.documentId) return {ok:false,error:"页面已改变，请重新填充"};
+    codeResp = await sendNative({...request});
   }
   const gate = gateHint(codeResp);
   if (gate) {
@@ -232,7 +226,7 @@ export async function runFillOtpFromVaultOnTab(tabId, sendNative, selectedId) {
       deliver,
     };
   }
-  return { ok: true, filled: true, origin: ctx.origin, otp_filled: true, credential_id: suggested.credentialId };
+  return { ok: true, filled: true, origin: ctx.origin, otp_filled: true, credential_id: selectedId || "", totp_id: totpId };
 }
 
 /** @deprecated 使用 runFillLoginOnTab + runFillOtpFromVaultOnTab */

@@ -6,6 +6,11 @@ let targetTab = null;
 let targetOrigin = null;
 let candidates = [];
 let selectedId = "";
+let mfaCandidates = [];
+let selectedTotpId = "";
+let mfaGeneration = 0;
+let hasMoreMfas = false;
+let allMfaMatches = false;
 let selectionSource = "";
 let captured = null;
 let ready = false;
@@ -43,6 +48,8 @@ function showError(result) {
     ready = false;
     candidates = [];
     selectedId = "";
+    mfaCandidates = []; selectedTotpId = ""; hasMoreMfas = false; allMfaMatches = false; mfaGeneration++;
+    renderMfas();
     clearCapturedForm();
     renderAccounts();
     $("connectionState").textContent = gated ? "需要验证" : "连接中断";
@@ -64,16 +71,21 @@ function updateControls() {
   accountEl.disabled = busy || !ready || candidates.length < 2;
   $("accountSearch").disabled = busy || !ready;
   $("fillLogin").disabled = busy || !ready || !row;
-  $("fillOtp").disabled = busy || !ready || !row?.linked_totp_id;
+  $("fillOtp").disabled = busy || !ready || !mfaCandidates.some((m) => m.id === selectedTotpId);
+  $("otp").disabled = busy || !ready || !mfaCandidates.length || (mfaCandidates.length === 1 && Boolean(selectedTotpId));
+  $("otherMfas").disabled = busy || !ready;
+  $("otherMfas").hidden = !ready || !hasMoreMfas || allMfaMatches;
   $("capture").disabled = busy || !ready || !targetOrigin;
   $("saveNew").disabled = busy || !ready || !captured;
   $("update").disabled = busy || !ready || !row || !captured;
   $("fillLoginHint").textContent = row ? `使用 ${row.username || "无用户名账号"}` : "先选择登录账号";
-  $("fillOtpHint").textContent = !row ? "先选择登录账号" : row.linked_totp_id ? "使用此账号关联的动态验证码" : "此账号未关联 MFA，请在 App 中设置";
+  const mfa = mfaCandidates.find((m) => m.id === selectedTotpId);
+  $("fillOtpHint").textContent = mfa ? `${mfa.issuer || "MFA"} · ${mfa.account || "无账号标签"}` : "选择当前网站的 MFA";
+  const linkedCount = mfaCandidates.filter((m) => m.linked).length;
   $("mfa").hidden = !row;
-  $("mfa").textContent = row?.linked_totp_id ? "已关联 MFA" : "未关联 MFA";
-  $("mfa").dataset.available = String(Boolean(row?.linked_totp_id));
-  $("selectionNote").textContent = !row ? "选择一个账号，密码和 MFA 将使用同一账号。" : selectionSource === "remembered" ? `已恢复此标签页上次选择或使用的账号。${row.linked_totp_id ? "可继续填充 MFA。" : ""}` : candidates.length === 1 ? "当前网站只有一个账号，已自动选中。" : "已选账号会在此标签页保留，可随时切换。";
+  $("mfa").textContent = linkedCount ? `${linkedCount} 个可用 MFA` : "无网站 MFA 关联";
+  $("mfa").dataset.available = String(linkedCount > 0);
+  $("selectionNote").textContent = !row ? "没有登录记录也可在下方选择独立 MFA。" : selectionSource === "remembered" ? "已恢复此标签页使用的账号，MFA 按当前网站匹配。" : "切换账号会重新匹配适用的 MFA。";
   document.body.setAttribute("aria-busy", String(busy));
 }
 
@@ -105,13 +117,59 @@ function renderAccounts() {
     const option = document.createElement("option");
     option.value = row.id;
     const filtered = !matches.includes(row) ? " · 当前已选" : "";
-    option.textContent = `${row.username || "（无用户名）"}${row.linked_totp_id ? " · MFA" : ""}${filtered}`;
+    option.textContent = `${row.username || "（无用户名）"}${filtered}`;
     accountEl.append(option);
   }
   accountEl.value = selected ? selectedId : "";
   $("accountCount").textContent = query ? `${matches.length} / ${candidates.length} 个账号` : `${candidates.length} 个账号`;
   $("searchField").hidden = candidates.length < 2;
   updateControls();
+}
+
+function renderMfas() {
+  const select = $("otp");
+  select.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = !ready ? "连接后加载 MFA" : mfaCandidates.length ? "请选择 MFA" : "此网站暂无可用 MFA";
+  placeholder.disabled = true;
+  select.append(placeholder);
+  for (const linked of [true, false]) {
+    const rows = mfaCandidates.filter((m) => Boolean(m.linked) === linked);
+    if (!rows.length) continue;
+    const group = document.createElement("optgroup");
+    group.label = linked ? "当前账号关联" : "独立匹配网站";
+    for (const row of rows) {
+      const option = document.createElement("option"); option.value = row.id;
+      option.textContent = `${row.issuer || "MFA"} · ${row.account || "无账号标签"}（${["精确来源", "通配符", "正则"][row.match_rank] || "网站匹配"}）`;
+      group.append(option);
+    }
+    select.append(group);
+  }
+  select.value = selectedTotpId;
+  $("otpCount").textContent = `${mfaCandidates.length} 个 MFA`;
+  $("otpNote").textContent = selectedTotpId ? "仅在点击填充后读取验证码，不会自动提交。" : mfaCandidates.length > 1 ? "有多个匹配项，请选择本次登录所需的 MFA。" : "请在 App 中配置 MFA 的适用网站；账号关联不会覆盖网站限制。";
+  updateControls();
+}
+
+async function refreshMfas(includeOtherMatches = false) {
+  const version = ++mfaGeneration;
+  const credentialId = selectedId;
+  const tab = await getTargetTab();
+  const previous = selectedTotpId;
+  mfaCandidates = []; selectedTotpId = ""; hasMoreMfas = false; allMfaMatches = false; renderMfas();
+  const response = await chrome.runtime.sendMessage({type:"suggest_mfas",tab_id:tab.id,credential_id:credentialId,include_other_matches:includeOtherMatches});
+  if (version !== mfaGeneration || selectedId !== credentialId) return false;
+  await getTargetTab();
+  if (!response?.ok) { showError(response); return false; }
+  mfaCandidates = response.payload?.candidates ?? [];
+  hasMoreMfas = Boolean(response.payload?.can_check_other_matches);
+  allMfaMatches = Boolean(response.payload?.all_matches);
+  const remembered = response.payload?.selected_totp_id;
+  const linked = mfaCandidates.filter((m) => m.linked);
+  selectedTotpId = mfaCandidates.find((m) => m.id === previous)?.id || mfaCandidates.find((m) => m.id === remembered)?.id ||
+    (linked.length === 1 ? linked[0].id : !credentialId && mfaCandidates.length === 1 ? mfaCandidates[0].id : "");
+  renderMfas(); return true;
 }
 
 async function getTargetTab() {
@@ -134,7 +192,7 @@ async function refreshAccounts() {
   selectedId = previous?.id || remembered?.id || (candidates.length === 1 ? candidates[0].id : "");
   selectionSource = !previous && remembered ? "remembered" : selectionSource;
   renderAccounts();
-  return true;
+  return await refreshMfas();
 }
 
 async function handshake() {
@@ -142,6 +200,7 @@ async function handshake() {
   stopWaiting = false;
   ready = false;
   candidates = [];
+  mfaCandidates = []; selectedTotpId = ""; hasMoreMfas = false; allMfaMatches = false; mfaGeneration++; renderMfas();
   clearCapturedForm();
   renderAccounts();
   setBusy(true);
@@ -177,7 +236,7 @@ async function handshake() {
     $("connectionState").textContent = "已连接 · 已验证";
     $("connectionState").dataset.state = "success";
     $("connect").textContent = "刷新连接";
-    setStatus(!candidates.length ? "此网站还没有账号，可展开下方「保存当前网页」添加。" : selectedAccount() ? "账号已就绪，选择下方按钮填充。" : "此网站有多个账号，请先选择要使用的账号。");
+    setStatus(!candidates.length ? (mfaCandidates.length ? "此网站有独立 MFA，可直接选择并填充验证码。" : "此网站暂无账号或 MFA，请在 App 中配置匹配网站。") : selectedAccount() ? "账号已就绪，选择下方按钮填充。" : "此网站有多个账号，请先选择要使用的账号。");
   } catch (e) {
     ready = false;
     candidates = [];
@@ -197,6 +256,7 @@ async function handshake() {
 $("accountSearch").addEventListener("input", renderAccounts);
 accountEl.addEventListener("change", async () => {
   selectedId = accountEl.value;
+  selectedTotpId = ""; mfaCandidates = []; renderMfas();
   selectionSource = "manual";
   setStatus("已切换账号，密码和 MFA 将使用当前选择。");
   setBusy(true);
@@ -204,22 +264,48 @@ accountEl.addEventListener("change", async () => {
     const tab = await getTargetTab();
     const response = await chrome.runtime.sendMessage({ type: "select_account", tab_id: tab.id, origin: targetOrigin, credential_id: selectedId });
     if (!response?.ok) showError(response);
+    else await refreshMfas();
   } catch (e) { showError({ error: e.message }); }
+  finally { setBusy(false); }
+});
+
+$("otherMfas").addEventListener("click", async () => {
+  if (busy || !ready) return;
+  setBusy(true);
+  try {
+    if (await refreshMfas(true)) setStatus("已列出当前网站的全部匹配 MFA，包括其他匹配层级和未关联的验证器。");
+  } catch (e) { showError({error:e.message}); }
+  finally { setBusy(false); }
+});
+
+$("otp").addEventListener("change", async () => {
+  selectedTotpId = $("otp").value; setBusy(true);
+  try {
+    const tab = await getTargetTab();
+    const response = await chrome.runtime.sendMessage({type:"select_mfa",tab_id:tab.id,credential_id:selectedId,totp_id:selectedTotpId});
+    if (!response?.ok) { selectedTotpId = ""; renderMfas(); showError(response); }
+    else setStatus("已选择 MFA，可直接填充验证码。");
+  } catch (e) { selectedTotpId = ""; renderMfas(); showError({error:e.message}); }
   finally { setBusy(false); }
 });
 
 async function fill(mode) {
   const account = selectedAccount();
-  if (busy || !ready || !account || (mode === "otp" && !account.linked_totp_id)) return;
+  if (busy || !ready || (mode === "login" ? !account : !selectedTotpId)) return;
   setBusy(true);
   setStatus(mode === "otp" ? "正在获取并填充 MFA；验证码即将过期时会等待下一组…" : "正在填充账号与密码…", "pending");
   try {
     const tab = await getTargetTab();
-    const result = await chrome.runtime.sendMessage({ type: mode === "otp" ? "fill_otp_vault_tab" : "fill_login_tab", tab_id: tab.id, credential_id: account.id });
+    const result = await chrome.runtime.sendMessage({ type: mode === "otp" ? "fill_otp_vault_tab" : "fill_login_tab", tab_id: tab.id, credential_id: account?.id || "", totp_id: mode === "otp" ? selectedTotpId : undefined });
     if (!result?.ok) { showError(result); return; }
     selectionSource = "remembered";
-    const next = mode === "login" && account.linked_totp_id ? "进入验证码页面后，可直接填充 MFA。" : "请在网页确认后继续。";
-    setStatus(result.selection_remembered === false ? "填充成功，但未能记住账号，下次打开时请重新选择。" : `${mode === "otp" ? "MFA 验证码" : "账号与密码"}已填充。${next}`, result.selection_remembered === false ? "warning" : "success");
+    if (mode === "login" && result.partial) {
+      const field = result.password_filled ? "密码" : "用户名";
+      setStatus(`仅填充了${field}，另一个字段未找到或不可填写。如果是分步登录，请进入下一步后再次填充。`, "warning");
+      return;
+    }
+    const next = mode === "login" && mfaCandidates.length > 0 ? "进入验证码页面后，可直接填充 MFA。" : "请在网页确认后继续。";
+    setStatus(result.selection_remembered === false ? "填充成功，但未能记住选择，下次打开时请重新选择。" : `${mode === "otp" ? "MFA 验证码" : "账号与密码"}已填充。${next}`, result.selection_remembered === false ? "warning" : "success");
   } catch (e) { showError({ error: e.message }); }
   finally { setBusy(false); }
 }

@@ -38,10 +38,6 @@ pub enum VaultAction {
         expected_revision: String,
         history_id: String,
     },
-    MarkPasswordActive {
-        credential_id: String,
-        expected_revision: String,
-    },
     TrashList,
     TrashRestore {
         item_id: String,
@@ -57,6 +53,7 @@ pub enum VaultAction {
     LoginWebsiteRules {
         credential_id: String,
     },
+    TotpParse { input: String },
     WebsiteRulesTest {
         rules: Vec<UriRule>,
         #[serde(default)]
@@ -68,6 +65,8 @@ pub enum VaultAction {
         details: ItemDetails,
         #[serde(default)]
         title: Option<String>,
+        #[serde(default)]
+        password_active_since_ms: Option<i64>,
     },
     NoteCreate {
         title: String,
@@ -78,6 +77,10 @@ pub enum VaultAction {
     },
     SecurityReport,
     TotpUpdate {
+        #[serde(default)]
+        resolve_pending_rules: bool,
+        #[serde(default)]
+        website_rules: Option<Vec<UriRule>>,
         id: String,
         expected_revision: String,
         issuer: String,
@@ -129,6 +132,7 @@ impl VaultAction {
             Self::GeneratePassword { .. }
                 | Self::LoginWebsiteRules { .. }
                 | Self::WebsiteRulesTest { .. }
+                | Self::TotpParse { .. }
                 | Self::ItemSearch { .. }
                 | Self::SecurityReport
                 | Self::TrashList
@@ -151,6 +155,13 @@ pub struct ItemDetails {
     pub related_item_ids: Vec<String>,
     // 导入规则原样保留；只启用已支持的匹配模式，其他模式须用户确认后修改。
     pub uris: Vec<UriRule>,
+    // 仅用于升级旧的账号网站关联；新数据只保存 MFA ID。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mfa_bindings: Vec<MfaBinding>,
+    pub linked_mfa_ids: Vec<String>,
+    // 旧关联范围须用户确认后才能成为 MFA 自身的浏览器填充规则。
+    pub pending_mfa_uris: Vec<UriRule>,
+    pub otp_extra_parameters: std::collections::BTreeMap<String, String>,
     pub history_limit: Option<usize>,
     pub reminder_days: Option<u32>,
     pub mfa_state: String,
@@ -164,8 +175,16 @@ pub struct CustomField {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UriRule {
+    #[serde(default = "id")]
+    pub id: String,
     pub uri: String,
     pub match_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MfaBinding {
+    pub totp_id: String,
+    pub website_rule_ids: Vec<String>,
 }
 
 fn id() -> String {
@@ -369,6 +388,7 @@ fn trash_change(conn: &Connection, item: &str, expected: &str, purge: bool) -> R
         }
         return Ok(());
     }
+    crate::website_rules::detach_mfa_references(conn,item)?;
     let revision = new_revision();
     let timestamp = now_ms();
     conn.execute("UPDATE items SET current_revision=?1,updated_at_ms=?2 WHERE id IN (SELECT item_id FROM login_credentials WHERE linked_totp_id IN (SELECT id FROM totp_credentials WHERE item_id=?3))", params![revision,timestamp,item])?;
@@ -381,11 +401,13 @@ fn trash_change(conn: &Connection, item: &str, expected: &str, purge: bool) -> R
         let mut details: ItemDetails = parse(row["details_json"].as_str().unwrap_or("{}"))?;
         if details.related_item_ids.iter().any(|id| id == item) {
             details.related_item_ids.retain(|id| id != item);
+            let revision = new_revision();
+            conn.execute("UPDATE login_credentials SET current_revision=?1,updated_at_ms=?2 WHERE item_id=?3",params![revision,now_ms(),row["id"].as_str().unwrap_or_default()])?;
             conn.execute(
                 "UPDATE items SET details_json=?1,current_revision=?2,updated_at_ms=?3 WHERE id=?4",
                 params![
                     encode(&details)?,
-                    new_revision(),
+                    revision,
                     now_ms(),
                     row["id"].as_str().unwrap_or_default()
                 ],
@@ -546,7 +568,7 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
     let value = match action {
         LoginWebsiteRules { credential_id } => {
             changed = false;
-            json!({"rules":crate::website_rules::credential_website_rules(&tx,&credential_id)?})
+            json!({"rules":crate::website_rules::credential_website_rules(&tx,&credential_id)?,"linked_mfa_ids":details_for(&tx,&crate::repo_m2::get_login_row(&tx,&credential_id)?.item_id)?.linked_mfa_ids})
         }
         WebsiteRulesTest { rules, target } => {
             changed = false;
@@ -636,20 +658,6 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             )?;
             json!({"id":create_candidate(&tx,&credential_id,&expected_revision,&secret)?})
         }
-        MarkPasswordActive {
-            credential_id,
-            expected_revision,
-        } => {
-            let row = crate::get_login_secret(&tx, &credential_id)?;
-            check_revision(&row.current_revision, &expected_revision)?;
-            let rev = new_revision();
-            tx.execute("UPDATE login_credentials SET password_active_since_ms=?1,current_revision=?2,updated_at_ms=?1 WHERE id=?3",params![now_ms(),rev,credential_id])?;
-            tx.execute(
-                "UPDATE items SET current_revision=?1,updated_at_ms=?2 WHERE id=?3",
-                params![rev, now_ms(), row.item_id],
-            )?;
-            json!({"updated":true})
-        }
         TrashList => {
             changed = false;
             json!({"items":rows(&tx,"SELECT id,kind,title,current_revision,trashed_at_ms FROM items WHERE trashed=1 ORDER BY trashed_at_ms DESC",[]) ?})
@@ -668,25 +676,41 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             trash_change(&tx, &item_id, &expected_revision, true)?;
             json!({"purged":true})
         }
+        TotpParse { input } => {
+            changed = false;
+            serde_json::to_value(crate::totp::parse_totp_input(&input)?)
+                .map_err(|_| CoreError::format("TOTP 参数无法编码"))?
+        }
         ItemDetails { item_id } => {
             changed = false;
             let rev = active_item(&tx, &item_id)?;
             let mut details = details_for(&tx, &item_id)?;
             if details.uris.is_empty() {
                 let origin: Option<String> = tx.query_row("SELECT origin FROM login_credentials WHERE item_id=?1", [&item_id], |row| row.get(0)).optional()?;
-                if let Some(uri) = origin { details.uris.push(UriRule { uri, match_mode: "exact_origin".into() }); }
+                if let Some(uri) = origin { details.uris.push(UriRule { id: id(), uri, match_mode: "exact_origin".into() }); }
             }
-            json!({"details":details,"current_revision":rev})
+            let since: Option<i64> = tx.query_row("SELECT password_active_since_ms FROM login_credentials WHERE item_id=?1", [&item_id], |r|r.get(0)).optional()?;
+            json!({"details":details,"current_revision":rev,"password_active_since_ms":since})
         }
         ItemDetailsSave {
             item_id,
             expected_revision,
             mut details,
             title,
+            password_active_since_ms,
         } => {
             check_revision(&active_item(&tx, &item_id)?, &expected_revision)?;
             crate::website_rules::validate_website_rules(&details.uris)?;
+            crate::website_rules::validate_linked_mfas(&tx, &details.linked_mfa_ids)?;
+            // 填充范围与 MFA 关联只能在对应编辑器修改，资料保存不能绕过它们。
+            let stored = details_for(&tx, &item_id)?;
+            details.uris = stored.uris;
+            details.linked_mfa_ids = stored.linked_mfa_ids;
+            details.mfa_bindings = stored.mfa_bindings;
+            details.pending_mfa_uris = stored.pending_mfa_uris;
             if details.notes.len() > 1_000_000
+                || details.otp_extra_parameters.len() > 32
+                || details.otp_extra_parameters.iter().any(|(k,v)| k.len()>100 || v.len()>4096 || matches!(k.to_ascii_lowercase().as_str(),"secret"|"issuer"|"algorithm"|"digits"|"period"|"counter"|"encoder"|"encoding") || (k.eq_ignore_ascii_case("t0") && v!="0"))
                 || details.tags.len() > 100
                 || details.custom_fields.len() > 100
                 || details.related_item_ids.len() > 100
@@ -732,13 +756,21 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
                     params![title.trim(), item_id],
                 )?;
             }
+            if let Some(since) = password_active_since_ms {
+                validate_password_active_since(since)?;
+                if tx.execute("UPDATE login_credentials SET password_active_since_ms=?1 WHERE item_id=?2", params![since,item_id])? != 1 {
+                    return Err(CoreError::format("仅登录密码支持启用日期"));
+                }
+            }
             let revision = new_revision();
             tx.execute(
                 "UPDATE items SET details_json=?1,current_revision=?2,updated_at_ms=?3 WHERE id=?4",
                 params![encode(&details)?, revision, now_ms(), item_id],
             )?;
-            // 网站规则与基本账号编辑共用 revision，防止旧弹窗覆盖新匹配规则。
-            tx.execute("UPDATE login_credentials SET current_revision=?1 WHERE item_id=?2", params![revision,item_id])?;
+            // 详情与各类基本信息共用 revision，旧弹窗不能覆盖详情保存后的新状态。
+            for table in ["login_credentials", "totp_credentials", "ssh_keys", "recovery_code_items", "server_login_profiles"] {
+                tx.execute(&format!("UPDATE {table} SET current_revision=?1,updated_at_ms=?2 WHERE item_id=?3"), params![revision,now_ms(),item_id])?;
+            }
             json!({"updated":true})
         }
         NoteCreate { title, text } => {
@@ -763,7 +795,7 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             for mut row in rows(&tx,"SELECT id,kind,title,current_revision,details_json,(SELECT last_used_at_ms FROM local_usage u WHERE u.item_id=items.id) AS last_used_at_ms FROM items WHERE trashed=0 ORDER BY updated_at_ms DESC",[])? {
                 let d: self::ItemDetails=parse(row["details_json"].as_str().unwrap_or("{}"))?;
                 let login:Option<(String,String)>=conn.query_row("SELECT origin,username FROM login_credentials WHERE item_id=?1",[row["id"].as_str().unwrap_or_default()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
-                let account_match=login.is_some_and(|(origin,user)|origin.to_lowercase().contains(&q)||user.to_lowercase().contains(&q));
+                let account_match=login.is_some_and(|(origin,user)|origin.to_lowercase().contains(&q)||user.to_lowercase().contains(&q)||d.uris.iter().any(|rule|rule.uri.to_lowercase().contains(&q)));
                 if q.is_empty() || account_match || row["title"].as_str().unwrap_or_default().to_lowercase().contains(&q) || d.tags.iter().any(|t|t.to_lowercase().contains(&q)) || d.category.to_lowercase().contains(&q) || d.notes.to_lowercase().contains(&q) || d.custom_fields.iter().any(|f|!f.secret && (f.name.to_lowercase().contains(&q)||f.value.to_lowercase().contains(&q))) {
                     row.as_object_mut().unwrap().remove("details_json"); row["tags"]=json!(d.tags); row["favorite"]=json!(d.favorite); row["category"]=json!(d.category);found.push(row);
                 }
@@ -780,10 +812,23 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             issuer,
             account,
             secret,
+            website_rules,
+            resolve_pending_rules,
         } => {
             let (item,rev):(String,String)=tx.query_row("SELECT t.item_id,t.current_revision FROM totp_credentials t JOIN items i ON i.id=t.item_id WHERE t.id=?1 AND i.trashed=0",[&id],|r|Ok((r.get(0)?,r.get(1)?)))?;
             check_revision(&rev, &expected_revision)?;
+            let parsed = crate::totp::parse_totp_input(&secret)?;
             let p = crate::totp::totp_params_for_storage(&secret)?;
+            let issuer = if issuer.trim().is_empty() { parsed.issuer } else { issuer.trim().into() };
+            let account = if account.trim().is_empty() { parsed.account } else { account.trim().into() };
+            let mut details = details_for(&tx, &item)?;
+            if let Some(rules) = website_rules {
+                crate::website_rules::validate_website_rules(&rules)?;
+                details.uris = rules;
+            }
+            if resolve_pending_rules { details.pending_mfa_uris.clear(); }
+            details.otp_extra_parameters = parsed.extra_parameters;
+            tx.execute("UPDATE items SET details_json=?1 WHERE id=?2",params![encode(&details)?,item])?;
             let rev = new_revision();
             tx.execute("UPDATE totp_credentials SET issuer=?1,account=?2,secret_base32=?3,totp_algorithm=?4,totp_digits=?5,totp_period=?6,current_revision=?7,updated_at_ms=?8 WHERE id=?9",params![issuer,account,p.secret_base32,crate::totp::algorithm_name(p.algorithm),p.digits as i64,p.period as i64,rev,now_ms(),id])?;
             tx.execute(
@@ -934,5 +979,11 @@ pub fn browser_login_candidates(conn: &Connection) -> Result<Vec<crate::LoginLis
 /// 本机使用痕迹不参与业务 revision，也不进入任何导出或恢复点。
 pub fn record_credential_use(conn: &Connection, credential: &str) -> Result<()> {
     conn.execute("INSERT INTO local_usage(item_id,last_used_at_ms,use_count) SELECT item_id,?1,1 FROM login_credentials WHERE id=?2 ON CONFLICT(item_id) DO UPDATE SET last_used_at_ms=excluded.last_used_at_ms,use_count=use_count+1",params![now_ms(),credential])?;
+    Ok(())
+}
+
+/// 0 表示未知，日期只描述当前密码，不能填写未来时间。
+pub(crate) fn validate_password_active_since(since: i64) -> Result<()> {
+    if since < 0 || since > now_ms() { return Err(CoreError::format("密码启用时间不能为未来日期")); }
     Ok(())
 }

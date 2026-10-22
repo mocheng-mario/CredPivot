@@ -9,6 +9,8 @@ use launch_app::{launch_credpivot_app, wait_for_agent_socket};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 
+const MAX_NATIVE_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
+
 fn main() {
     if verify_chrome_parent().is_err() {
         diagnostics::error("native_host", "parent verification failed");
@@ -36,8 +38,13 @@ fn run_native_messaging_loop() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
         let len = u32::from_le_bytes(len_buf) as usize;
+        if len == 0 || len > MAX_NATIVE_MESSAGE_BYTES {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "native message size invalid").into());
+        }
         let mut msg = vec![0u8; len];
-        read_exact_or_eof(&mut handle, &mut msg)?;
+        if read_exact_or_eof(&mut handle, &mut msg)? {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "native message truncated").into());
+        }
         let value: Value = serde_json::from_slice(&msg)?;
         let request_id = value.get("request_id").cloned();
         let response = tokio::runtime::Runtime::new()?
@@ -60,8 +67,10 @@ fn read_exact_or_eof<R: Read>(r: &mut R, buf: &mut [u8]) -> Result<bool, io::Err
     let mut off = 0;
     while off < buf.len() {
         match r.read(&mut buf[off..]) {
-            Ok(0) => return Ok(off == 0),
+            Ok(0) if off == 0 => return Ok(true),
+            Ok(0) => return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "native message truncated")),
             Ok(n) => off += n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e),
         }
     }
@@ -107,6 +116,7 @@ fn map_extension_to_agent(
         "handshake" | "extension.connect" => Ok(AgentRequest::ExtensionConnect),
         "status" | "agent.status" => Ok(AgentRequest::Status),
         "credential.save" => Ok(AgentRequest::CredentialSave {
+            password_active_since_ms: None,
             request_id: envelope
                 .get("request_id")
                 .and_then(|v| v.as_str())
@@ -132,6 +142,7 @@ fn map_extension_to_agent(
             linked_totp_id: None,
             group_id: None,
             website_rules: None,
+            linked_mfa_ids: None,
         }),
         "credential.suggest_for_origin" => Ok(AgentRequest::CredentialSuggest {
             origin: envelope
@@ -195,7 +206,13 @@ fn map_extension_to_agent(
                 .unwrap_or("")
                 .to_string(),
         }),
+        "mfa.suggest_for_origin" => Ok(AgentRequest::BrowserMfaSuggest {
+            include_other_matches: envelope.get("include_other_matches").and_then(Value::as_bool).unwrap_or(false),
+            credential_id: envelope.get("credential_id").and_then(Value::as_str).unwrap_or("").into(),
+            origin: envelope.get("origin").and_then(Value::as_str).unwrap_or("").into(),
+        }),
         "credential.totp_code" => Ok(AgentRequest::BrowserTotpCode {
+            totp_id: envelope.get("totp_id").and_then(Value::as_str).unwrap_or("").into(),
             credential_id: envelope.get("credential_id").and_then(Value::as_str).unwrap_or("").into(),
             origin: envelope.get("origin").and_then(Value::as_str).unwrap_or("").into(),
         }),

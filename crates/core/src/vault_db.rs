@@ -14,7 +14,7 @@ use crate::repo_m2::{
     ensure_default_ssh_key, insert_login_extended, insert_recovery_codes, list_logins,
     list_recovery_codes, load_default_ssh_key, load_ssh_key_by_id, security_summary, trash_item,
     totp_reveal_for_id,
-    totp_code_for_id, update_login_credential, update_recovery_codes,
+    totp_code_for_id, update_recovery_codes,
     generate_ssh_key,
     insert_totp_row, list_ssh_keys, list_totp_credentials, LoginListRow, RecoveryCodeRow,
     SecuritySummary, SshKeyListRow, SshKeyRecord, TotpListRow, TotpRevealRow,
@@ -62,6 +62,8 @@ impl VaultDatabase {
         linked_totp_id: Option<&str>,
         group_id: Option<&str>,
         website_rules: Option<&[crate::UriRule]>,
+        linked_mfa_ids: Option<&[String]>,
+        password_active_since_ms: Option<i64>,
     ) -> Result<LoginListRow> {
         let row = insert_login_extended(
             &self.conn,
@@ -73,6 +75,8 @@ impl VaultDatabase {
             linked_totp_id,
             group_id,
             website_rules,
+            linked_mfa_ids,
+            password_active_since_ms,
         )?;
         mark_restore_dirty(&self.conn)?;
         Ok(row)
@@ -94,6 +98,10 @@ impl VaultDatabase {
         list_logins(&self.conn, query, limit)
     }
 
+    pub fn list_logins_page(&self, query: Option<&str>, limit: u32, offset: u32) -> Result<Vec<LoginListRow>> {
+        crate::repo_m2::list_logins_page(&self.conn, query, limit, offset)
+    }
+
     pub fn update_login(
         &self,
         credential_id: &str,
@@ -107,7 +115,24 @@ impl VaultDatabase {
         new_password: Option<&str>,
         website_rules: Option<&[crate::UriRule]>,
     ) -> Result<LoginListRow> {
-        let row = update_login_credential(
+        self.update_login_with_mfa(credential_id,expected_revision,origin,username,display_name,connection_host,linked_totp_id,group_id,new_password,website_rules,None)
+    }
+
+    pub fn update_login_with_mfa(
+        &self,
+        credential_id: &str,
+        expected_revision: &str,
+        origin: &str,
+        username: &str,
+        display_name: &str,
+        connection_host: &str,
+        linked_totp_id: Option<&str>,
+        group_id: Option<&str>,
+        new_password: Option<&str>,
+        website_rules: Option<&[crate::UriRule]>,
+        linked_mfa_ids: Option<&[String]>,
+    ) -> Result<LoginListRow> {
+        let row = crate::repo_m2::update_login_with_mfa(
             &self.conn,
             credential_id,
             expected_revision,
@@ -119,6 +144,7 @@ impl VaultDatabase {
             group_id,
             new_password,
             website_rules,
+            linked_mfa_ids,
         )?;
         mark_restore_dirty(&self.conn)?;
         Ok(row)
@@ -202,6 +228,12 @@ impl VaultDatabase {
         let row = insert_totp_row(&self.conn, issuer, account, secret_base32, group_id)?;
         mark_restore_dirty(&self.conn)?;
         Ok(row)
+    }
+
+    pub fn add_totp_with_rules(&self, issuer:&str, account:&str, secret:&str, group_id:Option<&str>, rules:&[crate::UriRule]) -> Result<TotpListRow> {
+        let id = crate::repo_m2::insert_totp_with_rules(&self.conn,issuer,account,secret,group_id,rules)?;
+        mark_restore_dirty(&self.conn)?;
+        list_totp_credentials(&self.conn)?.into_iter().find(|r|r.id==id).ok_or_else(||crate::CoreError::format("MFA 创建后未找到"))
     }
 
     pub fn totp_reveal(&self, totp_id: &str) -> Result<TotpRevealRow> {

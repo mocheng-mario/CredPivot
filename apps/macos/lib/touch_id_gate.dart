@@ -22,17 +22,23 @@ Future<bool> requireTouchId(
   _confirmingSensitiveOperation = true;
   try {
     if (!confirmed) {
+      ModalRoute<bool>? confirmationRoute;
       final accepted = await showDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) {
+          confirmationRoute ??= ModalRoute.of<bool>(ctx);
+          return AlertDialog(
           title: const LText('确认敏感操作'),
           content: LText('是否继续$reason？'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
             FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('继续')),
           ],
-        ),
+          );
+        },
       );
+      // pop 返回时确认框仍在退场，先让其释放焦点，再进入系统验证或后续编辑窗口。
+      await confirmationRoute?.completed;
       if (accepted != true) return false;
     }
     if (!context.mounted || generation != _sensitiveAuthGeneration) return false;

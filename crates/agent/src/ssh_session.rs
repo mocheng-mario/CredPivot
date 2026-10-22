@@ -83,7 +83,9 @@ fn looks_like_passphrase(p: &str) -> bool {
 
 /// MFA/OTP 提示关键词（须像输入提示，避免误匹配登录后 banner）。
 fn looks_like_otp(p: &str) -> bool {
-    let has_kw = p.contains("mfa") || p.contains("otp") || p.contains("2fa") || p.contains("验证码");
+    let has_kw = p.contains("mfa") || p.contains("otp") || p.contains("2fa") || p.contains("验证码")
+        || p.contains("verification code") || p.contains("authentication code")
+        || p.contains("one-time password") || p.contains("one time password");
     if !has_kw {
         return false;
     }

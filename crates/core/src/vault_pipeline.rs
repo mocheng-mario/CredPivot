@@ -223,6 +223,19 @@ pub fn security_rebuild_in_dir(
     next.sign(&*new_vmk)?;
     write_vault_json_atomic(&staging, &next)?;
 
+    // 旧代际的验证记录不能证明新密钥和新恢复密钥可恢复；激活后重新生成恢复点。
+    {
+        let conn = local_db::open_database(&staging, &new_vmk)?;
+        conn.execute("DELETE FROM vault_settings WHERE key IN (?1,?2,?3,?4,?5)", rusqlite::params![
+            crate::backup_status::KEY_LOCAL_RESTORE_OK,
+            crate::backup_status::KEY_OVB_EXPORT_OK,
+            crate::backup_status::KEY_OVB_DECRYPT_OK,
+            crate::backup_status::KEY_RECOVERY_KEY_OK,
+            crate::restore_point::SETTINGS_LAST_RESTORE_MS,
+        ])?;
+        crate::mark_restore_dirty(&conn)?;
+    }
+
     let staged_cfg = read_vault_json(&staging)?;
     staged_cfg.verify_mac(&*new_vmk)?;
     local_db::verify_database(&staging, &*new_vmk)?;
@@ -234,6 +247,11 @@ pub fn security_rebuild_in_dir(
         return Err(CoreError::format("old recovery key still valid after rebuild"));
     }
 
+    // 切换前完成所有可能失败的复制；切换后不能因恢复点复制失败而漏交付新恢复密钥。
+    if let Err(e) = preserve_restore_points_from_backup(dir, &staging) {
+        cleanup_failed_target(&staging);
+        return Err(e);
+    }
     let backup = parent.join(format!(".credpivot-rebuild-backup-{}", Uuid::new_v4()));
     fs::rename(dir, &backup).map_err(|e| CoreError::io(e.to_string()))?;
     if fs::rename(&staging, dir).is_err() {
@@ -241,7 +259,6 @@ pub fn security_rebuild_in_dir(
         cleanup_failed_target(&staging);
         return Err(CoreError::format("failed to activate rebuilt vault"));
     }
-    preserve_restore_points_from_backup(&backup, dir)?;
     let _ = fs::remove_dir_all(&backup);
     Ok(new_recovery_display)
 }
@@ -265,7 +282,16 @@ fn preserve_restore_points_from_backup(backup: &Path, active: &Path) -> Result<(
         if target.exists() {
             continue;
         }
-        std::fs::rename(&path, &target).map_err(|e| CoreError::io(e.to_string()))?;
+        // 保留原库完整可用，激活失败时仍可直接回退；恢复点内只应包含普通文件。
+        std::fs::create_dir_all(&target).map_err(|e| CoreError::io(e.to_string()))?;
+        for file in std::fs::read_dir(&path).map_err(|e| CoreError::io(e.to_string()))? {
+            let file = file.map_err(|e| CoreError::io(e.to_string()))?;
+            if !file.file_type().map_err(|e| CoreError::io(e.to_string()))?.is_file() {
+                return Err(CoreError::format("invalid restore point entry"));
+            }
+            std::fs::copy(file.path(), target.join(file.file_name()))
+                .map_err(|e| CoreError::io(e.to_string()))?;
+        }
     }
     Ok(())
 }

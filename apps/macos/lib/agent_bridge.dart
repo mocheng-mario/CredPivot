@@ -408,6 +408,8 @@ class AgentBridge {
     String connectionHost = '',
     String? linkedTotpId,
     List<Map<String, dynamic>>? websiteRules,
+    List<String>? linkedMfaIds,
+    int? passwordActiveSinceMs,
   }) async {
     final resp = await request({
       'type': 'credential_save',
@@ -415,11 +417,13 @@ class AgentBridge {
       'origin': origin,
       'username': username,
       'password': password,
+      if (passwordActiveSinceMs != null) 'password_active_since_ms': passwordActiveSinceMs,
       'display_name': displayName,
       if (groupId != null && groupId.isNotEmpty) 'group_id': groupId,
       'connection_host': connectionHost,
       if (linkedTotpId != null && linkedTotpId.isNotEmpty) 'linked_totp_id': linkedTotpId,
       if (websiteRules != null) 'website_rules': websiteRules,
+      if (linkedMfaIds != null) 'linked_mfa_ids': linkedMfaIds,
     });
     return Map<String, dynamic>.from(payloadOf(resp)['credential'] as Map? ?? {});
   }
@@ -435,6 +439,7 @@ class AgentBridge {
     String? linkedTotpId,
     String? password,
     List<Map<String, dynamic>>? websiteRules,
+    List<String>? linkedMfaIds,
   }) async {
     final resp = await request({
       'type': 'credential_update',
@@ -448,6 +453,7 @@ class AgentBridge {
       'linked_totp_id': linkedTotpId ?? '',
       if (password != null && password.isNotEmpty) 'password': password,
       if (websiteRules != null) 'website_rules': websiteRules,
+      if (linkedMfaIds != null) 'linked_mfa_ids': linkedMfaIds,
     });
     return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
   }
@@ -463,9 +469,11 @@ class AgentBridge {
     required String account,
     required String secretBase32,
     String? groupId,
+    List<Map<String, dynamic>> websiteRules = const [],
   }) async {
     final resp = await request({
       'type': 'totp_create',
+      'website_rules': websiteRules,
       'issuer': issuer,
       'account': account,
       'secret_base32': secretBase32,
@@ -563,14 +571,27 @@ class AgentBridge {
   }
 
   static Future<List<Map<String, dynamic>>> listCredentials([String? query]) async {
-    final resp = await request({
-      'type': 'credential_list',
-      if (query != null && query.isNotEmpty) 'query': query,
-      'limit': 200,
-    });
-    final payload = payloadOf(resp);
-    final items = payload['items'] as List<dynamic>? ?? [];
-    return items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    // 分页取元数据，避免超过 200 条后旧账号和服务器关联选项静默消失。
+    final items = <Map<String, dynamic>>[];
+    final seen = <String>{};
+    var offset = 0;
+    while (true) {
+      final resp = await request({
+        'type': 'credential_list',
+        if (query != null && query.isNotEmpty) 'query': query,
+        'limit': 200,
+        'offset': offset,
+      });
+      final page = payloadOf(resp)['items'] as List<dynamic>? ?? [];
+      final previousCount = items.length;
+      // 分页期间账号可能被更新而移动位置，避免重复项破坏选择框状态。
+      for (final entry in page) {
+        final item = Map<String, dynamic>.from(entry as Map);
+        if (seen.add(item['id'] as String)) items.add(item);
+      }
+      if (page.length < 200 || items.length == previousCount) return items;
+      offset += page.length;
+    }
   }
 
   static Future<Map<String, dynamic>> getCredential(String credentialId) async {
@@ -605,11 +626,12 @@ class AgentBridge {
     return points.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
-  static Future<void> recoverRestorePoint(int createdAtMs, String targetDir) async {
+  static Future<void> recoverRestorePoint(int createdAtMs, String targetDir, {String? password}) async {
     await request({
       'type': 'restore_point_recover',
       'created_at_ms': createdAtMs,
       'target_dir': targetDir,
+      if (password != null) 'password': password,
     });
   }
 
@@ -617,13 +639,13 @@ class AgentBridge {
     await request({'type': 'vault_migrate', 'target_dir': targetDir});
   }
 
-  static Future<String> securityRebuild(String password, String recoveryKey) async {
+  static Future<Map<String, dynamic>> securityRebuild(String password, String recoveryKey) async {
     final resp = await request({
       'type': 'vault_security_rebuild',
       'password': password,
       'recovery_key': recoveryKey,
     });
-    return payloadOf(resp)['new_recovery_key'] as String? ?? '';
+    return payloadOf(resp);
   }
 
   static Future<void> verifyOvb(String ovbPath, String password) async {

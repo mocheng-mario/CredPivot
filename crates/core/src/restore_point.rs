@@ -92,27 +92,26 @@ pub fn create_restore_point(
     vmk: &[u8; 32],
     conn: &Connection,
 ) -> Result<PathBuf> {
-    let ts = now_ms();
-    let point_dir = vault_dir
-        .join(RESTORE_POINTS_DIR)
-        .join(ts.to_string());
-    fs::create_dir_all(&point_dir).map_err(|e| CoreError::io(e.to_string()))?;
+    let root = vault_dir.join(RESTORE_POINTS_DIR);
+    fs::create_dir_all(&root).map_err(|e| CoreError::io(e.to_string()))?;
+    let mut ts = now_ms();
+    while root.join(ts.to_string()).exists() { ts += 1; }
+    let point_dir = root.join(ts.to_string());
+    // 未写完或校验失败的副本不应出现在列表中，也不能覆盖同毫秒创建的恢复点。
+    let staging = tempfile::Builder::new().prefix(".pending-").tempdir_in(&root)
+        .map_err(|e| CoreError::io(e.to_string()))?;
 
     let db_bytes = export_database_bytes(vault_dir, vmk)?;
-    fs::write(point_dir.join(DB_FILENAME), &db_bytes)
+    fs::write(staging.path().join(DB_FILENAME), &db_bytes)
         .map_err(|e| CoreError::io(e.to_string()))?;
 
     let vault_json = vault_dir.join("vault.json");
-    fs::copy(&vault_json, point_dir.join("vault.json"))
+    fs::copy(&vault_json, staging.path().join("vault.json"))
         .map_err(|e| CoreError::io(e.to_string()))?;
 
-    // 校验副本可打开
-    let tmp_vault = tempfile::tempdir().map_err(|e| CoreError::io(e.to_string()))?;
-    fs::copy(&vault_json, tmp_vault.path().join("vault.json"))
-        .map_err(|e| CoreError::io(e.to_string()))?;
-    fs::write(tmp_vault.path().join(DB_FILENAME), &db_bytes)
-        .map_err(|e| CoreError::io(e.to_string()))?;
-    verify_database(tmp_vault.path(), vmk)?;
+    // 校验实际待发布副本，失败时临时目录会清理。
+    verify_database(staging.path(), vmk)?;
+    fs::rename(staging.path(), &point_dir).map_err(|e| CoreError::io(e.to_string()))?;
 
     set_setting(conn, SETTINGS_LAST_RESTORE_MS, &ts.to_string())?;
     clear_restore_dirty(conn)?;

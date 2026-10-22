@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'agent_bridge.dart';
 import 'touch_id_gate.dart';
 import 'app_ui.dart';
-import 'website_rules_editor.dart';
+import 'totp_editor.dart';
 
 Future<Map<String, dynamic>> vaultAction(
     BuildContext context, Map<String, dynamic> action,
@@ -13,6 +13,7 @@ Future<Map<String, dynamic>> vaultAction(
     'generate_password',
     'login_website_rules',
     'website_rules_test',
+    'totp_parse',
     'item_search',
     'security_report',
     'trash_list',
@@ -53,6 +54,32 @@ String vaultDate(dynamic ms) => ms is num && ms > 0
         .split('.')
         .first
     : '未知';
+
+/// 0 为未知；选择日期时记录当地零点，未修改则保留原来的完整时间。
+class PasswordActiveDateField extends StatelessWidget {
+  const PasswordActiveDateField({super.key, required this.value, required this.onChanged, this.enabled = true});
+  final int value;
+  final ValueChanged<int> onChanged;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) => InputDecorator(
+    decoration: InputDecoration(labelText: tr('当前密码启用日期'), helperText: tr('用于密码年龄与改密提醒，不会修改密码'), helperMaxLines: 2),
+    child: Row(children: [
+      Expanded(child: Text(value > 0 ? vaultDate(value) : tr('未知'))),
+      TextButton(onPressed: !enabled ? null : () async {
+        final now = DateTime.now();
+        final current = value > 0 ? DateTime.fromMillisecondsSinceEpoch(value) : now;
+        final first = DateTime(1970, 1, 2);
+        final date = await showDatePicker(context: context,
+          initialDate: current.isBefore(first) || current.isAfter(now) ? now : current,
+          firstDate: first, lastDate: now);
+        if (context.mounted && date != null) onChanged(date.millisecondsSinceEpoch);
+      }, child: const LText('选择日期')),
+      TextButton(onPressed: !enabled ? null : () => onChanged(0), child: const LText('未知')),
+    ]),
+  );
+}
 
 Future<void> showPasswordVersions(
     BuildContext context, Map<String, dynamic> row) async {
@@ -238,6 +265,7 @@ Future<void> editItemDetails(
     if (!context.mounted) return;
     await showDialog<void>(
         context: context,
+        barrierDismissible: false,
         builder: (_) => _ItemDetailsDialog(
             row: row, data: result, all: (all['items'] as List).cast<Map>()));
   } catch (e) {
@@ -273,9 +301,8 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
       (details['custom_fields'] as List? ?? [])
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
-  late final List<Map<String, dynamic>> uris = (details['uris'] as List? ?? []).isEmpty && widget.row['origin'] != null
-      ? [{'uri': widget.row['origin'].toString(), 'match_mode': 'exact_origin'}]
-      : (details['uris'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  bool get isLogin => widget.row['kind'] == 'login' || widget.row.containsKey('origin');
+  late int activeSince = (widget.data['password_active_since_ms'] as num?)?.toInt() ?? 0;
   late final Set<String> related = (details['related_item_ids'] as List? ?? [])
       .map((e) => e.toString())
       .toSet();
@@ -297,11 +324,8 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
       setState(() => message = '历史数量 0–50，提醒天数 0–3650；留空继承全局配置');
       return;
     }
-    if ((widget.row['kind'] == 'login' || widget.row.containsKey('origin')) && uris.isEmpty) {
-      setState(() => message = '请至少保留一条网站规则；如需停止填充，可将规则设为停用。');
-      return;
-    }
-    if (!await confirmVaultAction(context, '保存详情？', '保存备注、标签、关联及凭据策略。')) return;
+    if (!await confirmVaultAction(context, '保存详细资料？', isLogin ? '保存资料及密码设置；启用日期只描述当前密码，不会替换密码。' : '保存备注、标签和关联资料。')) return;
+    if (!mounted) return;
     setState(() => busy = true);
     try {
       await vaultAction(
@@ -311,6 +335,7 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
             'item_id': widget.row['item_id'] ?? widget.row['id'],
             'expected_revision': widget.data['current_revision'],
             if (widget.row['kind'] == 'secure_note') 'title': title.text,
+            if (isLogin) 'password_active_since_ms': activeSince,
             'details': {
               ...details,
               'notes': notes.text,
@@ -324,7 +349,6 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
               'reminder_days': r,
               'custom_fields': fields,
               'related_item_ids': related.toList(),
-              'uris': uris,
             }
           },
           confirmed: true);
@@ -338,16 +362,17 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => PopScope(canPop: !busy, child: AlertDialog(
           title: LText(
-              '详情 · ${widget.row['title'] ?? widget.row['display_name'] ?? ''}'),
+              '详细资料 · ${widget.row['title'] ?? widget.row['display_name'] ?? ''}'),
           content: SizedBox(
               width: appEditDialogWidth(context),
               height: MediaQuery.sizeOf(context).height * .6,
-              child: SingleChildScrollView(
+              child: AbsorbPointer(absorbing: busy, child: SingleChildScrollView(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: appFormFields([
+                    LText('基本资料', style: Theme.of(context).textTheme.titleMedium),
                     if (widget.row['kind'] == 'secure_note')
                       TextField(
                           controller: title,
@@ -361,6 +386,8 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                             : (v) => setState(() => details['favorite'] = v)),
                     TextField(
                         controller: tags,
+                        // 身份验证结束后重新建立编辑焦点和原生文本输入连接。
+                        autofocus: true,
                         decoration: InputDecoration(labelText: tr('标签（逗号分隔）'))),
                     TextField(
                         controller: category,
@@ -371,39 +398,6 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                         maxLines: 8,
                         decoration:
                             InputDecoration(labelText: tr('备注 / 安全笔记'))),
-                    const SizedBox(height: 12),
-                    Row(children: [
-                      Expanded(
-                          child: TextField(
-                              controller: history,
-                              keyboardType: TextInputType.number,
-                              decoration: InputDecoration(
-                                  labelText: tr('历史数量'),
-                                  helperText: tr('留空继承全局；0 不保存')))),
-                      const SizedBox(width: 12),
-                      Expanded(
-                          child: TextField(
-                              controller: reminder,
-                              keyboardType: TextInputType.number,
-                              decoration: InputDecoration(
-                                  labelText: tr('改密提醒（天）'),
-                                  helperText: tr('留空继承全局；0 关闭'))))
-                    ]),
-                    DropdownButtonFormField<String>(
-                        value: ['enabled', 'disabled', 'unknown']
-                                .contains(details['mfa_state'])
-                            ? details['mfa_state'] as String
-                            : 'unknown',
-                        decoration: InputDecoration(labelText: tr('MFA 状态')),
-                        items: const [
-                          DropdownMenuItem(
-                              value: 'unknown', child: LText('未知')),
-                          DropdownMenuItem(
-                              value: 'enabled', child: LText('已开启')),
-                          DropdownMenuItem(
-                              value: 'disabled', child: LText('未开启'))
-                        ],
-                        onChanged: (v) => details['mfa_state'] = v),
                     const SizedBox(height: 16),
                     LText('自定义字段',
                         style: Theme.of(context).textTheme.titleMedium),
@@ -440,9 +434,46 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                         icon: const Icon(Icons.add),
                         label: const LText('添加字段（勾选为隐藏）')),
                     const SizedBox(height: 12),
-                    if (widget.row['kind'] == 'login' || widget.row.containsKey('origin'))
-                      WebsiteRulesEditor(rules: uris, enabled: !busy),
-                    const SizedBox(height: 16),
+                    if (isLogin) ...[
+                    const Divider(),
+                    LText('密码设置', style: Theme.of(context).textTheme.titleMedium),
+                    PasswordActiveDateField(value: activeSince, enabled: !busy, onChanged: (v) => setState(() => activeSince = v)),
+                    Row(children: [
+                      Expanded(
+                          child: TextField(
+                              controller: history,
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                  labelText: tr('历史数量'),
+                                  helperText: tr('留空继承全局；0 不保存')))),
+                      const SizedBox(width: 12),
+                      Expanded(
+                          child: TextField(
+                              controller: reminder,
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                  labelText: tr('改密提醒（天）'),
+                                  helperText: tr('留空继承全局；0 关闭'))))
+                    ]),
+                    DropdownButtonFormField<String>(
+                        value: ['enabled', 'disabled', 'unknown']
+                                .contains(details['mfa_state'])
+                            ? details['mfa_state'] as String
+                            : 'unknown',
+                        decoration: InputDecoration(labelText: tr('网站 MFA 状态（手动标注）'), helperText: tr('仅用于安全报告，不会开启网站 MFA 或关联验证器'), helperMaxLines: 2),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'unknown', child: LText('未知')),
+                          DropdownMenuItem(
+                              value: 'enabled', child: LText('已开启')),
+                          DropdownMenuItem(
+                              value: 'disabled', child: LText('未开启'))
+                        ],
+                        onChanged: busy ? null : (v) => setState(() => details['mfa_state'] = v)),
+                    ],
+                    const Divider(),
+                    LText('关联信息', style: Theme.of(context).textTheme.titleMedium),
+                    const LText('仅便于查阅相关凭据，不影响浏览器填充或 MFA 选择。'),
                     const LText('关联凭据（可多选）'),
                     for (final stale in related
                         .where(
@@ -462,14 +493,14 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                               ? related.add(item['id'].toString())
                               : related.remove(item['id']))),
                     if (message.isNotEmpty) Text(message),
-                  ])))),
+                  ]))))),
           actions: [
             TextButton(
                 onPressed: busy ? null : () => Navigator.pop(context),
                 child: const LText('取消')),
             FilledButton(
                 onPressed: busy ? null : save, child: const LText('保存'))
-          ]);
+          ]));
 }
 
 class VaultToolsPanel extends StatefulWidget {
@@ -1063,63 +1094,7 @@ Future<void> transferSshKey(BuildContext context, {String? keyId}) async {
 }
 
 Future<void> editTotp(BuildContext context, Map<String, dynamic> row) async {
-  final issuer = TextEditingController(text: row['issuer']?.toString() ?? ''),
-      account = TextEditingController(text: row['account']?.toString() ?? ''),
-      secret = TextEditingController();
-  try {
-    if (!await requireTouchId(context, reason: '编辑 MFA')) return;
-    final reveal = await AgentBridge.totpReveal(row['id'].toString());
-    secret.text = reveal['otpauth_uri']?.toString() ?? '';
-    if (!context.mounted) return;
-    final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-                title: const LText('编辑 MFA / TOTP'),
-                content: SizedBox(
-                    width: appEditDialogWidth(ctx),
-                    child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
-                      TextField(
-                          controller: issuer,
-                          decoration: InputDecoration(labelText: tr('发行方'))),
-                      TextField(
-                          controller: account,
-                          decoration: InputDecoration(labelText: tr('账号'))),
-                      TextField(
-                          controller: secret,
-                          obscureText: true,
-                          decoration: InputDecoration(
-                              labelText: 'otpauth URI / Base32',
-                              helperMaxLines: 3,
-                              helperText: tr(
-                                  '完整 URI 可指定 algorithm、digits、period；Base32 默认 SHA1 / 6 / 30s')))
-                    ])))),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const LText('取消')),
-                  FilledButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const LText('确认保存'))
-                ]));
-    if (ok == true && context.mounted)
-      await vaultAction(
-          context,
-          {
-            'action': 'totp_update',
-            'id': row['id'],
-            'expected_revision': row['current_revision'],
-            'issuer': issuer.text,
-            'account': account.text,
-            'secret': secret.text
-          },
-          confirmed: true);
-  } catch (e) {
-    vaultMessage(context, e);
-  } finally {
-    issuer.dispose();
-    account.dispose();
-    secret.dispose();
-  }
+  await showTotpEditor(context, existing: row);
 }
 
 Future<void> showTotpStatus(BuildContext context, String id) async {

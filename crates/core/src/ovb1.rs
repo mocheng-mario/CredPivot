@@ -4,9 +4,24 @@ use crate::crypto::{
 use crate::error::{CoreError, Result};
 use crate::key_slot::KeySlot;
 use crate::limits::{MAX_HEADER_SLOTS_BYTES, MAX_OVB_FILE_BYTES};
+use std::io::Read;
+use std::path::Path;
 use uuid::Uuid;
 
 pub const OVB_MAGIC: &[u8; 4] = b"OVB1";
+
+/// 文件读取阶段即限制大小，不能等整文件载入内存后才检查归档上限。
+pub fn read_ovb_file(path: &Path) -> Result<Vec<u8>> {
+    let file = std::fs::File::open(path).map_err(|e| CoreError::io(e.to_string()))?;
+    if !file.metadata().map_err(|e| CoreError::io(e.to_string()))?.is_file() {
+        return Err(CoreError::format("请选择普通 OVB 文件"));
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_OVB_FILE_BYTES + 1).read_to_end(&mut bytes)
+        .map_err(|e| CoreError::io(e.to_string()))?;
+    if bytes.len() as u64 > MAX_OVB_FILE_BYTES { return Err(CoreError::limit("ovb file")); }
+    Ok(bytes)
+}
 
 pub struct OvbHeader {
     pub vault_id: Uuid,
@@ -63,8 +78,11 @@ pub fn parse_ovb_file(data: &[u8]) -> Result<(OvbHeader, Vec<u8>)> {
     if &data[0..4] != OVB_MAGIC {
         return Err(CoreError::format("ovb magic"));
     }
-    if data[4] != 1 {
+    if data[4] != 1 || data[5] != 0 {
         return Err(CoreError::format("ovb version"));
+    }
+    if data[54] != 1 {
+        return Err(CoreError::format("ovb cipher"));
     }
     let vault_id = Uuid::from_bytes(data[6..22].try_into().unwrap());
     let archive_id: [u8; 32] = data[22..54].try_into().unwrap();
@@ -80,8 +98,8 @@ pub fn parse_ovb_file(data: &[u8]) -> Result<(OvbHeader, Vec<u8>)> {
     let slots = decode_slots(&data[71..slots_end])?;
     let ct_len = u32::from_be_bytes(data[slots_end..slots_end + 4].try_into().unwrap());
     let ct_start = slots_end + 4;
-    if data.len() < ct_start + ct_len as usize {
-        return Err(CoreError::format("ciphertext truncated"));
+    if ct_len < 16 || data.len() != ct_start + ct_len as usize {
+        return Err(CoreError::format("ciphertext length mismatch"));
     }
     let ciphertext = data[ct_start..ct_start + ct_len as usize].to_vec();
     Ok((
@@ -113,6 +131,9 @@ fn encode_slots(slots: &[KeySlot]) -> Result<Vec<u8>> {
 
 fn decode_slots(bytes: &[u8]) -> Result<Vec<KeySlot>> {
     let slots: Vec<KeySlot> = serde_json::from_slice(bytes).map_err(|e| CoreError::format(e.to_string()))?;
+    if slots.is_empty() || slots.len() > crate::limits::MAX_KEY_SLOTS {
+        return Err(CoreError::limit("invalid slot count"));
+    }
     Ok(slots)
 }
 

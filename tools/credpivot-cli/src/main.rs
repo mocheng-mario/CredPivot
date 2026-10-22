@@ -65,7 +65,7 @@ fn main() {
 
 fn cmd_inspect(path: &PathBuf) -> i32 {
     if path.extension().and_then(|s| s.to_str()) == Some("ovb") {
-        let data = fs::read(path).expect("read ovb");
+        let data = credpivot_core::read_ovb_file(path).expect("read ovb");
         let (header, ct) = parse_ovb_file(&data).expect("parse");
         println!(
             "OVB1 vault={} archive_id={} slots={} ciphertext={} bytes",
@@ -98,7 +98,7 @@ fn print_cpvc(cfg: &CpvcConfig) {
 
 fn cmd_verify(path: &PathBuf) -> i32 {
     if path.extension().and_then(|s| s.to_str()) == Some("ovb") {
-        let data = fs::read(path).expect("read");
+        let data = credpivot_core::read_ovb_file(path).expect("read");
         parse_layout(&data).expect("structure");
         println!("OVB1 structure OK");
         return 0;
@@ -140,7 +140,7 @@ fn cmd_export_ovb(vault_dir: &PathBuf, output: &PathBuf) -> i32 {
 }
 
 fn cmd_recover(ovb: &PathBuf, target_dir: &PathBuf, recovery: bool) -> i32 {
-    let data = fs::read(ovb).expect("read ovb");
+    let data = credpivot_core::read_ovb_file(ovb).expect("read ovb");
     if recovery {
         let display = rpassword::prompt_password("恢复密钥: ").expect("tty");
         let bytes = parse_recovery_display(display.trim()).expect("recovery key");

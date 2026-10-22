@@ -36,7 +36,7 @@ pub use cpvc1::{parse_config, serialize_config, CpvcConfig, FORMAT_MAJOR, MAGIC}
 pub use crypto::{derive_sqlcipher_key, VMK_LEN};
 pub use error::{CoreError, Result};
 pub use key_slot::{KeySlot, SlotType};
-pub use ovb1::{build_ovb_file, decrypt_snapshot, parse_ovb_file, parse_ovb_with_aad, OvbHeader};
+pub use ovb1::{build_ovb_file, decrypt_snapshot, parse_ovb_file, parse_ovb_with_aad, read_ovb_file, OvbHeader};
 pub use password_change::change_master_password;
 pub use recovery_key::{format_display, generate as generate_recovery_key, parse_display as parse_recovery_display};
 pub use local_db::{open_database, sqlcipher_sidecar_paths, verify_database, DB_FILENAME, SQLCIPHER_M1_LABEL};
@@ -77,7 +77,7 @@ pub use vault_pipeline::{
 
 mod credential_management;
 mod website_rules;
-pub use website_rules::{credential_matches_origin, credential_website_rules};
-pub use credential_management::UriRule;
+pub use website_rules::{browser_mfa_candidates, mfa_matches_origin, credential_matches_origin, credential_website_rules};
+pub use credential_management::{UriRule, MfaBinding};
 pub use credential_management::{VaultAction, manage_credentials, export_logical_json, update_login_from_browser, credential_origins, browser_login_candidates, record_credential_use};
 mod ssh_transfer;

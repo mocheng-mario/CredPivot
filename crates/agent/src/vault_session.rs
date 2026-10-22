@@ -441,7 +441,8 @@ impl VaultSession {
         password: Option<&str>,
         recovery_key: Option<&str>,
     ) -> Result<()> {
-        let data = std::fs::read(ovb_path).map_err(AgentError::from)?;
+        let data = credpivot_core::read_ovb_file(Path::new(ovb_path))
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
         let target = PathBuf::from(target_dir);
         if password.is_some() {
             let pw = password.unwrap();
@@ -477,6 +478,8 @@ impl VaultSession {
         linked_totp_id: Option<&str>,
         group_id: Option<&str>,
         website_rules: Option<&[credpivot_core::UriRule]>,
+        linked_mfa_ids: Option<&[String]>,
+        password_active_since_ms: Option<i64>,
     ) -> Result<credpivot_core::LoginListRow> {
         let db = self
             .db
@@ -491,6 +494,8 @@ impl VaultSession {
             linked_totp_id,
             group_id,
             website_rules,
+            linked_mfa_ids,
+            password_active_since_ms,
         )
         .map_err(|e| AgentError::Vault(e.to_string()))
     }
@@ -518,12 +523,12 @@ impl VaultSession {
         self.db.as_ref().is_some_and(|db| credpivot_core::credential_matches_origin(db.conn(), credential_id, origin).unwrap_or(false))
     }
 
-    pub fn list_credentials(&self, query: Option<&str>, limit: u32) -> Result<Vec<credpivot_core::LoginListRow>> {
+    pub fn list_credentials(&self, query: Option<&str>, limit: u32, offset: u32) -> Result<Vec<credpivot_core::LoginListRow>> {
         let db = self
             .db
             .as_ref()
             .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
-        db.list_logins(query, limit).map_err(|e| AgentError::Vault(e.to_string()))
+        db.list_logins_page(query, limit, offset).map_err(|e| AgentError::Vault(e.to_string()))
     }
 
     pub fn update_credential(
@@ -538,12 +543,13 @@ impl VaultSession {
         group_id: Option<&str>,
         password: Option<&str>,
         website_rules: Option<&[credpivot_core::UriRule]>,
+        linked_mfa_ids: Option<&[String]>,
     ) -> Result<credpivot_core::LoginListRow> {
         let db = self
             .db
             .as_ref()
             .ok_or_else(|| AgentError::Vault("database not attached".into()))?;
-        db.update_login(
+        db.update_login_with_mfa(
             credential_id,
             expected_revision,
             origin,
@@ -554,6 +560,7 @@ impl VaultSession {
             group_id,
             password,
             website_rules,
+            linked_mfa_ids,
         )
             .map_err(|e| match e {
                 credpivot_core::CoreError::Conflict => AgentError::Vault("revision conflict".into()),
@@ -619,9 +626,10 @@ impl VaultSession {
         account: &str,
         secret_base32: &str,
         group_id: Option<&str>,
+        website_rules: &[credpivot_core::UriRule],
     ) -> Result<credpivot_core::TotpListRow> {
         let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
-        db.add_totp(issuer, account, secret_base32, group_id)
+        db.add_totp_with_rules(issuer, account, secret_base32, group_id, website_rules)
             .map_err(|e| AgentError::Vault(e.to_string()))
     }
 
@@ -773,26 +781,48 @@ impl VaultSession {
             })
     }
 
-    pub fn list_restore_points(&self) -> Result<Vec<credpivot_core::RestorePointInfo>> {
-        list_restore_points(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))
+    pub fn list_restore_points(&self) -> Result<Vec<serde_json::Value>> {
+        let vmk = self.vmk.as_ref().ok_or_else(|| AgentError::Vault("vmk not available".into()))?;
+        let points = list_restore_points(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
+        Ok(points.into_iter().map(|point| {
+            let same_generation = read_vault_json(&point.path)
+                .and_then(|cfg| cfg.verify_mac(&**vmk)).is_ok();
+            serde_json::json!({"created_at_ms":point.created_at_ms,"path":point.path,"requires_password":!same_generation})
+        }).collect())
     }
 
-    pub fn recover_restore_point(&self, created_at_ms: i64, target_dir: &str) -> Result<()> {
+    pub fn recover_restore_point(&self, created_at_ms: i64, target_dir: &str, password: Option<&str>) -> Result<()> {
         let vmk = self.vmk.as_ref().ok_or_else(|| AgentError::Vault("vmk not available".into()))?;
         let point = self
             .vault_dir
             .join(credpivot_core::RESTORE_POINTS_DIR)
             .join(created_at_ms.to_string());
         let current_json = self.vault_dir.join("vault.json");
+        let point_cfg = read_vault_json(&point).map_err(|e| AgentError::Vault(e.to_string()))?;
+        let current_cfg = read_vault_json(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
+        if point_cfg.vault_id != current_cfg.vault_id {
+            return Err(AgentError::Vault("恢复点不属于当前保险库".into()));
+        }
+        let same_generation = point_cfg.verify_mac(&**vmk).is_ok();
+        // 安全重建前的恢复点使用旧 VMK，必须用该副本自身的主密码槽解锁。
+        let old_vmk = if same_generation { None } else {
+            let password = password.ok_or_else(|| AgentError::Vault("此恢复点需要创建时的主密码".into()))?;
+            let key = point_cfg.unlock_master(password).map_err(|_| AgentError::Vault("恢复点主密码不正确或副本损坏".into()))?;
+            point_cfg.verify_mac(&*key).map_err(|e| AgentError::Vault(e.to_string()))?;
+            Some(key)
+        };
         recover_restore_point_to_dir(
             &point,
             Path::new(target_dir),
-            vmk,
-            Some(current_json.as_path()),
+            old_vmk.as_ref().unwrap_or(vmk),
+            if same_generation { Some(current_json.as_path()) } else { None },
         )
             .map_err(|e| AgentError::Vault(e.to_string()))?;
-        if let Some(db) = self.db.as_ref() {
-            let _ = mark_local_restore_verified(db.conn());
+        // 旧代际可恢复，不能证明当前代际的备份已验证。
+        if same_generation {
+            if let Some(db) = self.db.as_ref() {
+                let _ = mark_local_restore_verified(db.conn());
+            }
         }
         Ok(())
     }
@@ -843,17 +873,19 @@ impl VaultSession {
                 return Err(AgentError::Vault(e.to_string()));
             }
         };
-        let cfg = read_vault_json(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
-        let vmk = cfg
-            .unlock_master(password)
-            .map_err(|e| AgentError::Vault(e.to_string()))?;
-        cfg.verify_mac(&*vmk).map_err(|e| AgentError::Vault(e.to_string()))?;
-        self.vmk = Some(vmk);
-        if let Err(e) = self.attach_database() {
+        // 工作库已切换，此后即使会话重建失败，也必须把新恢复密钥交付给用户。
+        let refresh: Result<()> = (|| {
+            let cfg = read_vault_json(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
+            let vmk = cfg.unlock_master(password).map_err(|e| AgentError::Vault(e.to_string()))?;
+            cfg.verify_mac(&*vmk).map_err(|e| AgentError::Vault(e.to_string()))?;
+            self.vmk = Some(vmk);
+            self.attach_database()?;
+            self.record_master_verification()
+        })();
+        if refresh.is_err() {
             self.lock();
-            return Err(e);
+            crate::diagnostics::error("vault_security_rebuild", "vault rebuilt but session refresh failed");
         }
-        self.record_master_verification()?;
         Ok(new_recovery)
     }
 
@@ -882,9 +914,14 @@ impl VaultSession {
     }
 
     pub fn verify_ovb_file(&self, ovb_path: &str, password: &str) -> Result<()> {
-        let data = std::fs::read(ovb_path).map_err(AgentError::from)?;
+        let data = credpivot_core::read_ovb_file(Path::new(ovb_path))
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
         let (header, aad, ciphertext) =
             parse_ovb_with_aad(&data).map_err(|e| AgentError::Vault(e.to_string()))?;
+        let cfg = read_vault_json(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
+        if header.vault_id.to_string() != cfg.vault_id {
+            return Err(AgentError::Vault("备份不属于当前保险库，未更新验证记录".into()));
+        }
         let slot = header
             .slots
             .iter()
@@ -897,6 +934,9 @@ impl VaultSession {
                 password.as_bytes(),
             )
             .map_err(|_| AgentError::Vault("invalid ovb password".into()))?;
+        if self.vmk.as_deref() != Some(&*_vmk) {
+            return Err(AgentError::Vault("备份属于旧密钥代际，请为当前保险库重新导出备份".into()));
+        }
         let _plain = credpivot_core::decrypt_snapshot(&_vmk, &header, &aad, &ciphertext)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         if let Some(db) = self.db.as_ref() {

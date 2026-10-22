@@ -30,6 +30,8 @@ pub enum AgentRequest {
     VerifyMasterPassword { password: String },
     SensitiveAuthGrant,
     CredentialSave {
+        #[serde(default)]
+        password_active_since_ms: Option<i64>,
         request_id: String,
         origin: String,
         username: String,
@@ -44,9 +46,12 @@ pub enum AgentRequest {
         group_id: Option<String>,
         #[serde(default)]
         website_rules: Option<Vec<credpivot_core::UriRule>>,
+        #[serde(default)]
+        linked_mfa_ids: Option<Vec<String>>,
     },
     BrowserCredentialUpdate { credential_id: String, expected_revision: String, origin: String, username: String, password: String },
-    BrowserTotpCode { credential_id: String, origin: String },
+    BrowserTotpCode { #[serde(default)] credential_id: String, origin: String, #[serde(default)] totp_id: String },
+    BrowserMfaSuggest { origin: String, #[serde(default)] credential_id: String, #[serde(default)] include_other_matches: bool },
     CredentialSuggest {
         origin: String,
     },
@@ -69,6 +74,8 @@ pub enum AgentRequest {
     CredentialList {
         query: Option<String>,
         limit: Option<u32>,
+        #[serde(default)]
+        offset: u32,
     },
     CredentialGet { credential_id: String },
     CredentialUpdate {
@@ -87,6 +94,8 @@ pub enum AgentRequest {
         password: Option<String>,
         #[serde(default)]
         website_rules: Option<Vec<credpivot_core::UriRule>>,
+        #[serde(default)]
+        linked_mfa_ids: Option<Vec<String>>,
     },
     CredentialTrash { item_id: String },
     VaultManage { action: credpivot_core::VaultAction },
@@ -94,6 +103,8 @@ pub enum AgentRequest {
     ImportBitwarden { json: String },
     TotpList,
     TotpCreate {
+        #[serde(default)]
+        website_rules: Vec<credpivot_core::UriRule>,
         issuer: String,
         account: String,
         secret_base32: String,
@@ -202,6 +213,7 @@ pub enum AgentRequest {
     RestorePointRecover {
         created_at_ms: i64,
         target_dir: String,
+        password: Option<String>,
     },
     VaultMigrate { target_dir: String },
     VaultSecurityRebuild {
@@ -242,6 +254,7 @@ impl AgentRequest {
             Self::SensitiveAuthGrant => "sensitive_auth_grant",
             Self::CredentialSave { .. } => "credential_save",
             Self::BrowserCredentialUpdate { .. } => "browser_credential_update",
+            Self::BrowserMfaSuggest { .. } => "browser_mfa_suggest",
             Self::BrowserTotpCode { .. } => "browser_totp_code",
             Self::CredentialSuggest { .. } => "credential_suggest",
             Self::CredentialFillPrepare { .. } => "credential_fill_prepare",

@@ -7,12 +7,13 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'agent_bridge.dart';
 import 'vault_tools.dart';
 import 'website_rules_editor.dart';
+import 'mfa_bindings_editor.dart';
+import 'totp_editor.dart';
 import 'app_ui.dart';
 import 'credential_confirm.dart';
 import 'credential_group_ui.dart';
 import 'credential_list_tile.dart';
 import 'linked_refs.dart';
-import 'credential_otpauth.dart';
 import 'server_login_page.dart';
 import 'touch_id_gate.dart';
 
@@ -174,11 +175,14 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
       setState(() => _status = AgentBridge.friendlyMessage(e));
       return;
     }
-    List<Map<String, dynamic>> websiteRules = [{'uri': '', 'match_mode': 'exact_origin'}];
+    List<Map<String, dynamic>> websiteRules = [newWebsiteRule()];
+    List<String> linkedMfaIds = [];
+    var passwordActiveSince = DateTime.now().millisecondsSinceEpoch;
     if (isEdit) {
       try {
         final result = await AgentBridge.manage({'action': 'login_website_rules', 'credential_id': existing!['id']});
         websiteRules = (result['rules'] as List).map((row) => Map<String, dynamic>.from(row as Map)).toList();
+        linkedMfaIds = (result['linked_mfa_ids'] as List? ?? []).cast<String>();
       } on AgentException catch (e) {
         if (mounted) setState(() => _status = e.message);
         return;
@@ -186,18 +190,23 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
     }
     if (!mounted) return;
     var validating = false;
+    var closing = false;
     var formError = '';
+    ModalRoute<bool>? dialogRoute;
     final nameCtl = TextEditingController(text: existing?['display_name']?.toString() ?? '');
     final userCtl = TextEditingController(text: existing?['username']?.toString() ?? '');
     final passCtl = TextEditingController();
     final rawGroupId = existing?['group_id'] as String?;
     var groupId = dropdownValueIfPresent(rawGroupId, _groups);
     final rawTotp = existing?['linked_totp_id'] as String?;
-    var linkedTotp = dropdownValueIfPresent(rawTotp, totps);
+    final linkedTotp = dropdownValueIfPresent(rawTotp, totps);
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) => AlertDialog(
+      barrierDismissible: false,
+      builder: (ctx) {
+        dialogRoute ??= ModalRoute.of<bool>(ctx);
+        return StatefulBuilder(
+        builder: (ctx, setLocal) => PopScope(canPop: !validating, child: AlertDialog(
         title: LText(isEdit ? '编辑登录' : '添加登录'),
         content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(
           child: Column(
@@ -205,6 +214,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
             children: appFormFields([
               TextField(
                 controller: nameCtl,
+                enabled: !validating,
                 decoration: InputDecoration(labelText: tr('名称'), hintText: tr('例如：公司 VPN 账号')),
               ),
               DropdownButtonFormField<String?>(
@@ -224,115 +234,107 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                     ),
                   ),
                 ],
-                onChanged: (v) => setLocal(() => groupId = v),
+                onChanged: validating ? null : (v) => setLocal(() => groupId = v),
               ),
-              TextField(controller: userCtl, decoration: InputDecoration(labelText: tr('用户名'))),
+              TextField(enabled: !validating, controller: userCtl, decoration: InputDecoration(labelText: tr('用户名'))),
               TextField(
                 controller: passCtl,
+                enabled: !validating,
                 obscureText: true,
                 decoration: InputDecoration(
                   labelText: tr(isEdit ? '候选密码（留空则不修改）' : '密码'),
                   helperText: isEdit ? tr('确认在网站应用后，从「候选与历史」启用') : null,
-                  suffixIcon: IconButton(tooltip: tr('生成密码'), icon: const Icon(Icons.auto_awesome), onPressed: () async {
-                    final generated = await generatePasswordDialog(context); if (generated != null) passCtl.text = generated;
+                  suffixIcon: IconButton(tooltip: tr('生成密码'), icon: const Icon(Icons.auto_awesome), onPressed: validating ? null : () async {
+                    final generated = await generatePasswordDialog(ctx);
+                    if (ctx.mounted && !closing && generated != null) passCtl.text = generated;
                   }),
                 ),
               ),
-              DropdownButtonFormField<String?>(
-                isExpanded: true,
-                value: linkedTotp,
-                decoration: InputDecoration(
-                  labelText: tr('关联 MFA / TOTP'),
-                  helperText: tr('浏览器扩展「填充 MFA」需要在此关联'),
-                ),
-                items: [
-                  const DropdownMenuItem(value: null, child: LText('（不关联）')),
-                  ...totps.map(
-                    (t) => DropdownMenuItem(
-                      value: t['id'] as String,
-                      child: LText(
-                        '${t['issuer']} : ${t['account']}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                ],
-                onChanged: (v) => setLocal(() => linkedTotp = v),
-              ),
+              if (!isEdit) PasswordActiveDateField(value: passwordActiveSince, enabled: !validating,
+                onChanged: (v) => setLocal(() => passwordActiveSince = v)),
               WebsiteRulesEditor(rules: websiteRules, enabled: !validating),
+              MfaBindingsEditor(linkedIds: linkedMfaIds, mfas: totps, enabled: !validating,
+                onEdit: (mfa) async {
+                  if (validating || closing) return;
+                  setLocal(() => validating = true);
+                  try {
+                    if (await showTotpEditor(ctx, existing: mfa)) {
+                      final updated = await AgentBridge.listTotp();
+                      if (ctx.mounted) setLocal(() => totps = updated);
+                    }
+                  } finally {
+                    if (ctx.mounted && !closing) setLocal(() => validating = false);
+                  }
+                }),
               if (formError.isNotEmpty) Text(formError, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
             ]),
           ),
         )),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
-          FilledButton(onPressed: validating ? null : () async {
+          TextButton(onPressed: validating || closing ? null : () {
+            closing = true;
+            Navigator.pop(ctx, false);
+          }, child: const LText('取消')),
+          FilledButton(onPressed: validating || closing ? null : () async {
+            if (validating || closing) return;
             setLocal(() { validating = true; formError = ''; });
             try {
-              final error = await websiteRulesError(websiteRules);
+              final validationError = await websiteRulesError(websiteRules);
               if (!ctx.mounted) return;
-              if (error == null) { Navigator.pop(ctx, true); return; }
-              setLocal(() => formError = error);
-            } catch (_) {
-              if (ctx.mounted) setLocal(() => formError = '网站规则校验失败，请重试');
+              if (validationError == null) {
+                if (isEdit && !await requireTouchId(ctx, reason: '保存登录凭据与 MFA 关联修改')) return;
+                final origin = websiteRules.first['uri'].toString().trim();
+                final user = userCtl.text.trim();
+                final displayName = nameCtl.text.trim();
+                if (isEdit) {
+                  await AgentBridge.updateLogin(
+                    credentialId: existing!['id'] as String,
+                    expectedRevision: existing['current_revision'] as String,
+                    origin: origin,
+                    websiteRules: websiteRules,
+                    linkedMfaIds: linkedMfaIds,
+                    username: user,
+                    displayName: displayName,
+                    groupId: groupId,
+                    connectionHost: existing['connection_host']?.toString() ?? '',
+                    linkedTotpId: linkedTotp,
+                    password: passCtl.text.isEmpty ? null : passCtl.text,
+                  );
+                } else {
+                  await AgentBridge.createLogin(
+                    origin: origin,
+                    websiteRules: websiteRules,
+                    linkedMfaIds: linkedMfaIds,
+                    username: user,
+                    password: passCtl.text,
+                    passwordActiveSinceMs: passwordActiveSince,
+                    displayName: displayName,
+                    groupId: groupId,
+                    linkedTotpId: linkedTotp,
+                  );
+                }
+                if (ctx.mounted && !closing) {
+                  closing = true;
+                  Navigator.pop(ctx, true);
+                }
+                return;
+              }
+              setLocal(() => formError = validationError);
+            } catch (e) {
+              if (ctx.mounted && !closing) setLocal(() => formError = e is AgentException ? e.message : '保存失败，请重试');
             } finally {
-              if (ctx.mounted) setLocal(() => validating = false);
+              if (ctx.mounted && !closing) setLocal(() => validating = false);
             }
-          }, child: LText(validating ? '校验中…' : '保存')),
+          }, child: LText(validating ? '保存中…' : '保存')),
         ],
-      ),
-      ),
+      )),
+        );
+      },
     );
-    if (ok != true) {
-      for (final controller in [nameCtl, userCtl, passCtl]) { controller.dispose(); }
-      return;
-    }
-    if (isEdit) {
-      if (!await requireTouchId(context, reason: '保存登录凭据修改')) {
-        for (final controller in [nameCtl, userCtl, passCtl]) { controller.dispose(); }
-        return;
-      }
-    }
-    if (staleLinkWasCleared(rawTotp, linkedTotp) && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: LText('关联的 MFA 已删除，保存后将清除该关联。')),
-      );
-    }
-    try {
-      final origin = websiteRules.first['uri'].toString().trim();
-      final user = userCtl.text.trim();
-      final displayName = nameCtl.text.trim();
-      if (isEdit) {
-        await AgentBridge.updateLogin(
-          credentialId: existing!['id'] as String,
-          expectedRevision: existing['current_revision'] as String,
-          origin: origin,
-          websiteRules: websiteRules,
-          username: user,
-          displayName: displayName,
-          groupId: groupId,
-          connectionHost: existing['connection_host']?.toString() ?? '',
-          linkedTotpId: linkedTotp,
-          password: passCtl.text.isEmpty ? null : passCtl.text,
-        );
-      } else {
-        await AgentBridge.createLogin(
-          origin: origin,
-          websiteRules: websiteRules,
-          username: user,
-          password: passCtl.text,
-          displayName: displayName,
-          groupId: groupId,
-          linkedTotpId: linkedTotp,
-        );
-      }
-      await _refresh();
-    } on AgentException catch (e) {
-      if (mounted) setState(() => _status = e.message);
-    } finally {
-      for (final controller in [nameCtl, userCtl, passCtl]) { controller.dispose(); }
-    }
+    // pop 的结果早于退出动画；待路由移除后再释放仍被输入框使用的控制器。
+    await dialogRoute?.completed;
+    for (final controller in [nameCtl, userCtl, passCtl]) { controller.dispose(); }
+    if (ok == true && mounted) await _refresh();
   }
 
   Future<void> _copyPassword(String id) async {
@@ -425,7 +427,8 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                   fields: {
                     '网站': _selected!['origin']?.toString() ?? '',
                     '用户名': _selected!['username']?.toString() ?? '',
-                    '密码': '••••••••'
+                    '密码': '••••••••',
+                    '密码启用时间': vaultDate(_selected!['password_active_since_ms'])
                   },
                 ),
           actions: _selected == null
@@ -456,10 +459,6 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                         title: '密码维护',
                         children: [
                           OutlinedButton(onPressed: () async { await showPasswordVersions(context, _selected!); if (mounted) await _refresh(); }, child: const LText('候选与历史')),
-                          OutlinedButton(onPressed: () async {
-                            if (!await confirmVaultAction(context, '确认密码当前正在使用？', '将当前时间记录为启用时间；仅在确认此密码当前已生效时操作。')) return;
-                            try { await vaultAction(context, {'action':'mark_password_active','credential_id':_selected!['id'],'expected_revision':_selected!['current_revision']}, confirmed: true); await _refresh(); } catch(e) { vaultMessage(context,e); }
-                          }, child: const LText('确认启用时间')),
                         ],
                       ),
                       CredentialActionSection(
@@ -469,7 +468,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                             onPressed: () => _addOrEdit(existing: _selected),
                             child: const LText('编辑'),
                           ),
-                          OutlinedButton(onPressed: () async { await editItemDetails(context, _selected!); if (mounted) await _refresh(); }, child: const LText('备注与策略')),
+                          OutlinedButton(onPressed: () async { await editItemDetails(context, _selected!); if (mounted) await _refresh(); }, child: const LText('详细资料')),
                         ],
                       ),
                       CredentialActionSection(
@@ -540,130 +539,8 @@ class _TotpPanelState extends State<_TotpPanel> {
     }
   }
 
-  void _applyOtpauthUri(
-    String input,
-    TextEditingController issuerCtl,
-    TextEditingController accountCtl,
-    TextEditingController secretCtl,
-  ) {
-    final parsed = parseOtpauthUri(input);
-    if (parsed == null) return;
-    if (parsed.secret.isNotEmpty) secretCtl.text = parsed.secret;
-    if (parsed.issuer.isNotEmpty) issuerCtl.text = parsed.issuer;
-    if (parsed.account.isNotEmpty) accountCtl.text = parsed.account;
-  }
-
   Future<void> _addTotp() async {
-    final issuerCtl = TextEditingController();
-    final accountCtl = TextEditingController();
-    final secretCtl = TextEditingController();
-    final uriCtl = TextEditingController();
-    var groupId = dropdownValueIfPresent(_filterGroupId, _groups);
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) => AlertDialog(
-        title: const LText('添加 MFA / TOTP'),
-        content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: appFormFields([
-              DropdownButtonFormField<String?>(
-                isExpanded: true,
-                value: groupId,
-                decoration: InputDecoration(labelText: tr('分组')),
-                items: [
-                  const DropdownMenuItem(value: null, child: LText('（未分组）')),
-                  ..._groups.map(
-                    (g) => DropdownMenuItem(
-                      value: g['id'] as String,
-                      child: Text(
-                        g['name']?.toString() ?? '',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                ],
-                onChanged: (v) => setLocal(() => groupId = v),
-              ),
-              TextButton.icon(onPressed: () async {
-                try { final uris = await AgentBridge.scanQrImage();
-                  if (!ctx.mounted) return;
-                  if (uris.isEmpty) { vaultMessage(context, AgentException('qr','图片中没有找到 TOTP 二维码')); return; }
-                  String? selected = uris.first;
-                  if (uris.length > 1) { selected = await showDialog<String>(context: ctx, builder:(c)=>SimpleDialog(title: const LText('选择二维码'), children:[for(var n=0;n<uris.length;n++) SimpleDialogOption(onPressed:()=>Navigator.pop(c,uris[n]),child:LText('TOTP 二维码 ${n+1}'))])); }
-                  if (selected != null) { uriCtl.text = selected; _applyOtpauthUri(selected, issuerCtl, accountCtl, secretCtl); }
-                } catch(e) { vaultMessage(context,e); }
-              }, icon: const Icon(Icons.qr_code_scanner), label: const LText('从二维码图片导入')),
-              TextField(
-                controller: uriCtl,
-                decoration: InputDecoration(
-                  labelText: tr('otpauth URI（可选）'),
-                  hintText: 'otpauth://totp/...',
-                ),
-                onChanged: (v) => _applyOtpauthUri(v, issuerCtl, accountCtl, secretCtl),
-              ),
-              TextField(controller: issuerCtl, decoration: InputDecoration(labelText: tr('发行方 Issuer'))),
-              TextField(controller: accountCtl, decoration: InputDecoration(labelText: tr('账号'))),
-              TextField(
-                controller: secretCtl,
-                decoration: InputDecoration(labelText: tr('密钥 Base32')),
-                onChanged: (value) {
-                  if (value.trim().toLowerCase().startsWith('otpauth://')) {
-                    uriCtl.text = value.trim();
-                    _applyOtpauthUri(value.trim(), issuerCtl, accountCtl, secretCtl);
-                    return;
-                  }
-                  final uri = Uri.tryParse(uriCtl.text.trim());
-                  if (uri?.scheme == 'otpauth') {
-                    uriCtl.text = uri!.replace(queryParameters: {...uri.queryParameters, 'secret': value.trim()}).toString();
-                  }
-                },
-              ),
-            ]),
-          ),
-        )),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('保存')),
-        ],
-      ),
-      ),
-    );
-    if (ok != true) return;
-    final rawSecret = secretCtl.text.trim();
-    if (rawSecret.toLowerCase().startsWith('otpauth://')) {
-      _applyOtpauthUri(rawSecret, issuerCtl, accountCtl, secretCtl);
-    }
-    if (uriCtl.text.trim().toLowerCase().startsWith('otpauth://')) {
-      _applyOtpauthUri(uriCtl.text.trim(), issuerCtl, accountCtl, secretCtl);
-    }
-    final uriInput = uriCtl.text.trim();
-    final secret = secretCtl.text.trim();
-    final storageInput =
-        uriInput.toLowerCase().startsWith('otpauth://') ? uriInput : secret;
-    final localErr = validateTotpSecretInput(storageInput);
-    if (localErr != null) {
-      setState(() => _status = localErr);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(localErr)));
-      }
-      return;
-    }
-    try {
-      await AgentBridge.createTotp(
-        issuer: issuerCtl.text.trim().isEmpty ? 'CredPivot' : issuerCtl.text.trim(),
-        account: accountCtl.text.trim(),
-        secretBase32: storageInput,
-        groupId: groupId,
-      );
-      await _refresh();
-    } on AgentException catch (e) {
-      final msg = AgentBridge.friendlyMessage(e);
-      setState(() => _status = msg);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-    }
+    if (await showTotpEditor(context, groups: _groups) && mounted) await _refresh();
   }
 
   Future<void> _copyCode(String id) => copyTotpCode(context, id);
@@ -828,7 +705,7 @@ class _TotpPanelState extends State<_TotpPanel> {
                           selected: selected,
                           icon: Icons.pin_outlined,
                           title: Text(row['issuer']?.toString() ?? 'TOTP'),
-                          subtitle: Text(row['account']?.toString() ?? ''),
+                          subtitle: Text('${row['account'] ?? ''}${(row['pending_rule_count'] as num? ?? 0) > 0 ? ' · 网站范围待确认' : ''}'),
                           onTap: () => setState(() {
                             _selected = row;
                             _liveCode = null;
@@ -1176,7 +1053,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                       CredentialActionSection(
                         title: '资料管理',
                         children: [
-                          OutlinedButton(onPressed: () => editItemDetails(context, _selected!), child: const LText('备注与关联')),
+                          OutlinedButton(onPressed: () => editItemDetails(context, _selected!), child: const LText('详细资料')),
                           OutlinedButton(
                             onPressed: () {
                               final itemId = _selected!['item_id'] as String?;
@@ -1309,12 +1186,36 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
   }
 
   Future<void> _recoverPoint(Map<String, dynamic> point) async {
-    if (!await requireTouchId(context, reason: '从恢复点恢复保险库')) return;
+    String? password;
+    if (point['requires_password'] == true) {
+      final controller = TextEditingController();
+      password = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const LText('解锁旧恢复点'),
+          content: SizedBox(width: appEditDialogWidth(ctx), child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: appFormFields([
+              const LText('此恢复点来自安全重建前，需要输入创建时的主密码。恢复后请使用该密码解锁。'),
+              TextField(controller: controller, obscureText: true, autofocus: true,
+                decoration: InputDecoration(labelText: tr('恢复点的主密码'))),
+            ]),
+          )),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('取消')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const LText('继续')),
+          ],
+        ),
+      );
+      controller.dispose();
+      if (password == null || !mounted) return;
+    }
     final target = await AgentBridge.pickDirectory();
-    if (target == null) return;
+    if (target == null || !mounted) return;
+    if (!await requireTouchId(context, reason: '从恢复点恢复保险库')) return;
     final ts = point['created_at_ms'] as int? ?? 0;
     try {
-      await AgentBridge.recoverRestorePoint(ts, target);
+      await AgentBridge.recoverRestorePoint(ts, target, password: password);
       await AgentBridge.lockVault();
       await AgentBridge.vaultOpenDir(target);
       widget.onVaultSwitched?.call();
@@ -1340,10 +1241,11 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
   Future<void> _securityRebuild() async {
     if (!await requireTouchId(context, reason: '安全重建保险库')) return;
     try {
-      final newKey = await AgentBridge.securityRebuild(_rebuildPassword.text, _recoveryKey.text.trim());
-      _recoveryKey.text = newKey;
-      setState(() => _log = '安全重建完成。请保存新的恢复密钥。');
-      await _loadAll();
+      final result = await AgentBridge.securityRebuild(_rebuildPassword.text, _recoveryKey.text.trim());
+      _recoveryKey.text = result['new_recovery_key'] as String;
+      final warning = result['warning'] as String?;
+      setState(() => _log = warning ?? '安全重建完成。请保存新的恢复密钥。');
+      if (warning == null) await _loadAll();
     } on AgentException catch (e) {
       setState(() => _log = AgentBridge.diagnosticMessage(e));
     }

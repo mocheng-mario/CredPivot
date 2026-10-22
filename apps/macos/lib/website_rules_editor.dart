@@ -1,9 +1,15 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'agent_bridge.dart';
 import 'app_ui.dart';
 
-Future<String?> websiteRulesError(List<Map<String, dynamic>> rules) async {
-  if (rules.isEmpty) return '请至少添加一条网站规则；如需停止填充，可将规则设为停用。';
+Map<String, dynamic> newWebsiteRule([String uri = '']) => {
+  'id': List.generate(16, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join(),
+  'uri': uri, 'match_mode': 'exact_origin',
+};
+
+Future<String?> websiteRulesError(List<Map<String, dynamic>> rules, {bool allowEmpty = false}) async {
+  if (rules.isEmpty && !allowEmpty) return '请至少添加一条网站规则；如需停止填充，可将规则设为停用。';
   try {
     await AgentBridge.manage({'action': 'website_rules_test', 'rules': rules});
     return null;
@@ -14,9 +20,11 @@ Future<String?> websiteRulesError(List<Map<String, dynamic>> rules) async {
 
 /// 编辑与测试共用 Agent 的匹配器，不在 Dart 中另写一套正则规则。
 class WebsiteRulesEditor extends StatefulWidget {
-  const WebsiteRulesEditor({super.key, required this.rules, this.enabled = true});
+  const WebsiteRulesEditor({super.key, required this.rules, this.enabled = true, this.onChanged, this.onRemove});
   final List<Map<String, dynamic>> rules;
   final bool enabled;
+  final VoidCallback? onChanged;
+  final Future<bool> Function(String)? onRemove;
   @override
   State<WebsiteRulesEditor> createState() => _WebsiteRulesEditorState();
 }
@@ -41,6 +49,7 @@ class _WebsiteRulesEditorState extends State<WebsiteRulesEditor> {
   void changed() {
     revision++;
     setState(() { result = null; error = ''; });
+    widget.onChanged?.call();
   }
 
   Future<void> test() async {
@@ -88,7 +97,12 @@ class _WebsiteRulesEditorState extends State<WebsiteRulesEditor> {
                 ],
                 onChanged: !widget.enabled ? null : (value) { widget.rules[index]['match_mode'] = value; changed(); },
               )),
-              IconButton(tooltip: tr('删除网站'), onPressed: !widget.enabled ? null : () { widget.rules.removeAt(index); changed(); }, icon: const Icon(Icons.close)),
+              IconButton(tooltip: tr('删除网站'), onPressed: !widget.enabled ? null : () async {
+                final rule = widget.rules[index];
+                if (widget.onRemove != null && !await widget.onRemove!(rule['id'].toString())) return;
+                if (!mounted) return;
+                widget.rules.remove(rule); changed();
+              }, icon: const Icon(Icons.close)),
             ]),
             const SizedBox(height: 12),
             TextFormField(
@@ -110,7 +124,7 @@ class _WebsiteRulesEditorState extends State<WebsiteRulesEditor> {
         ),
       ],
       Align(alignment: Alignment.centerLeft, child: TextButton.icon(
-        onPressed: !widget.enabled || widget.rules.length >= 100 ? null : () { widget.rules.add({'uri': '', 'match_mode': 'exact_origin'}); changed(); },
+        onPressed: !widget.enabled || widget.rules.length >= 100 ? null : () { widget.rules.add(newWebsiteRule()); changed(); },
         icon: const Icon(Icons.add), label: const LText('添加网站'),
       )),
       const SizedBox(height: 12),

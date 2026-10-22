@@ -33,7 +33,7 @@ async function rememberSelectedAccount(tabId, origin, credentialId) {
 chrome.tabs.onRemoved.addListener((tabId) => {
   (async () => {
     const stored = await chrome.storage.session.get(null);
-    const keys = Object.keys(stored).filter((key) => key.startsWith(`selected_account:${tabId}:`));
+    const keys = Object.keys(stored).filter((key) => key.startsWith(`selected_account:${tabId}:`) || key.startsWith(`selected_mfa:${tabId}:`));
     if (keys.length) await chrome.storage.session.remove(keys);
   })().catch(() => {});
 });
@@ -182,6 +182,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return;
       }
       connectNativeIfNeeded();
+      if (msg.type === "suggest_mfas" || msg.type === "select_mfa") {
+        const origin = await originFromSender(sender, msg);
+        if (!origin) { sendResponse({ok:false,message:"无法确定页面来源"}); return; }
+        const credentialId = typeof msg.credential_id === "string" ? msg.credential_id : "";
+        const key = `selected_mfa:${msg.tab_id}:${origin}:${credentialId}`;
+        const stored = await chrome.storage.session.get(key);
+        const remembered = stored[key];
+        const request = {action:"mfa.suggest_for_origin",origin,credential_id:credentialId,
+          include_other_matches: msg.type === "select_mfa" || msg.include_other_matches === true};
+        let resp = await sendNative({...request});
+        // 用户曾手动选过次级/独立匹配时，重新检查全部规则后再恢复选择。
+        if (resp?.ok && remembered && !request.include_other_matches &&
+            !(resp.payload?.candidates ?? []).some((row) => row.id === remembered)) {
+          resp = await sendNative({...request, include_other_matches:true});
+        }
+        if (resp?.ok) {
+          const candidates = resp.payload?.candidates ?? [];
+          if (msg.type === "select_mfa") {
+            if (!candidates.some((row) => row.id === msg.totp_id)) { sendResponse({ok:false,message:"MFA 已不适用于当前网站"}); return; }
+            await chrome.storage.session.set({[key]:msg.totp_id});
+          } else {
+            const valid = candidates.some((row) => row.id === remembered);
+            resp.payload = {...resp.payload,selected_totp_id:valid ? remembered : null};
+            if (remembered && !valid) await chrome.storage.session.remove(key);
+          }
+        }
+        sendResponse(resp); return;
+      }
       if (msg.type === "suggest_credentials") {
         const origin = await originFromSender(sender, msg);
         if (!origin) {
@@ -277,10 +305,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: false, error: "缺少 tab_id" });
           return;
         }
-        const result = await runFillOtpFromVaultOnTab(tabId, sendNative, msg.credential_id);
+        const result = await runFillOtpFromVaultOnTab(tabId, sendNative, msg.credential_id, msg.totp_id);
         if (result.ok) {
           try {
-            await rememberSelectedAccount(tabId, result.origin, result.credential_id);
+            if (result.credential_id) await rememberSelectedAccount(tabId, result.origin, result.credential_id);
+            await chrome.storage.session.set({[`selected_mfa:${tabId}:${result.origin}:${result.credential_id || ""}`]:result.totp_id});
           } catch (_) {
             result.selection_remembered = false;
           }
