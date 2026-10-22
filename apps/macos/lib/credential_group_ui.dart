@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'agent_bridge.dart';
 import 'app_ui.dart';
 import 'linked_refs.dart';
+import 'credential_confirm.dart';
 
 /// 凭据子模块 scope：login | totp | ssh | server
 Future<List<Map<String, dynamic>>> loadCredentialGroups(String scope) async {
@@ -11,6 +12,7 @@ Future<List<Map<String, dynamic>>> loadCredentialGroups(String scope) async {
 
 Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
   var groups = await loadCredentialGroups(scope);
+  if (!context.mounted) return;
   await showDialog<void>(
     context: context,
     builder: (ctx) => StatefulBuilder(
@@ -30,12 +32,15 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
                       trailing: IconButton(
                         icon: const Icon(Icons.delete_outline),
                         onPressed: () async {
+                          if (!await confirmCredentialDanger(ctx, title: '删除分组',
+                              message: '删除「${g['name']}」？凭据不会删除，将移到未分组。', confirmLabel: '删除分组')) return;
+                          if (!ctx.mounted) return;
                           try {
                             await AgentBridge.deleteCredentialGroup(g['id'] as String);
                             groups = await loadCredentialGroups(scope);
-                            setLocal(() {});
+                            if (ctx.mounted) setLocal(() {});
                           } on AgentException catch (e) {
-                            ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(e.message)));
+                            if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: LText(e.message)));
                           }
                         },
                       ),
@@ -47,25 +52,34 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
           TextButton(
             onPressed: () async {
               final nameCtl = TextEditingController();
-              final ok = await showDialog<bool>(
-                context: ctx,
-                builder: (d) => AlertDialog(
-                  title: const LText('新建分组'),
-                  content: SizedBox(width: appEditDialogWidth(d), child: TextField(controller: nameCtl, decoration: InputDecoration(labelText: tr('分组名称')))),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(d, false), child: const LText('取消')),
-                    FilledButton(onPressed: () => Navigator.pop(d, true), child: const LText('创建')),
-                  ],
-                ),
-              );
-              if (ok != true) return;
+              var busy = false;
+              var error = '';
               try {
-                await AgentBridge.createCredentialGroup(scope, nameCtl.text.trim());
-                groups = await loadCredentialGroups(scope);
-                setLocal(() {});
-              } on AgentException catch (e) {
-                ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(e.message)));
-              }
+                final created = await showDraftDialog<bool>(context: ctx,
+                  hasChanges: () => nameCtl.text.isNotEmpty, isBusy: () => busy,
+                  builder: (d) => StatefulBuilder(builder: (d, update) => AlertDialog(
+                    title: const LText('新建分组'),
+                    content: SizedBox(width: appEditDialogWidth(d), child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      TextField(controller: nameCtl, enabled: !busy, decoration: InputDecoration(labelText: tr('分组名称'))),
+                      if (error.isNotEmpty) LText(error),
+                    ])),
+                    actions: [
+                      TextButton(onPressed: busy ? null : () => Navigator.maybePop(d), child: const LText('取消')),
+                      FilledButton(onPressed: busy ? null : () async {
+                        if (nameCtl.text.trim().isEmpty) { update(() => error = '请输入分组名称'); return; }
+                        update(() => busy = true);
+                        try {
+                          await AgentBridge.createCredentialGroup(scope, nameCtl.text.trim());
+                          if (d.mounted) Navigator.pop(d, true);
+                        } on AgentException catch (e) { if (d.mounted) update(() { error = e.message; busy = false; }); }
+                      }, child: const LText('创建')),
+                    ],
+                  )));
+                if (created == true && ctx.mounted) {
+                  groups = await loadCredentialGroups(scope);
+                  if (ctx.mounted) setLocal(() {});
+                }
+              } finally { nameCtl.dispose(); }
             },
             child: const LText('新建分组'),
           ),
@@ -83,51 +97,36 @@ Future<void> showMoveItemToGroupDialog(
   required String itemId,
   String? currentGroupId,
 }) async {
-  var groups = await loadCredentialGroups(scope);
+  final groups = await loadCredentialGroups(scope);
+  if (!context.mounted) return;
   String? selected = dropdownValueIfPresent(currentGroupId, groups);
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setLocal) => AlertDialog(
-        title: const LText('移到分组'),
-        content: SizedBox(width: appEditDialogWidth(ctx), child: DropdownButtonFormField<String?>(
-          isExpanded: true,
-          value: selected,
+  final initial = selected;
+  var busy = false;
+  var error = '';
+  await showDraftDialog<void>(context: context, hasChanges: () => selected != initial, isBusy: () => busy,
+    builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
+      title: const LText('移到分组'),
+      content: SizedBox(width: appEditDialogWidth(ctx), child: Column(mainAxisSize: MainAxisSize.min, children: [
+        DropdownButtonFormField<String?>(isExpanded: true, value: selected,
           decoration: InputDecoration(labelText: tr('目标分组')),
-          items: [
-            const DropdownMenuItem(value: null, child: LText('（未分组）')),
-            ...groups.map(
-              (g) => DropdownMenuItem(
-                value: g['id'] as String,
-                child: Text(
-                  g['name']?.toString() ?? '',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ),
-          ],
-          onChanged: (v) => setLocal(() => selected = v),
-        )),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('保存')),
-        ],
-      ),
-    ),
-  );
-  if (ok != true) return;
-  try {
-    await AgentBridge.setItemGroup(itemId, selected);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: LText('分组已更新')));
-    }
-  } on AgentException catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    }
-  }
+          items: [const DropdownMenuItem(value: null, child: LText('（未分组）')),
+            for (final group in groups) DropdownMenuItem(value: group['id'] as String, child: Text(group['name'].toString()))],
+          onChanged: busy ? null : (value) => update(() => selected = value)),
+        if (error.isNotEmpty) LText(error),
+      ])),
+      actions: [
+        TextButton(onPressed: busy ? null : () => Navigator.maybePop(ctx), child: const LText('取消')),
+        FilledButton(onPressed: busy ? null : () async {
+          update(() => busy = true);
+          try {
+            await AgentBridge.setItemGroup(itemId, selected);
+            if (ctx.mounted) Navigator.pop(ctx);
+          } on AgentException catch (e) { if (ctx.mounted) update(() { error = e.message; busy = false; }); }
+        }, child: const LText('保存')),
+      ],
+    )));
 }
+
 
 Widget buildGroupFilterBar({
   required List<Map<String, dynamic>> groups,

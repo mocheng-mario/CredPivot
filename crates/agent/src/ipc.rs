@@ -396,22 +396,17 @@ async fn handle_request_inner(
         }
         AgentRequest::ExtensionConnect => {
             let v = st.vault.lock().await;
-            let unlocked = v.unlocked;
             let gate = extension_gate_active(st) && st.extension_gate_session == peer.browser_session;
+            let mut payload = v.vault_status_json();
             drop(v);
             if !gate {
                 if let Some(session) = peer.browser_session { request_extension_gate(st, session); }
-                return AgentResponse::err(
-                    "extension_gate_required",
-                    "请在 CredPivot App 中完成指纹或主密码确认",
-                );
+                return AgentResponse::err("extension_gate_required", "请在 CredPivot App 中完成指纹或主密码确认");
             }
-            AgentResponse::ok(json!({
-                "connected": true,
-                "unlocked": unlocked,
-                "extension_gate_active": gate,
-                "extension_gate_idle_secs": extension_gate_idle_secs(),
-            }))
+            payload["connected"] = json!(true);
+            payload["extension_gate_active"] = json!(gate);
+            payload["extension_gate_idle_secs"] = json!(extension_gate_idle_secs());
+            AgentResponse::ok(payload)
         }
         AgentRequest::ExtensionGateGrant { session_id, ttl_secs } => {
             let session = uuid::Uuid::parse_str(&session_id).ok();

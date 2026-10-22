@@ -280,7 +280,7 @@ class AppSectionHeader extends StatelessWidget {
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             LText(title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 4),
-            Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+            LText(subtitle, style: Theme.of(context).textTheme.bodySmall),
           ]);
           if (constraints.maxWidth < 480) {
             return Column(

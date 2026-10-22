@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app_ui.dart';
+import 'credential_confirm.dart';
 
 import 'agent_bridge.dart';
 
@@ -49,6 +50,17 @@ class _TerminalSettingsDialogState extends State<_TerminalSettingsDialog> {
   late TextEditingController _appPath;
   late TextEditingController _appName;
   String _status = '';
+  bool _busy = false, _confirming = false;
+
+  Future<void> _cancel() async {
+    if (_busy || _confirming) return;
+    _confirming = true;
+    try {
+      final changed = _appPath.text != (widget.initial['path'] ?? '');
+      if (changed && !await confirmDiscardChanges(context)) return;
+      if (mounted) Navigator.pop(context, false);
+    } finally { _confirming = false; }
+  }
 
   @override
   void initState() {
@@ -66,7 +78,7 @@ class _TerminalSettingsDialogState extends State<_TerminalSettingsDialog> {
 
   Future<void> _pickApp() async {
     final picked = await AgentBridge.pickTerminalApplication();
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     setState(() {
       _appPath.text = picked['path']?.toString() ?? '';
       _appName.text = picked['name']?.toString() ?? '';
@@ -75,21 +87,23 @@ class _TerminalSettingsDialogState extends State<_TerminalSettingsDialog> {
   }
 
   Future<void> _save() async {
+    if (_busy) return;
     if (_appPath.text.trim().isEmpty) {
       setState(() => _status = '请先选择终端 .app');
       return;
     }
+    setState(() => _busy = true);
     try {
       await AgentBridge.setTerminalLaunchConfig({'path': _appPath.text.trim()});
       if (mounted) Navigator.pop(context, true);
     } catch (_) {
-      if (mounted) setState(() => _status = '终端配置保存失败，请重试或前往设置页检查配置');
+      if (mounted) setState(() { _busy = false; _status = '终端配置保存失败，请重试或前往设置页检查配置'; });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) _cancel(); }, child: AlertDialog(
       title: const LText('选择终端'),
       content: SizedBox(
         width: appEditDialogWidth(context),
@@ -111,7 +125,7 @@ class _TerminalSettingsDialogState extends State<_TerminalSettingsDialog> {
             ),
             const SizedBox(height: 12),
             FilledButton.icon(
-              onPressed: _pickApp,
+              onPressed: _busy ? null : _pickApp,
               icon: const Icon(Icons.apps, size: 18),
               label: const LText('选择 .app'),
             ),
@@ -126,9 +140,9 @@ class _TerminalSettingsDialogState extends State<_TerminalSettingsDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const LText('取消')),
-        FilledButton(onPressed: _save, child: const LText('保存')),
+        TextButton(onPressed: _busy ? null : _cancel, child: const LText('取消')),
+        FilledButton(onPressed: _busy ? null : _save, child: const LText('保存')),
       ],
-    );
+    ));
   }
 }

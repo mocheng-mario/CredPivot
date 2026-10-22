@@ -6,6 +6,7 @@ import 'touch_id_gate.dart';
 import 'app_ui.dart';
 import 'totp_editor.dart';
 import 'credentials_page.dart' show showLoginEditor;
+import 'server_login_page.dart' show showServerProfileEditor;
 import 'credential_confirm.dart';
 
 Future<Map<String, dynamic>> vaultAction(
@@ -46,7 +47,7 @@ void vaultMessage(BuildContext context, Object error) {
   final text = error is AgentException
       ? (error.code == 'cancelled' ? '已取消' : error.message)
       : '操作失败，请重试';
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: LText(text)));
 }
 
 String vaultDate(dynamic ms) => ms is num && ms > 0
@@ -693,6 +694,7 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
                                       'activation_unknown': '启用时间未知',
                                       'reminder_due': '到期提醒',
                                       'mfa_disabled': 'MFA 未开启',
+                                      'mfa_unknown': '未记录 MFA 信息',
                                       'unused': '超过 180 天未使用'
                                     }[r] ??
                                     r)
@@ -901,111 +903,69 @@ Future<void> importBitwardenWithPreview(BuildContext context) async {
 Future<void> _importBitwardenWithPreview(BuildContext context) async {
   final path = await AgentBridge.pickOpenFile();
   if (path == null || !context.mounted) return;
-  final password = TextEditingController(),
-      namespace = TextEditingController(text: 'personal');
-  final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-              title: const LText('Bitwarden 导入'),
-              content: SizedBox(
-                  width: appEditDialogWidth(ctx),
-                  child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
-                    const LText(
-                        '支持普通 JSON 和 Password protected JSON。来源账户名称用于重复导入识别，请保持一致。'),
-                    TextField(
-                        controller: namespace,
-                        decoration: InputDecoration(labelText: tr('来源账户名称'))),
-                    TextField(
-                        controller: password,
-                        obscureText: true,
-                        decoration:
-                            InputDecoration(labelText: tr('导出密码（普通 JSON 留空）')))
-                  ])))),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: const LText('取消')),
-                FilledButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: const LText('预览差异'))
-              ]));
+  final password = TextEditingController(), namespace = TextEditingController(text: 'personal');
+  var busy = false;
+  var error = '';
   try {
-    if (ok != true || !context.mounted) return;
-    final preview = await vaultAction(context, {
-      'action': 'bitwarden_preview',
-      'path': path,
-      'password': password.text,
-      'namespace': namespace.text
-    });
-    if (!context.mounted) return;
+    final preview = await showDraftDialog<Map<String,dynamic>>(context: context,
+      hasChanges: () => password.text.isNotEmpty || namespace.text != 'personal', isBusy: () => busy,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
+        title: const LText('Bitwarden 导入'),
+        content: SizedBox(width: appEditDialogWidth(ctx), child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
+          const LText('支持普通 JSON 和 Password protected JSON。来源账户名称用于重复导入识别，请保持一致。'),
+          TextField(controller: namespace, enabled: !busy, decoration: InputDecoration(labelText: tr('来源账户名称'))),
+          TextField(controller: password, enabled: !busy, obscureText: true, decoration: InputDecoration(labelText: tr('导出密码（普通 JSON 留空）'))),
+          if (error.isNotEmpty) LText(error),
+        ]))),
+        actions: [
+          TextButton(onPressed: busy ? null : () => Navigator.maybePop(ctx), child: const LText('取消')),
+          FilledButton(onPressed: busy ? null : () async {
+            update(() { busy = true; error = ''; });
+            try {
+              final value = await vaultAction(ctx, {'action':'bitwarden_preview','path':path,'password':password.text,'namespace':namespace.text});
+              if (ctx.mounted) Navigator.pop(ctx,value);
+            } catch (e) { if (ctx.mounted) update(() { error = e is AgentException ? e.message : '预览失败，请重试'; busy = false; }); }
+          }, child: LText(busy ? '读取中…' : '预览差异')),
+        ],
+      )));
+    if (preview == null || !context.mounted) return;
     final list = (preview['items'] as List).cast<Map>();
-    final choices = <String, String>{
-      for (final item in list)
-        item['source_id'].toString(): item['state'] == 'new' ? 'import' : 'skip'
-    };
-    final apply = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => StatefulBuilder(
-            builder: (ctx, setLocal) => AlertDialog(
-                    title: const LText('导入预览'),
-                    content: SizedBox(
-                        width: 680,
-                        height: 440,
-                        child: ListView(children: [
-                          const LText(
-                              '密码启用时间未知；自定义字段、备注、收藏、文件夹、URI、TOTP 及历史将迁入。附件和 Passkey 不迁入。'),
-                          for (final item in list)
-                            ListTile(
-                                title: Text(item['title'].toString()),
-                                subtitle: LText('${{
-                                  'new': '新增',
-                                  'changed': '源数据已变化',
-                                  'unchanged': '未变化',
-                                  'unsupported': '不支持类型'
-                                }[item['state']]}\n变更字段：${(item['changed_fields'] as List? ?? []).join('、')}\n${(item['warnings'] as List).join('\n')}'),
-                                trailing: DropdownButton<String>(
-                                    value: choices[item['source_id']],
-                                    items: [
-                                      const DropdownMenuItem(
-                                          value: 'skip', child: LText('跳过')),
-                                      if (item['state'] == 'new')
-                                        const DropdownMenuItem(
-                                            value: 'import',
-                                            child: LText('导入')),
-                                      if (['changed', 'unchanged']
-                                          .contains(item['state'])) ...const [
-                                        DropdownMenuItem(
-                                            value: 'update',
-                                            child: LText('更新现有')),
-                                        DropdownMenuItem(
-                                            value: 'copy', child: LText('保留副本'))
-                                      ]
-                                    ],
-                                    onChanged: (v) => setLocal(() =>
-                                        choices[item['source_id'].toString()] =
-                                            v ?? 'skip')))
-                        ])),
-                    actions: [
-                      TextButton(
-                          onPressed: () => Navigator.pop(ctx, false),
-                          child: const LText('取消')),
-                      FilledButton(
-                          onPressed: () => Navigator.pop(ctx, true),
-                          child: const LText('确认导入'))
-                    ])));
-    if (apply != true || !context.mounted) return;
-    final report = await vaultAction(
-        context,
-        {
-          'action': 'bitwarden_import',
-          'path': path,
-          'password': password.text,
-          'namespace': namespace.text,
-          'choices': choices,
-          'preview_token': preview['preview_token']
-        },
-        confirmed: true);
-    if (!context.mounted) return;
+    final choices = <String,String>{for(final item in list) item['source_id'].toString(): item['state'] == 'new' ? 'import' : 'skip'};
+    final initialChoices = jsonEncode(choices);
+    busy = false;
+    error = '';
+    final report = await showDraftDialog<Map<String,dynamic>>(context: context,
+      hasChanges: () => jsonEncode(choices) != initialChoices, isBusy: () => busy,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
+        title: const LText('导入预览'),
+        content: SizedBox(width: appEditDialogWidth(ctx), height: 440, child: Column(children: [
+          const LText('密码启用时间未知；自定义字段、备注、收藏、文件夹、URI、TOTP 及历史将迁入。附件和 Passkey 不迁入。'),
+          if (error.isNotEmpty) LText(error),
+          if (busy) const LinearProgressIndicator(),
+          Expanded(child: ListView(children: [for(final item in list) ListTile(
+            title: Text(item['title'].toString()),
+            subtitle: LText('${{'new':'新增','changed':'源数据已变化','unchanged':'未变化','unsupported':'不支持类型'}[item['state']]}\n变更字段：${(item['changed_fields'] as List? ?? []).join('、')}\n${(item['warnings'] as List? ?? []).join('\n')}'),
+            trailing: DropdownButton<String>(value:choices[item['source_id']],
+              items: [const DropdownMenuItem(value:'skip',child:LText('跳过')),
+                if(item['state']=='new') const DropdownMenuItem(value:'import',child:LText('导入')),
+                if(['changed','unchanged'].contains(item['state'])) ...const [DropdownMenuItem(value:'update',child:LText('更新现有')),DropdownMenuItem(value:'copy',child:LText('保留副本'))]],
+              onChanged: busy ? null : (value) => update(() => choices[item['source_id'].toString()] = value ?? 'skip'))),
+          ])),
+        ])),
+        actions: [
+          TextButton(onPressed: busy ? null : () => Navigator.maybePop(ctx), child: const LText('取消')),
+          FilledButton(onPressed: busy ? null : () async {
+            update(() { busy = true; error = ''; });
+            try {
+              final value = await vaultAction(ctx, {'action':'bitwarden_import','path':path,'password':password.text,
+                'namespace':namespace.text,'choices':choices,'preview_token':preview['preview_token']}, confirmed:true);
+              AgentBridge.notifyVaultChanged();
+              if (ctx.mounted) Navigator.pop(ctx,value);
+            } catch (e) { if (ctx.mounted) update(() { error = e is AgentException ? e.message : '导入失败，请重试'; busy = false; }); }
+          }, child: LText(busy ? '导入中…' : '确认导入')),
+        ],
+      )));
+    if (report == null || !context.mounted) return;
     await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -1031,18 +991,16 @@ Future<void> _importBitwardenWithPreview(BuildContext context) async {
                       onPressed: () => Navigator.pop(ctx),
                       child: const LText('关闭'))
                 ]));
-  } catch (e) {
-    vaultMessage(context, e);
-  } finally {
-    password.dispose();
-    namespace.dispose();
-  }
+  } catch (e) { vaultMessage(context,e); }
+  finally { password.dispose(); namespace.dispose(); }
 }
 
 Future<void> transferSshKey(BuildContext context, {String? keyId}) async {
   final exporting = keyId != null;
   final label = TextEditingController(), passphrase = TextEditingController();
   String? pem;
+  var busy = false, closing = false;
+  var error = '';
   try {
     if (!exporting) {
       final path = await AgentBridge.pickOpenFile();
@@ -1050,9 +1008,31 @@ Future<void> transferSshKey(BuildContext context, {String? keyId}) async {
       pem = await AgentBridge.readTextFile(path);
     }
     if (!context.mounted) return;
-    final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
+    Future<void> save(BuildContext ctx, StateSetter update) async {
+      if (busy || closing) return;
+      update(() { busy = true; error = ''; });
+      try {
+        String? output;
+        if (exporting) {
+          output = await AgentBridge.pickSaveFile('id_ed25519');
+          if (output == null || !ctx.mounted) return;
+        }
+        final result = await vaultAction(ctx, exporting
+          ? {'action':'ssh_export','id':keyId,'passphrase':passphrase.text}
+          : {'action':'ssh_import','label':label.text,'pem':pem,'passphrase':passphrase.text}, confirmed: true);
+        if (exporting) await AgentBridge.writeTextFile(output!, result['pem'].toString());
+        else AgentBridge.notifyVaultChanged();
+        if (ctx.mounted) {
+          closing = true;
+          Navigator.pop(ctx);
+          ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: LText(exporting ? '已导出：$output' : '密钥已导入')));
+        }
+      } catch (e) { if (ctx.mounted) update(() => error = e is AgentException ? e.message : '操作失败，请重试'); }
+      finally { if (ctx.mounted && !closing) update(() => busy = false); }
+    }
+    await showDraftDialog<void>(context: context,
+        hasChanges: () => label.text.isNotEmpty || passphrase.text.isNotEmpty, isBusy: () => busy,
+        builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
                 title: LText(exporting ? '导出 OpenSSH 私钥' : '导入 Ed25519 私钥'),
                 content: SizedBox(
                     width: appEditDialogWidth(ctx),
@@ -1062,10 +1042,11 @@ Future<void> transferSshKey(BuildContext context, {String? keyId}) async {
                           : '支持 OpenSSH 格式及加密私钥。导入后私钥保存在加密保险库中。'),
                       if (!exporting)
                         TextField(
-                            controller: label,
+                            enabled: !busy, controller: label,
                             decoration: InputDecoration(labelText: tr('名称'))),
+                      if (error.isNotEmpty) LText(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
                       TextField(
-                          controller: passphrase,
+                          enabled: !busy, controller: passphrase,
                           obscureText: true,
                           decoration: InputDecoration(
                               labelText:
@@ -1073,45 +1054,14 @@ Future<void> transferSshKey(BuildContext context, {String? keyId}) async {
                     ])))),
                 actions: [
                   TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
+                      onPressed: busy ? null : () => Navigator.maybePop(ctx),
                       child: const LText('取消')),
                   FilledButton(
-                      onPressed: () => Navigator.pop(ctx, true),
+                      onPressed: busy ? null : () => save(ctx, update),
                       child: LText(exporting ? '确认导出' : '导入'))
-                ]));
-    if (ok != true || !context.mounted) return;
-    String? output;
-    if (exporting) {
-      output = await AgentBridge.pickSaveFile('id_ed25519');
-      if (output == null || !context.mounted) return;
-    }
-    final result = await vaultAction(
-        context,
-        exporting
-            ? {
-                'action': 'ssh_export',
-                'id': keyId,
-                'passphrase': passphrase.text
-              }
-            : {
-                'action': 'ssh_import',
-                'label': label.text,
-                'pem': pem,
-                'passphrase': passphrase.text
-              },
-        confirmed: true);
-    if (exporting) {
-      await AgentBridge.writeTextFile(output!, result['pem'].toString());
-    }
-    if (context.mounted)
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: LText(exporting ? '已导出：$output' : '密钥已导入')));
-  } catch (e) {
-    vaultMessage(context, e);
-  } finally {
-    label.dispose();
-    passphrase.dispose();
-  }
+                ])));
+  } catch (e) { vaultMessage(context,e); }
+  finally { label.dispose(); passphrase.dispose(); }
 }
 
 Future<void> editTotp(BuildContext context, Map<String, dynamic> row) async {
@@ -1492,7 +1442,10 @@ Future<void> showNewCredentialMenu(BuildContext context) async {
     return SimpleDialog(title:const LText('新建记录'),children:[
     SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'login'),child:const LText('登录密码')),
     SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'totp'),child:const LText('MFA / TOTP')),
+    SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'ssh_generate'),child:const LText('生成 SSH 密钥')),
     SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'ssh'),child:const LText('导入 SSH 密钥')),
+    SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'server'),child:const LText('服务器 / 堡垒机')),
+    SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'recovery'),child:const LText('网站恢复码')),
     SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'note'),child:const LText('安全笔记')),
   ]);
   });
@@ -1501,6 +1454,9 @@ Future<void> showNewCredentialMenu(BuildContext context) async {
   if(choice=='login'){if(await showLoginEditor(context))AgentBridge.notifyVaultChanged();}
   if(choice=='totp'){if(await showTotpEditor(context))AgentBridge.notifyVaultChanged();}
   if(choice=='ssh'){await transferSshKey(context);AgentBridge.notifyVaultChanged();}
+  if(choice=='ssh_generate'){if(await showSshKeyGenerator(context))AgentBridge.notifyVaultChanged();}
+  if(choice=='server'){if(await showServerProfileEditor(context))AgentBridge.notifyVaultChanged();}
+  if(choice=='recovery'){if(await showRecoveryCodesEditor(context))AgentBridge.notifyVaultChanged();}
   if(choice=='note'){if(await showNoteEditor(context))AgentBridge.notifyVaultChanged();}
 }
 
@@ -1547,4 +1503,143 @@ Future<bool> showNoteEditor(BuildContext context) async {
     return ok == true;
   } catch (e) { vaultMessage(context,e); return false; }
   finally { await route?.completed; title.dispose(); text.dispose(); }
+}
+
+Future<bool> showSshKeyGenerator(BuildContext context, {String? initialGroupId}) async {
+  final label = TextEditingController();
+  try {
+    final groups = await AgentBridge.listCredentialGroups('ssh');
+    final keys = await AgentBridge.listSshKeys();
+    if (!context.mounted) return false;
+    label.text = 'Key ${keys.length + 1}';
+    final initialLabel = label.text;
+    var groupId = groups.any((g) => g['id'] == initialGroupId) ? initialGroupId : null;
+    final originalGroup = groupId;
+    var setDefault = keys.isEmpty, busy = false, closing = false;
+    final originalDefault = setDefault;
+    String error = '';
+    return await showDraftDialog<bool>(context: context,
+      hasChanges: () => label.text != initialLabel || groupId != originalGroup || setDefault != originalDefault,
+      isBusy: () => busy,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
+        title: const LText('生成 SSH 密钥'),
+        content: SizedBox(width: appEditDialogWidth(ctx), child: AbsorbPointer(absorbing: busy, child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
+            TextField(controller: label, decoration: InputDecoration(labelText: tr('标签'))),
+            DropdownButtonFormField<String>(isExpanded: true, value: groupId,
+              decoration: InputDecoration(labelText: tr('分组')),
+              items: [const DropdownMenuItem(value: null, child: LText('（未分组）')),
+                for (final group in groups) DropdownMenuItem(value: group['id'] as String, child: Text(group['name'].toString()))],
+              onChanged: (value) => update(() => groupId = value)),
+            CheckboxListTile(value: setDefault, title: const LText('设为默认（Agent 签名用）'), contentPadding: EdgeInsets.zero,
+              onChanged: (value) => update(() => setDefault = value ?? false)),
+            if (error.isNotEmpty) LText(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+          ]))))),
+        actions: [
+          TextButton(onPressed: busy ? null : () => Navigator.maybePop(ctx), child: const LText('取消')),
+          FilledButton(onPressed: busy ? null : () async {
+            if (label.text.trim().isEmpty) { update(() => error = '请输入密钥标签'); return; }
+            update(() { busy = true; error = ''; });
+            try {
+              if (!await confirmVaultAction(ctx, '生成新 SSH 密钥？', '将生成新的 Ed25519 密钥对，确认继续？')) return;
+              if (!ctx.mounted) return;
+              await AgentBridge.generateSshKey(label: label.text.trim(), setDefault: setDefault, groupId: groupId);
+              if (ctx.mounted) { closing = true; Navigator.pop(ctx, true); }
+            } catch (e) { if (ctx.mounted) update(() => error = e is AgentException ? e.message : '生成失败，请重试'); }
+            finally { if (ctx.mounted && !closing) update(() => busy = false); }
+          }, child: LText(busy ? '生成中…' : '生成')),
+        ],
+      ))) == true;
+  } catch (e) { vaultMessage(context,e); return false; }
+  finally { label.dispose(); }
+}
+
+Future<bool> showRecoveryCodesEditor(BuildContext context) async {
+  final service = TextEditingController(), codes = TextEditingController();
+  var busy = false, closing = false;
+  var error = '';
+  try {
+    return await showDraftDialog<bool>(context: context,
+      hasChanges: () => service.text.isNotEmpty || codes.text.isNotEmpty, isBusy: () => busy,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
+        title: const LText('添加网站恢复码'),
+        content: SizedBox(width: appEditDialogWidth(ctx), child: AbsorbPointer(absorbing: busy, child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
+            TextField(controller: service, decoration: InputDecoration(labelText: tr('服务名称'))),
+            TextField(controller: codes, minLines: 3, maxLines: 8,
+              decoration: InputDecoration(labelText: tr('恢复码'), helperText: tr('使用换行、空格或逗号分隔'))),
+            if (error.isNotEmpty) LText(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+          ]))))),
+        actions: [
+          TextButton(onPressed: busy ? null : () => Navigator.maybePop(ctx), child: const LText('取消')),
+          FilledButton(onPressed: busy ? null : () async {
+            final values = codes.text.split(RegExp(r'[\s,;]+')).where((v) => v.isNotEmpty).toList();
+            if (service.text.trim().isEmpty || values.isEmpty) { update(() => error = '请填写服务名和至少一条恢复码'); return; }
+            update(() { busy = true; error = ''; });
+            try {
+              await AgentBridge.createRecoveryCodes(service.text.trim(), values);
+              if (ctx.mounted) { closing = true; Navigator.pop(ctx, true); }
+            } catch (e) { if (ctx.mounted) update(() => error = e is AgentException ? e.message : '保存失败，请重试'); }
+            finally { if (ctx.mounted && !closing) update(() => busy = false); }
+          }, child: LText(busy ? '保存中…' : '保存')),
+        ],
+      ))) == true;
+  } catch (e) { vaultMessage(context,e); return false; }
+  finally { service.dispose(); codes.dispose(); }
+}
+
+class CredentialSecurityReport extends StatefulWidget {
+  const CredentialSecurityReport({super.key});
+  @override
+  State<CredentialSecurityReport> createState() => _CredentialSecurityReportState();
+}
+
+class _CredentialSecurityReportState extends State<CredentialSecurityReport> {
+  static const labels = {'all':'全部','weak':'弱密码','reused':'重复密码','reminder_due':'到期检查',
+    'activation_unknown':'启用时间未知','mfa_unknown':'未记录 MFA 信息','mfa_disabled':'MFA 未开启','unused':'长期未使用'};
+  List<Map<String, dynamic>> rows = [];
+  String filter = 'all', error = '';
+  bool loading = false;
+  int generation = 0;
+  @override
+  void initState() { super.initState(); AgentBridge.vaultChanges.addListener(load); load(); }
+  @override
+  void dispose() { AgentBridge.vaultChanges.removeListener(load); super.dispose(); }
+  Future<void> load() async {
+    final version = ++generation;
+    if (!mounted) return;
+    setState(() { loading = true; error = ''; });
+    try {
+      final result = await AgentBridge.manage({'action':'security_report'});
+      if (mounted && version == generation) setState(() => rows =
+        (result['items'] as List).map((v) => Map<String,dynamic>.from(v as Map)).toList());
+    } catch (e) { if (mounted && version == generation) setState(() => error = e is AgentException ? e.message : '安全报告读取失败，请重试'); }
+    finally { if (mounted && version == generation) setState(() => loading = false); }
+  }
+  @override
+  Widget build(BuildContext context) => AppPanel(title: '凭据安全检查', icon: Icons.security_outlined,
+    subtitle: '仅在本机检查。到期检查不代表密码已泄露；未记录 MFA 信息也不代表网站未开启 MFA。',
+    trailing: IconButton(onPressed: loading ? null : load, tooltip: tr('刷新安全报告'), icon: const Icon(Icons.refresh_rounded)),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Wrap(spacing: 8, runSpacing: 8, children: [for (final entry in labels.entries)
+        ChoiceChip(label: Row(mainAxisSize: MainAxisSize.min, children: [LText(entry.value), Text(' · ${entry.key == 'all' ? rows.length : rows.where((row) => (row['reasons'] as List).contains(entry.key)).length}')]),
+          selected: filter == entry.key, onSelected: (_) => setState(() => filter = entry.key))]),
+      const SizedBox(height: 12),
+      if (loading) const LinearProgressIndicator(),
+      if (error.isNotEmpty) AppNotice(error),
+      if (!loading && error.isEmpty && rows.where((row) => filter == 'all' || (row['reasons'] as List).contains(filter)).isEmpty)
+        const LText('当前分类没有待处理事项。检查为本地启发式结果，不代表不存在其他风险。'),
+      ConstrainedBox(constraints: const BoxConstraints(maxHeight: 360), child: ListView(shrinkWrap: true, children: [
+        for (final row in rows.where((row) => filter == 'all' || (row['reasons'] as List).contains(filter))) ListTile(
+          contentPadding: EdgeInsets.zero, title: Text(row['title']?.toString() ?? ''),
+          subtitle: LText((row['reasons'] as List).map((value) => tr(labels[value] ?? value.toString())).join(' · ')),
+          onTap: () => openCredentialActions(context,row),
+          trailing: PopupMenuButton<String>(tooltip: tr('处理此项'), onSelected: (action) => openCredentialActions(context,row,action:action),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value:'edit',child:LText('修改登录 / MFA 关联')),
+              PopupMenuItem(value:'history',child:LText('密码候选与历史')),
+              PopupMenuItem(value:'details',child:LText('启用日期与提醒')),
+            ])),
+      ])),
+    ]));
 }

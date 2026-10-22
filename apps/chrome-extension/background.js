@@ -17,6 +17,58 @@ let lastNativeError = null;
 /** @type {Map<string, { resolve: Function, reject: Function, listener: Function, timer: ReturnType<typeof setTimeout> }>} */
 const inflight = new Map();
 
+const METADATA_CACHE_PREFIX = "metadata_cache:";
+const METADATA_CACHE_TTL_MS = 5 * 60 * 1000;
+async function clearMetadataCache() {
+  try {
+    const stored = await chrome.storage.session.get(null);
+    const keys = Object.keys(stored).filter((key) => key.startsWith(METADATA_CACHE_PREFIX));
+    if (keys.length) await chrome.storage.session.remove(keys);
+  } catch (_) { /* 缓存不可用不影响实时凭据操作。 */ }
+}
+
+// 严格白名单：即便响应将来增加字段，也不能把密码、密钥或验证码写入扩展存储。
+function metadataPayload(payload, mfa) {
+  const fields = mfa ? ["id", "issuer", "account", "linked", "match_rank"] :
+    ["id", "origin", "username", "display_name", "current_revision"];
+  return {
+    candidates: (payload.candidates ?? []).map((row) => Object.fromEntries(
+      fields.filter((field) => Object.hasOwn(row, field)).map((field) => [field, row[field]]))),
+    ...(mfa ? {can_check_other_matches: Boolean(payload.can_check_other_matches), all_matches: Boolean(payload.all_matches)} : {}),
+  };
+}
+
+async function suggestMetadata(request, mfa = false) {
+  // 授权、锁定和修订始终向 Agent 实时查询，缓存只用于列表展示。
+  const state = await sendNative({action: "status"});
+  const status = state?.payload;
+  if (!state?.ok || !status?.unlocked || !status.database_attached || !status.extension_gate_active || !status.data_revision) {
+    await clearMetadataCache();
+    return await sendNative({...request});
+  }
+  const key = METADATA_CACHE_PREFIX + JSON.stringify([request.action, request.origin, request.credential_id ?? "", Boolean(request.include_other_matches)]);
+  let cached;
+  try { cached = (await chrome.storage.session.get(key))[key]; } catch (_) { /* 读取失败退回实时查询。 */ }
+  if (cached && cached.revision === status.data_revision && cached.lockGeneration === status.vault_lock_generation &&
+      Date.now() - cached.created >= 0 && Date.now() - cached.created < METADATA_CACHE_TTL_MS) {
+    return {ok: true, payload: metadataPayload(cached.payload, mfa)};
+  }
+  const response = await sendNative({...request});
+  if (response?.ok) {
+    const payload = metadataPayload(response.payload ?? {}, mfa);
+    try {
+      const entries = await chrome.storage.session.get(null);
+      const old = Object.entries(entries).filter(([name]) => name.startsWith(METADATA_CACHE_PREFIX))
+        .sort((a, b) => (a[1].created ?? 0) - (b[1].created ?? 0));
+      if (old.length >= 32) await chrome.storage.session.remove(old.slice(0, old.length - 31).map(([name]) => name));
+      if (JSON.stringify(payload).length <= 256 * 1024) await chrome.storage.session.set({[key]: {
+        created: Date.now(), revision: status.data_revision, lockGeneration: status.vault_lock_generation, payload,
+      }});
+    } catch (_) { /* 缓存写入失败不使查询失败。 */ }
+  } else { await clearMetadataCache(); }
+  return response;
+}
+
 function uuid() {
   return crypto.randomUUID();
 }
@@ -92,6 +144,7 @@ function connectNativeIfNeeded() {
       lastNativeError = msg;
     }
     nativePort = null;
+    void clearMetadataCache();
     rejectAllInflight(new Error(lastNativeError || "native host disconnected"));
   });
   return nativePort;
@@ -191,11 +244,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const remembered = stored[key];
         const request = {action:"mfa.suggest_for_origin",origin,credential_id:credentialId,
           include_other_matches: msg.type === "select_mfa" || msg.include_other_matches === true};
-        let resp = await sendNative({...request});
+        let resp = await suggestMetadata(request, true);
         // 用户曾手动选过次级/独立匹配时，重新检查全部规则后再恢复选择。
         if (resp?.ok && remembered && !request.include_other_matches &&
             !(resp.payload?.candidates ?? []).some((row) => row.id === remembered)) {
-          resp = await sendNative({...request, include_other_matches:true});
+          resp = await suggestMetadata({...request, include_other_matches:true}, true);
         }
         if (resp?.ok) {
           const candidates = resp.payload?.candidates ?? [];
@@ -216,10 +269,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: false, code: "bad_origin", message: "无法确定页面 origin" });
           return;
         }
-        const resp = await sendNative({
-          action: "credential.suggest_for_origin",
-          origin,
-        });
+        const resp = await suggestMetadata({action: "credential.suggest_for_origin", origin});
         if (resp?.ok) {
           const key = selectedAccountKey(msg.tab_id, origin);
           const stored = await chrome.storage.session.get(key);
@@ -246,6 +296,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           credential_id: msg.credential_id, expected_revision: msg.expected_revision,
           origin, username: msg.username, password: msg.password,
         });
+        if (resp?.ok) await clearMetadataCache();
         sendResponse(resp);
         return;
       }

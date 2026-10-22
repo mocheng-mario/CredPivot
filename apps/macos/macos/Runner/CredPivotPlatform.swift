@@ -32,6 +32,7 @@ final class CredPivotPlatform: NSObject {
   }
 
   private func startInteractionServices() {
+    NativePresentation.reload()
     shortcutController = CredPivotShortcuts { [weak self] action in
       if action == "lock" {
         (NSApp.delegate as? AppDelegate)?.lockFromMenu()
@@ -53,14 +54,14 @@ final class CredPivotPlatform: NSObject {
     NSApp.activate(ignoringOtherApps: true)
     let alert = NSAlert()
     let policy = request["policy"] as? String ?? "confirm"
-    alert.messageText = policy == "unlock" ? "解锁保险库以使用 SSH 密钥？" : "允许 SSH 密钥签名？"
-    let scope = policy == "session" ? "允许后，仅同一连接在敏感授权期限内可复用。" : "仅允许这一次签名。"
-    let caller = request["caller"] as? String ?? "未知进程"
+    alert.messageText = policy == "unlock" ? NativePresentation.tr("解锁保险库以使用 SSH 密钥？") : NativePresentation.tr("允许 SSH 密钥签名？")
+    let scope = policy == "session" ? NativePresentation.tr("允许后，仅同一连接在敏感授权期限内可复用。") : NativePresentation.tr("仅允许这一次签名。")
+    let caller = request["caller"] as? String ?? NativePresentation.tr("未知进程")
     alert.informativeText = policy == "unlock"
-      ? "调用：\(caller)\n\n验证后提供 SSH 公钥，实际签名仍需另行授权。"
-      : "密钥：\(request["key_label"] as? String ?? "未知")\n\(request["fingerprint"] as? String ?? "")\n调用：\(caller)\n\n无法从 SSH Agent 协议可靠确认最终目标主机。\n\(scope)"
-    alert.addButton(withTitle: "允许")
-    alert.addButton(withTitle: "拒绝")
+      ? NativePresentation.tr("调用：{0}\n\n验证后提供 SSH 公钥，实际签名仍需另行授权。", caller)
+      : NativePresentation.tr("密钥：{0}\n{1}\n调用：{2}\n\n无法从 SSH Agent 协议可靠确认最终目标主机。\n{3}", request["key_label"] as? String ?? NativePresentation.tr("未知"), request["fingerprint"] as? String ?? "", caller, scope)
+    alert.addButton(withTitle: NativePresentation.tr("允许"))
+    alert.addButton(withTitle: NativePresentation.tr("拒绝"))
     // runModal 使用独立运行循环；请求已断开或过期时主动关闭，避免留下失效弹窗。
     let expiry = Timer(timeInterval: 0.5, repeats: true) { _ in
       guard let pending = LocalVaultUnlock.request(["type": "ssh_authorizations_pending"])?["requests"] as? [[String: Any]],
@@ -83,9 +84,9 @@ final class CredPivotPlatform: NSObject {
       self?.showingSshAuthorization = false
     }
     if policy == "biometric" {
-      TouchIdGate.shared.authenticateForExtensionGate(reason: "允许本次 SSH 密钥签名", completion: complete)
+      TouchIdGate.shared.authenticateForExtensionGate(reason: NativePresentation.tr("允许本次 SSH 密钥签名"), completion: complete)
     } else {
-      TouchIdGate.shared.authenticateSensitiveOperation(reason: policy == "unlock" ? "解锁保险库以使用 SSH 密钥" : "允许 SSH 密钥签名", completion: complete)
+      TouchIdGate.shared.authenticateSensitiveOperation(reason: policy == "unlock" ? NativePresentation.tr("解锁保险库以使用 SSH 密钥") : NativePresentation.tr("允许 SSH 密钥签名"), completion: complete)
     }
   }
 
@@ -110,9 +111,11 @@ final class CredPivotPlatform: NSObject {
     switch call.method {
     case "startAgent":
       let code = CredPivotRustFFI.start()
+      if code == 0 { NativePresentation.reload(); shortcutController?.apply(AppPreferences.settings()) }
       result(code == 0 ? nil : FlutterError(code: "agent", message: "start failed", details: code))
     case "restartAgent":
       let code = CredPivotRustFFI.restart()
+      if code == 0 { NativePresentation.reload(); shortcutController?.apply(AppPreferences.settings()) }
       result(code == 0)
     case "agentIsRunning":
       result(CredPivotRustFFI.isRunning())
@@ -163,6 +166,7 @@ final class CredPivotPlatform: NSObject {
         case "app_settings_set":
           var notices: [String] = []
           let next = AppPreferences.settings()
+          NativePresentation.reload()
           shortcutController?.apply(next)
           // 显式保存时也重试应用系统偏好，避免上次注册失败后只能反复切换开关。
           if let notice = LoginItemRegistrar.applyPreference() { notices.append(notice) }
@@ -638,7 +642,7 @@ enum LocalVaultUnlock {
           let publicData = record["ephemeral_public_key"].flatMap({ Data(base64Encoded: $0) }),
           let sealedData = record["sealed_vmk"].flatMap({ Data(base64Encoded: $0) }) else { completion(false); return }
     let context = LAContext()
-    context.localizedReason = "解锁 CredPivot 保险库"
+    context.localizedReason = NativePresentation.tr("解锁 CredPivot 保险库")
     context.localizedFallbackTitle = ""
     let epoch = TouchIdGate.beginAuthentication(context: context)
     DispatchQueue.global(qos: .userInitiated).async {
@@ -698,13 +702,13 @@ final class TouchIdGate {
     let epoch = TouchIdGate.beginAuthentication()
     NSApp.activate(ignoringOtherApps: true)
     let alert = NSAlert()
-    alert.messageText = "验证保险库主密码"
+    alert.messageText = NativePresentation.tr("验证保险库主密码")
     alert.informativeText = reason
     let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-    field.placeholderString = "保险库主密码（不是 Mac 登录密码）"
+    field.placeholderString = NativePresentation.tr("保险库主密码（不是 Mac 登录密码）")
     alert.accessoryView = field
-    alert.addButton(withTitle: "验证")
-    alert.addButton(withTitle: "取消")
+    alert.addButton(withTitle: NativePresentation.tr("验证"))
+    alert.addButton(withTitle: NativePresentation.tr("取消"))
     alert.window.initialFirstResponder = field
     let accepted = alert.runModal() == .alertFirstButtonReturn
     defer { field.stringValue = "" }
@@ -721,38 +725,39 @@ final class TouchIdGate {
   }
 
   private func authenticate(reason: String, allowReuse: Bool, completion: @escaping (Bool) -> Void) {
+    let localizedReason = NativePresentation.tr(reason)
     guard !TouchIdGate.isAuthenticating else { completion(false); return }
     let status = LocalVaultUnlock.request(["type": "status"]) ?? [:]
     if allowReuse && status["sensitive_auth_active"] as? Bool == true { completion(true); return }
     if status["master_password_required"] as? Bool != false {
-      askMasterPassword(reason: reason, completion: completion)
+      askMasterPassword(reason: localizedReason, completion: completion)
       return
     }
     if status["unlocked"] as? Bool != true {
       let context = LAContext()
       var error: NSError?
       if !LocalVaultUnlock.configured || !context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
-        askMasterPassword(reason: reason, completion: completion)
+        askMasterPassword(reason: localizedReason, completion: completion)
       } else {
         LocalVaultUnlock.unlockBiometric(completion: completion)
       }
       return
     }
     let context = LAContext()
-    context.localizedFallbackTitle = "使用主密码"
+    context.localizedFallbackTitle = NativePresentation.tr("使用主密码")
     var error: NSError?
     guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
-      askMasterPassword(reason: reason, completion: completion)
+      askMasterPassword(reason: localizedReason, completion: completion)
       return
     }
     let epoch = TouchIdGate.beginAuthentication(context: context)
-    context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, error in
+    context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: localizedReason) { success, error in
       DispatchQueue.main.async {
         guard TouchIdGate.endAuthentication(epoch) else { completion(false); return }
         if success {
           completion(LocalVaultUnlock.request(["type": "sensitive_auth_grant"])?["verified"] as? Bool == true)
         } else if let error = error as? LAError, error.code == .userFallback || error.code == .biometryLockout {
-          self.askMasterPassword(reason: reason, completion: completion)
+          self.askMasterPassword(reason: localizedReason, completion: completion)
         } else { completion(false) }
       }
     }
@@ -1788,13 +1793,13 @@ final class CredPivotShortcuts {
     recording = true
     defer { recording = false }
     let alert = NSAlert()
-    alert.messageText = "设置快捷键 · \(labels[name] ?? name)"
-    alert.informativeText = "请直接按下组合键，包含 ⌘ 或 ⌃，搭配字母、数字或空格。按 Esc 取消。"
-    let preview = NSTextField(wrappingLabelWithString: "等待按键…")
+    alert.messageText = NativePresentation.tr("设置快捷键 · {0}", NativePresentation.tr(labels[name] ?? name))
+    alert.informativeText = NativePresentation.tr("请直接按下组合键，包含 ⌘ 或 ⌃，搭配字母、数字或空格。按 Esc 取消。")
+    let preview = NSTextField(wrappingLabelWithString: NativePresentation.tr("等待按键…"))
     preview.frame = NSRect(x: 0, y: 0, width: 380, height: 60)
     alert.accessoryView = preview
-    alert.addButton(withTitle: "使用此组合")
-    alert.addButton(withTitle: "取消")
+    alert.addButton(withTitle: NativePresentation.tr("使用此组合"))
+    alert.addButton(withTitle: NativePresentation.tr("取消"))
     alert.buttons.first?.isEnabled = false
     var chosen: String?
     let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -1811,17 +1816,17 @@ final class CredPivotShortcuts {
       alert.buttons.first?.isEnabled = false
       guard let key = self.keys.first(where: { $0.value == event.keyCode })?.key,
             flags.contains(.command) || flags.contains(.control) else {
-        preview.stringValue = "请使用 ⌘ 或 ⌃ 搭配字母、数字或空格。"
+        preview.stringValue = NativePresentation.tr("请使用 ⌘ 或 ⌃ 搭配字母、数字或空格。")
         return nil
       }
       if self.reserved.contains(where: { self.parse($0).map { $0.0 == event.keyCode && $0.1 == flags } ?? false }) {
-        preview.stringValue = "此组合保留给系统编辑或窗口操作，请换一个组合。"
+        preview.stringValue = NativePresentation.tr("此组合保留给系统编辑或窗口操作，请换一个组合。")
         return nil
       }
       if let duplicate = bindings.first(where: { entry in
         entry.key != name && (self.parse(entry.value).map { $0.0 == event.keyCode && $0.1 == flags } ?? false)
       }) {
-        preview.stringValue = "与「\(self.labels[duplicate.key] ?? duplicate.key)」重复，请换一个组合。"
+        preview.stringValue = NativePresentation.tr("与「{0}」重复，请换一个组合。", NativePresentation.tr(self.labels[duplicate.key] ?? duplicate.key))
         return nil
       }
       var parts: [String] = []
@@ -1840,5 +1845,36 @@ final class CredPivotShortcuts {
 
   deinit {
     if let localMonitor = localMonitor { NSEvent.removeMonitor(localMonitor) }
+  }
+}
+
+// 与 Flutter 共用用户导入的 JSON 语言包；这里只处理 UI 文案，不读取保险库内容。
+enum NativePresentation {
+  private static var messages: [String: String] = [:]
+  static func reload() {
+    messages = [:]
+    guard let locale = AppPreferences.settings()["language"] as? String, locale != "zh-CN",
+          locale.range(of: "^[a-zA-Z0-9_-]{1,64}$", options: .regularExpression) != nil else { return }
+    let path = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".credpivot/languages/\(locale).json")
+    guard let handle = try? FileHandle(forReadingFrom: path) else { return }
+    defer { try? handle.close() }
+    guard let data = try? handle.read(upToCount: 4 * 1024 * 1024 + 1), data.count <= 4 * 1024 * 1024,
+          let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          value["version"] as? Int == 1, value["locale"] as? String == locale,
+          let translated = value["messages"] as? [String: String], translated.count <= 10000,
+          translated.allSatisfy({ $0.key.count <= 4096 && $0.value.count <= 8192 }) else { return }
+    messages = translated
+  }
+
+  static func tr(_ source: String, _ arguments: String...) -> String {
+    let template = messages[source] ?? source
+    guard !arguments.isEmpty, let pattern = try? NSRegularExpression(pattern: "\\{([0-9]+)\\}") else { return template }
+    var result = template
+    for match in pattern.matches(in: template, range: NSRange(location: 0, length: (template as NSString).length)).reversed() {
+      guard let token = Range(match.range(at: 1), in: template), let index = Int(template[token]),
+            arguments.indices.contains(index), let range = Range(match.range, in: result) else { continue }
+      result.replaceSubrange(range, with: arguments[index])
+    }
+    return result
   }
 }

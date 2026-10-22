@@ -224,9 +224,13 @@ async function handshake() {
       }
     }
     if (!response?.ok) { showError(response); return; }
-    const state = await chrome.runtime.sendMessage({ type: "agent_status" });
-    if (!state?.ok) { showError(state); return; }
-    const payload = { ...response.payload, ...state.payload };
+    let payload = response.payload ?? {};
+    // 同协议的旧 App 握手尚不包含完整状态；新 App 则省去这次重复查询。
+    if (!Object.hasOwn(payload, "database_attached")) {
+      const state = await chrome.runtime.sendMessage({type: "agent_status"});
+      if (!state?.ok) { showError(state); return; }
+      payload = {...payload, ...state.payload};
+    }
     if (!payload.unlocked || !payload.database_attached || !payload.extension_gate_active) {
       showError({ code: !payload.unlocked ? "locked" : !payload.database_attached ? "database_unavailable" : "extension_gate_required", message: "保险库未就绪，请在 App 中重新解锁后连接。" });
       return;

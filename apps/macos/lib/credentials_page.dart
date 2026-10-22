@@ -900,74 +900,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
 
   Future<void> _generate() async {
     if (_deleting) return;
-    final labelCtl = TextEditingController(text: 'Key ${_items.length + 1}');
-    bool setDefault = _items.isEmpty;
-    var groupId = dropdownValueIfPresent(_filterGroupId, _groups);
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) => AlertDialog(
-          title: const LText('生成 SSH 密钥'),
-          content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: appFormFields([
-              DropdownButtonFormField<String?>(
-                isExpanded: true,
-                value: groupId,
-                decoration: InputDecoration(labelText: tr('分组')),
-                items: [
-                  const DropdownMenuItem(value: null, child: LText('（未分组）')),
-                  ..._groups.map(
-                    (g) => DropdownMenuItem(
-                      value: g['id'] as String,
-                      child: Text(
-                        g['name']?.toString() ?? '',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                ],
-                onChanged: (v) => setLocal(() => groupId = v),
-              ),
-              TextField(controller: labelCtl, decoration: InputDecoration(labelText: tr('标签'))),
-              CheckboxListTile(
-                value: setDefault,
-                onChanged: (v) => setLocal(() => setDefault = v ?? false),
-                title: const LText('设为默认（Agent 签名用）'),
-                contentPadding: EdgeInsets.zero,
-              ),
-            ]),
-          ))),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('生成')),
-          ],
-        ),
-      ),
-    );
-    final label = labelCtl.text.trim();
-    labelCtl.dispose();
-    if (ok != true || !mounted) return;
-    if (!await confirmCredentialDanger(
-      context,
-      title: '生成新 SSH 密钥',
-      message: '将生成新的 Ed25519 密钥对。确认继续？',
-      confirmLabel: '生成',
-    )) {
-      return;
-    }
-    if (!mounted) return;
-    try {
-      await AgentBridge.generateSshKey(
-        label: label,
-        setDefault: setDefault,
-        groupId: groupId,
-      );
-      await _refresh();
-    } on AgentException catch (e) {
-      if (mounted) setState(() => _status = AgentBridge.friendlyMessage(e));
-    }
+    if (await showSshKeyGenerator(context, initialGroupId: _filterGroupId) && mounted) await _refresh();
   }
 
   void _copyPublicKey(Map<String, dynamic> row) {
@@ -1162,7 +1095,6 @@ class SecurityCenterTab extends StatefulWidget {
 
 class _SecurityCenterTabState extends State<SecurityCenterTab> {
   int _loadGeneration = 0;
-  Map<String, dynamic> _summary = {};
   Map<String, dynamic> _backupStatus = {};
   List<Map<String, dynamic>> _restorePoints = [];
   List<Map<String, dynamic>> _recoveryCodes = [];
@@ -1197,14 +1129,12 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
     if (!widget.unlocked) return;
     final generation = ++_loadGeneration;
     try {
-      final summary = await AgentBridge.securitySummary();
       final backupStatus = await AgentBridge.backupStatus();
       final restorePoints = await AgentBridge.listRestorePoints();
       final recoveryCodes = await AgentBridge.listRecoveryCodes();
       // 页面保留在导航栈中，旧请求不能把锁定前的数据重新写回。
       if (!mounted || !widget.unlocked || generation != _loadGeneration) return;
       setState(() {
-        _summary = summary;
         _backupStatus = backupStatus;
         _restorePoints = restorePoints;
         _recoveryCodes = recoveryCodes;
@@ -1362,7 +1292,6 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
     super.didUpdateWidget(oldWidget);
     if (!widget.unlocked && oldWidget.unlocked) {
       _loadGeneration++;
-      _summary = {};
       _backupStatus = {};
       _restorePoints = [];
       _recoveryCodes = [];
@@ -1393,6 +1322,8 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       padding: const EdgeInsets.fromLTRB(24, 6, 24, 24),
       children: [
         if (_log.isNotEmpty) AppNotice(_log),
+        const CredentialSecurityReport(),
+        const SizedBox(height: 16),
         AppPanel(
           title: '备份状态',
           subtitle: '记录最近一次成功验证的时间，建议定期检查备份。',

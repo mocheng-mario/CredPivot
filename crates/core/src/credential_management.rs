@@ -444,7 +444,7 @@ fn trash_change(conn: &Connection, item: &str, expected: &str, purge: bool) -> R
     Ok(())
 }
 fn security_report(conn: &Connection) -> Result<Value> {
-    let all = rows(conn,"SELECT c.id,c.item_id,i.title,c.secret,c.password_active_since_ms,i.created_at_ms,i.details_json,(SELECT last_used_at_ms FROM local_usage u WHERE u.item_id=i.id) AS last_used_at_ms FROM login_credentials c JOIN items i ON i.id=c.item_id WHERE i.trashed=0",[])?;
+    let all = rows(conn,"SELECT c.id,c.item_id,i.title,c.secret,c.linked_totp_id,c.password_active_since_ms,i.created_at_ms,i.details_json,(SELECT last_used_at_ms FROM local_usage u WHERE u.item_id=i.id) AS last_used_at_ms FROM login_credentials c JOIN items i ON i.id=c.item_id WHERE i.trashed=0",[])?;
     let mut frequencies = HashMap::<&str, usize>::new();
     for v in &all {
         *frequencies
@@ -482,6 +482,9 @@ fn security_report(conn: &Connection) -> Result<Value> {
         }
         if details.mfa_state == "disabled" {
             reasons.push("mfa_disabled");
+        } else if details.mfa_state != "enabled" && details.linked_mfa_ids.is_empty()
+            && v["linked_totp_id"].as_str().map_or(true, str::is_empty) {
+            reasons.push("mfa_unknown");
         }
         let last_use = v["last_used_at_ms"]
             .as_i64()
@@ -795,12 +798,35 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             // 在内存搜索非秘密元数据，隐藏字段、备注和安全笔记正文不进入列表响应。
             let mut found = Vec::new();
             let q = query.to_lowercase();
-            for mut row in rows(&tx,"SELECT id,kind,title,current_revision,details_json,(SELECT last_used_at_ms FROM local_usage u WHERE u.item_id=items.id) AS last_used_at_ms FROM items WHERE trashed=0 ORDER BY updated_at_ms DESC",[])? {
-                let d: self::ItemDetails=parse(row["details_json"].as_str().unwrap_or("{}"))?;
-                let login:Option<(String,String)>=conn.query_row("SELECT origin,username FROM login_credentials WHERE item_id=?1",[row["id"].as_str().unwrap_or_default()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
-                let account_match=login.is_some_and(|(origin,user)|origin.to_lowercase().contains(&q)||user.to_lowercase().contains(&q)||d.uris.iter().any(|rule|rule.uri.to_lowercase().contains(&q)));
-                if q.is_empty() || account_match || row["title"].as_str().unwrap_or_default().to_lowercase().contains(&q) || d.tags.iter().any(|t|t.to_lowercase().contains(&q)) || d.category.to_lowercase().contains(&q) || d.notes.to_lowercase().contains(&q) || d.custom_fields.iter().any(|f|!f.secret && (f.name.to_lowercase().contains(&q)||f.value.to_lowercase().contains(&q))) {
-                    row.as_object_mut().unwrap().remove("details_json"); row["tags"]=json!(d.tags); row["favorite"]=json!(d.favorite); row["category"]=json!(d.category);row["related_item_ids"]=json!(d.related_item_ids);found.push(row);
+            for mut row in rows(&tx, "SELECT i.id,i.kind,i.title,i.current_revision,i.details_json,
+                (SELECT last_used_at_ms FROM local_usage u WHERE u.item_id=i.id) AS last_used_at_ms,
+                COALESCE(c.origin,'') || ' ' || COALESCE(c.username,'') || ' ' || COALESCE(c.connection_host,'') || ' ' ||
+                COALESCE(t.issuer,'') || ' ' || COALESCE(t.account,'') || ' ' ||
+                COALESCE(s.host,'') || ' ' || COALESCE(s.manual_username,'') || ' ' ||
+                COALESCE(k.label,'') || ' ' || COALESCE(k.public_openssh,'') || ' ' || COALESCE(r.service_name,'') AS search_metadata
+                FROM items i
+                LEFT JOIN login_credentials c ON c.item_id=i.id
+                LEFT JOIN totp_credentials t ON t.item_id=i.id
+                LEFT JOIN server_login_profiles s ON s.item_id=i.id
+                LEFT JOIN ssh_keys k ON k.item_id=i.id
+                LEFT JOIN recovery_code_items r ON r.item_id=i.id
+                WHERE i.trashed=0 ORDER BY i.updated_at_ms DESC", [])? {
+                let d: self::ItemDetails = parse(row["details_json"].as_str().unwrap_or("{}"))?;
+                // 所有类型的网站规则都可搜索，但搜索用元数据与秘密字段不进入列表响应。
+                let metadata_match = row["search_metadata"].as_str().unwrap_or_default().to_lowercase().contains(&q)
+                    || d.uris.iter().any(|rule| rule.uri.to_lowercase().contains(&q));
+                if q.is_empty() || metadata_match || row["title"].as_str().unwrap_or_default().to_lowercase().contains(&q)
+                    || d.tags.iter().any(|t| t.to_lowercase().contains(&q)) || d.category.to_lowercase().contains(&q)
+                    || d.notes.to_lowercase().contains(&q)
+                    || d.custom_fields.iter().any(|f| !f.secret && (f.name.to_lowercase().contains(&q) || f.value.to_lowercase().contains(&q))) {
+                    let object = row.as_object_mut().unwrap();
+                    object.remove("details_json");
+                    object.remove("search_metadata");
+                    row["tags"] = json!(d.tags);
+                    row["favorite"] = json!(d.favorite);
+                    row["category"] = json!(d.category);
+                    row["related_item_ids"] = json!(d.related_item_ids);
+                    found.push(row);
                 }
             }
             json!({"items":found})
