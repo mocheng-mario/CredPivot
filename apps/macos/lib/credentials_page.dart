@@ -429,59 +429,79 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                   },
                 ),
           actions: _selected == null
-              ? null
-              : Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    OutlinedButton(
-                      onPressed: () {
-                        final u = _selected!['username']?.toString() ?? '';
-                        Clipboard.setData(ClipboardData(text: u));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: LText('用户名已复制')));
-                      },
-                      child: const LText('复制用户名'),
-                    ),
-                    OutlinedButton(
-                      onPressed: () =>
-                          _copyPassword(_selected!['id'] as String),
-                      child: const LText('复制密码'),
-                    ),
-                    OutlinedButton(onPressed: () async { await showPasswordVersions(context, _selected!); if (mounted) await _refresh(); }, child: const LText('候选与历史')),
-                    OutlinedButton(onPressed: () async { await editItemDetails(context, _selected!); if (mounted) await _refresh(); }, child: const LText('备注与策略')),
-                    OutlinedButton(onPressed: () async {
-                      if (!await confirmVaultAction(context, '确认密码当前正在使用？', '将当前时间记录为启用时间；仅在确认此密码当前已生效时操作。')) return;
-                      try { await vaultAction(context, {'action':'mark_password_active','credential_id':_selected!['id'],'expected_revision':_selected!['current_revision']}, confirmed: true); await _refresh(); } catch(e) { vaultMessage(context,e); }
-                    }, child: const LText('确认启用时间')),
-                    OutlinedButton(
-                      onPressed: () => _addOrEdit(existing: _selected),
-                      child: const LText('编辑'),
-                    ),
-                    OutlinedButton(
-                      onPressed: () async {
-                        final title = _selected!['title']?.toString() ??
-                            _selected!['origin']?.toString() ??
-                            '登录项';
-                        if (!await confirmCredentialDanger(
-                          context,
-                          title: '删除登录密码',
-                          message: '确定删除「$title」？可从「笔记 / 管理 → 回收站」恢复。',
-                        )) {
-                          return;
-                        }
-                        if (!await requireTouchId(context, reason: '删除登录密码', confirmed: true))
-                          return;
-                        final itemId = _selected!['item_id'] as String?;
-                        if (itemId == null) return;
-                        await AgentBridge.trashCredential(itemId);
-                        _selected = null;
-                        await _refresh();
-                      },
-                      child: const LText('删除'),
-                    ),
-                  ],
-                ),
+                ? null
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      CredentialActionSection(
+                        title: '常用操作',
+                        children: [
+                          OutlinedButton(
+                            onPressed: () {
+                              final u = _selected!['username']?.toString() ?? '';
+                              Clipboard.setData(ClipboardData(text: u));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: LText('用户名已复制')));
+                            },
+                            child: const LText('复制用户名'),
+                          ),
+                          OutlinedButton(
+                            onPressed: () =>
+                                _copyPassword(_selected!['id'] as String),
+                            child: const LText('复制密码'),
+                          ),
+                        ],
+                      ),
+                      CredentialActionSection(
+                        title: '密码维护',
+                        children: [
+                          OutlinedButton(onPressed: () async { await showPasswordVersions(context, _selected!); if (mounted) await _refresh(); }, child: const LText('候选与历史')),
+                          OutlinedButton(onPressed: () async {
+                            if (!await confirmVaultAction(context, '确认密码当前正在使用？', '将当前时间记录为启用时间；仅在确认此密码当前已生效时操作。')) return;
+                            try { await vaultAction(context, {'action':'mark_password_active','credential_id':_selected!['id'],'expected_revision':_selected!['current_revision']}, confirmed: true); await _refresh(); } catch(e) { vaultMessage(context,e); }
+                          }, child: const LText('确认启用时间')),
+                        ],
+                      ),
+                      CredentialActionSection(
+                        title: '资料管理',
+                        children: [
+                          OutlinedButton(
+                            onPressed: () => _addOrEdit(existing: _selected),
+                            child: const LText('编辑'),
+                          ),
+                          OutlinedButton(onPressed: () async { await editItemDetails(context, _selected!); if (mounted) await _refresh(); }, child: const LText('备注与策略')),
+                        ],
+                      ),
+                      CredentialActionSection(
+                        title: '危险操作',
+                        dangerous: true,
+                        children: [
+                          OutlinedButton(
+                            onPressed: () async {
+                              final title = _selected!['title']?.toString() ??
+                                  _selected!['origin']?.toString() ??
+                                  '登录项';
+                              if (!await confirmCredentialDanger(
+                                context,
+                                title: '删除登录密码',
+                                message: '确定删除「$title」？可从「笔记 / 管理 → 回收站」恢复。',
+                              )) {
+                                return;
+                              }
+                              if (!await requireTouchId(context, reason: '删除登录密码', confirmed: true))
+                                return;
+                              final itemId = _selected!['item_id'] as String?;
+                              if (itemId == null) return;
+                              await AgentBridge.trashCredential(itemId);
+                              _selected = null;
+                              await _refresh();
+                            },
+                            child: const LText('删除'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
         )),
       ]),
     );
@@ -831,44 +851,64 @@ class _TotpPanelState extends State<_TotpPanel> {
                   ),
             actions: _selected == null
                 ? null
-                : Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      OutlinedButton(onPressed: () async { await editTotp(context, _selected!); if (mounted) await _refresh(); }, child: const LText('编辑')),
-                      FilledButton.tonal(
-                        onPressed: () => _copyCode(_selected!['id'] as String),
-                        child: const LText('复制验证码'),
+                      CredentialActionSection(
+                        title: '验证码',
+                        children: [
+                          FilledButton.tonal(
+                            onPressed: () => _copyCode(_selected!['id'] as String),
+                            child: const LText('复制验证码'),
+                          ),
+                          OutlinedButton(
+                            onPressed: () => _showCode(_selected!['id'] as String),
+                            child: LText(_liveCodeForId == _selected!['id']
+                                ? '刷新显示'
+                                : '显示验证码'),
+                          ),
+                        ],
                       ),
-                      OutlinedButton(
-                        onPressed: () => _showCode(_selected!['id'] as String),
-                        child: LText(_liveCodeForId == _selected!['id']
-                            ? '刷新显示'
-                            : '显示验证码'),
+                      CredentialActionSection(
+                        title: '密钥与迁移',
+                        children: [
+                          OutlinedButton(
+                              onPressed: _showQrCode, child: const LText('二维码')),
+                          OutlinedButton(
+                              onPressed: _showOtpauthUri,
+                              child: const LText('otpauth URI')),
+                          OutlinedButton(
+                              onPressed: _showSecret, child: const LText('密钥')),
+                        ],
                       ),
-                      OutlinedButton(
-                          onPressed: _showQrCode, child: const LText('二维码')),
-                      OutlinedButton(
-                          onPressed: _showOtpauthUri,
-                          child: const LText('otpauth URI')),
-                      OutlinedButton(
-                          onPressed: _showSecret, child: const LText('密钥')),
-                      OutlinedButton(
-                        onPressed: () {
-                          final itemId = _selected!['item_id'] as String?;
-                          if (itemId == null) return;
-                          showMoveItemToGroupDialog(
-                            context,
-                            scope: 'totp',
-                            itemId: itemId,
-                            currentGroupId: _selected!['group_id'] as String?,
-                          ).then((_) => _refresh());
-                        },
-                        child: const LText('移到分组'),
+                      CredentialActionSection(
+                        title: '资料管理',
+                        children: [
+                          OutlinedButton(onPressed: () async { await editTotp(context, _selected!); if (mounted) await _refresh(); }, child: const LText('编辑')),
+                          OutlinedButton(
+                            onPressed: () {
+                              final itemId = _selected!['item_id'] as String?;
+                              if (itemId == null) return;
+                              showMoveItemToGroupDialog(
+                                context,
+                                scope: 'totp',
+                                itemId: itemId,
+                                currentGroupId: _selected!['group_id'] as String?,
+                              ).then((_) => _refresh());
+                            },
+                            child: const LText('移到分组'),
+                          ),
+                        ],
                       ),
-                      OutlinedButton(
-                        onPressed: () => _deleteTotp(_selected!),
-                        child: const LText('删除'),
+                      CredentialActionSection(
+                        title: '危险操作',
+                        dangerous: true,
+                        children: [
+                          OutlinedButton(
+                            onPressed: () => _deleteTotp(_selected!),
+                            child: const LText('删除'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -1111,37 +1151,57 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                   ),
             actions: _selected == null
                 ? null
-                : Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      FilledButton.tonal(
-                        onPressed: () => _copyPublicKey(_selected!),
-                        child: const LText('复制公钥'),
+                      CredentialActionSection(
+                        title: '密钥使用',
+                        children: [
+                          FilledButton.tonal(
+                            onPressed: () => _copyPublicKey(_selected!),
+                            child: const LText('复制公钥'),
+                          ),
+                          OutlinedButton(onPressed: () async {
+                            if (!await requireTouchId(context, reason: '切换 SSH 签名密钥')) return;
+                            try { await AgentBridge.request({'type':'ssh_select_key','key_id':_selected!['id']}); if (mounted) setState(() => _status='已切换当前 SSH 签名密钥（重启后使用默认密钥）'); } catch(e) { vaultMessage(context,e); }
+                          }, child: const LText('用于当前 SSH 签名')),
+                        ],
                       ),
-                      OutlinedButton(onPressed: () async {
-                        if (!await requireTouchId(context, reason: '切换 SSH 签名密钥')) return;
-                        try { await AgentBridge.request({'type':'ssh_select_key','key_id':_selected!['id']}); if (mounted) setState(() => _status='已切换当前 SSH 签名密钥（重启后使用默认密钥）'); } catch(e) { vaultMessage(context,e); }
-                      }, child: const LText('用于当前 SSH 签名')),
-                      OutlinedButton(onPressed: () => transferSshKey(context, keyId: _selected!['id'].toString()), child: const LText('导出私钥')),
-                      OutlinedButton(onPressed: () => editItemDetails(context, _selected!), child: const LText('备注与关联')),
-                      OutlinedButton(
-                        onPressed: () {
-                          final itemId = _selected!['item_id'] as String?;
-                          if (itemId == null) return;
-                          showMoveItemToGroupDialog(
-                            context,
-                            scope: 'ssh',
-                            itemId: itemId,
-                            currentGroupId: _selected!['group_id'] as String?,
-                          ).then((_) => _refresh());
-                        },
-                        child: const LText('移到分组'),
+                      CredentialActionSection(
+                        title: '密钥导出',
+                        children: [
+                          OutlinedButton(onPressed: () => transferSshKey(context, keyId: _selected!['id'].toString()), child: const LText('导出私钥')),
+                        ],
                       ),
-                      OutlinedButton.icon(
-                        onPressed: () => _delete(_selected!),
-                        icon: const Icon(Icons.delete_outline_rounded),
-                        label: const LText('删除'),
+                      CredentialActionSection(
+                        title: '资料管理',
+                        children: [
+                          OutlinedButton(onPressed: () => editItemDetails(context, _selected!), child: const LText('备注与关联')),
+                          OutlinedButton(
+                            onPressed: () {
+                              final itemId = _selected!['item_id'] as String?;
+                              if (itemId == null) return;
+                              showMoveItemToGroupDialog(
+                                context,
+                                scope: 'ssh',
+                                itemId: itemId,
+                                currentGroupId: _selected!['group_id'] as String?,
+                              ).then((_) => _refresh());
+                            },
+                            child: const LText('移到分组'),
+                          ),
+                        ],
+                      ),
+                      CredentialActionSection(
+                        title: '危险操作',
+                        dangerous: true,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () => _delete(_selected!),
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            label: const LText('删除'),
+                          ),
+                        ],
                       ),
                     ],
                   ),

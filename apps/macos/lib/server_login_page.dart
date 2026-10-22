@@ -578,35 +578,55 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                   },
                 ),
           actions: _selected == null
-              ? null
-              : Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: _openSshAuto,
-                      icon: const Icon(Icons.bolt),
-                      label: const LText('一键连接'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _openInTerminal,
-                      icon: const Icon(Icons.terminal),
-                      label: const LText('仅打开 SSH'),
-                    ),
-                    OutlinedButton(
-                        onPressed: _copySshHint,
-                        child: const LText('复制 SSH 命令')),
-                    OutlinedButton(
-                        onPressed: _copyPassword, child: const LText('复制密码')),
-                    FilledButton.tonal(
-                        onPressed: _copyMfa, child: const LText('复制 MFA')),
-                    OutlinedButton(
-                        onPressed: () => _addOrEdit(existing: _selected),
-                        child: const LText('编辑')),
-                    OutlinedButton(
-                        onPressed: _deleteSelected, child: const LText('删除')),
-                  ],
-                ),
+                ? null
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      CredentialActionSection(
+                        title: '连接服务器',
+                        children: [
+                          FilledButton.icon(
+                            onPressed: _openSshAuto,
+                            icon: const Icon(Icons.bolt),
+                            label: const LText('一键连接'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: _openInTerminal,
+                            icon: const Icon(Icons.terminal),
+                            label: const LText('仅打开 SSH'),
+                          ),
+                        ],
+                      ),
+                      CredentialActionSection(
+                        title: '复制信息',
+                        children: [
+                          OutlinedButton(
+                              onPressed: _copySshHint,
+                              child: const LText('复制 SSH 命令')),
+                          OutlinedButton(
+                              onPressed: _copyPassword, child: const LText('复制密码')),
+                          FilledButton.tonal(
+                              onPressed: _copyMfa, child: const LText('复制 MFA')),
+                        ],
+                      ),
+                      CredentialActionSection(
+                        title: '配置管理',
+                        children: [
+                          OutlinedButton(
+                              onPressed: () => _addOrEdit(existing: _selected),
+                              child: const LText('编辑')),
+                        ],
+                      ),
+                      CredentialActionSection(
+                        title: '危险操作',
+                        dangerous: true,
+                        children: [
+                          OutlinedButton(
+                              onPressed: _deleteSelected, child: const LText('删除')),
+                        ],
+                      ),
+                    ],
+                  ),
         )),
       ]),
     );

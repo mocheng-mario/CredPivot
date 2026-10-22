@@ -123,6 +123,51 @@ class CredentialWorkspace extends StatelessWidget {
       });
 }
 
+/// 同一凭据的操作按用途分组，删除操作单独显示。
+class CredentialActionSection extends StatelessWidget {
+  const CredentialActionSection({
+    super.key,
+    required this.title,
+    required this.children,
+    this.dangerous = false,
+  });
+
+  final String title;
+  final List<Widget> children;
+  final bool dangerous;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = dangerous
+        ? Theme.of(context).colorScheme.error
+        : AppColors.muted;
+    final actions = Wrap(spacing: 8, runSpacing: 8, children: children);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (dangerous) const Divider(height: 20),
+          LText(title,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: color, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          if (dangerous)
+            OutlinedButtonTheme(
+              data: OutlinedButtonThemeData(
+                  style: OutlinedButton.styleFrom(
+                      foregroundColor: color,
+                      side: BorderSide(color: color.withValues(alpha: .4)))),
+              child: actions,
+            )
+          else
+            actions,
+        ],
+      ),
+    );
+  }
+}
+
 class CredentialDetails extends StatelessWidget {
   const CredentialDetails(
       {super.key,

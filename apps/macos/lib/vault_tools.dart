@@ -582,6 +582,20 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
   Widget build(BuildContext context) => Padding(
       padding: const EdgeInsets.all(24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        AppSectionHeader(
+          title: '笔记 / 管理',
+          subtitle: '查看安全笔记、凭据报告与回收站',
+          action: Wrap(spacing: 8, runSpacing: 8, children: [
+            OutlinedButton.icon(
+                onPressed: busy ? null : load,
+                icon: const Icon(Icons.refresh),
+                label: const LText('加载 / 刷新')),
+            FilledButton.icon(
+                onPressed: busy ? null : note,
+                icon: const Icon(Icons.note_add_outlined),
+                label: const LText('新建安全笔记')),
+          ]),
+        ),
         Wrap(spacing: 8, runSpacing: 8, children: [
           for (final entry in {
             'items': '全部 / 安全笔记',
@@ -597,15 +611,8 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
                         setState(() => mode = entry.key);
                         load();
                       }),
-          OutlinedButton.icon(
-              onPressed: busy ? null : load,
-              icon: const Icon(Icons.refresh),
-              label: const LText('加载 / 刷新')),
-          FilledButton.icon(
-              onPressed: busy ? null : note,
-              icon: const Icon(Icons.note_add_outlined),
-              label: const LText('新建安全笔记'))
         ]),
+        const SizedBox(height: 12),
         if (mode == 'items')
           Row(children: [
             Expanded(
