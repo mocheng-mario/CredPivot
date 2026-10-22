@@ -14,11 +14,15 @@ extension Notification.Name {
 
 final class CredPivotPlatform: NSObject {
   private let channel: FlutterMethodChannel
+  private var sshAuthorizationTimer: Timer?
+  private var showingSshAuthorization = false
+  private var shortcutController: CredPivotShortcuts?
 
   init(messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(name: "credpivot/agent", binaryMessenger: messenger)
     super.init()
     channel.setMethodCallHandler(handle)
+    DispatchQueue.main.async { [weak self] in self?.startInteractionServices() }
     NotificationCenter.default.addObserver(
       self,
       selector: #selector(vaultLockedExternally),
@@ -26,6 +30,66 @@ final class CredPivotPlatform: NSObject {
       object: nil
     )
   }
+
+  private func startInteractionServices() {
+    shortcutController = CredPivotShortcuts { [weak self] action in
+      if action == "lock" {
+        (NSApp.delegate as? AppDelegate)?.lockFromMenu()
+      } else {
+        self?.channel.invokeMethod("onShortcut", arguments: action)
+      }
+    }
+    shortcutController?.apply(AppPreferences.settings())
+    sshAuthorizationTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+      self?.consumeSshAuthorization()
+    }
+  }
+
+  private func consumeSshAuthorization() {
+    guard !showingSshAuthorization, !TouchIdGate.isAuthenticating, NSApp.modalWindow == nil,
+          let requests = LocalVaultUnlock.request(["type": "ssh_authorizations_pending"])?["requests"] as? [[String: Any]],
+          let request = requests.first, let id = request["id"] as? String else { return }
+    showingSshAuthorization = true
+    NSApp.activate(ignoringOtherApps: true)
+    let alert = NSAlert()
+    let policy = request["policy"] as? String ?? "confirm"
+    alert.messageText = policy == "unlock" ? "解锁保险库以使用 SSH 密钥？" : "允许 SSH 密钥签名？"
+    let scope = policy == "session" ? "允许后，仅同一连接在敏感授权期限内可复用。" : "仅允许这一次签名。"
+    let caller = request["caller"] as? String ?? "未知进程"
+    alert.informativeText = policy == "unlock"
+      ? "调用：\(caller)\n\n验证后提供 SSH 公钥，实际签名仍需另行授权。"
+      : "密钥：\(request["key_label"] as? String ?? "未知")\n\(request["fingerprint"] as? String ?? "")\n调用：\(caller)\n\n无法从 SSH Agent 协议可靠确认最终目标主机。\n\(scope)"
+    alert.addButton(withTitle: "允许")
+    alert.addButton(withTitle: "拒绝")
+    // runModal 使用独立运行循环；请求已断开或过期时主动关闭，避免留下失效弹窗。
+    let expiry = Timer(timeInterval: 0.5, repeats: true) { _ in
+      guard let pending = LocalVaultUnlock.request(["type": "ssh_authorizations_pending"])?["requests"] as? [[String: Any]],
+            pending.contains(where: { $0["id"] as? String == id }) else {
+        NSApp.abortModal()
+        alert.window.orderOut(nil)
+        return
+      }
+    }
+    RunLoop.main.add(expiry, forMode: .modalPanel)
+    let response = alert.runModal()
+    expiry.invalidate()
+    guard response == .alertFirstButtonReturn else {
+      _ = LocalVaultUnlock.request(["type": "ssh_authorization_resolve", "request_id": id, "approved": false])
+      showingSshAuthorization = false
+      return
+    }
+    let complete: (Bool) -> Void = { [weak self] ok in
+      _ = LocalVaultUnlock.request(["type": "ssh_authorization_resolve", "request_id": id, "approved": ok])
+      self?.showingSshAuthorization = false
+    }
+    if policy == "biometric" {
+      TouchIdGate.shared.authenticateForExtensionGate(reason: "允许本次 SSH 密钥签名", completion: complete)
+    } else {
+      TouchIdGate.shared.authenticateSensitiveOperation(reason: policy == "unlock" ? "解锁保险库以使用 SSH 密钥" : "允许 SSH 密钥签名", completion: complete)
+    }
+  }
+
+  deinit { sshAuthorizationTimer?.invalidate() }
 
   @objc private func vaultLockedExternally() {
     DispatchQueue.main.async {
@@ -55,6 +119,15 @@ final class CredPivotPlatform: NSObject {
     case "relaunchApp":
       AppRelauncher.relaunch()
       result(nil)
+    case "recordShortcut":
+      guard let args = call.arguments as? [String: Any],
+            let name = args["name"] as? String,
+            let bindings = args["bindings"] as? [String: String],
+            ["search", "lock", "new"].contains(name), let controller = shortcutController else {
+        result(FlutterError(code: "bad_args", message: "无法开始快捷键录入", details: nil))
+        return
+      }
+      result(controller.record(name: name, bindings: bindings))
     case "agentRequest":
       guard let json = call.arguments as? String else {
         result(FlutterError(code: "bad_args", message: "expected json string", details: nil))
@@ -90,6 +163,7 @@ final class CredPivotPlatform: NSObject {
         case "app_settings_set":
           var notices: [String] = []
           let next = AppPreferences.settings()
+          shortcutController?.apply(next)
           // 显式保存时也重试应用系统偏好，避免上次注册失败后只能反复切换开关。
           if let notice = LoginItemRegistrar.applyPreference() { notices.append(notice) }
           if (previousSettings?["chrome_extension_id"] as? String) != (next["chrome_extension_id"] as? String) {
@@ -1654,5 +1728,117 @@ enum SshAskpassLauncher {
 extension TerminalLauncher {
   fileprivate static func shellQuoteForPlan(_ s: String) -> String {
     "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+  }
+}
+
+// 只监听主窗口事件，不注册系统全局热键；原生录入期间暂停业务快捷键。
+final class CredPivotShortcuts {
+  private var localMonitor: Any?
+  private var localBindings: [String: (UInt16, NSEvent.ModifierFlags)] = [:]
+  private var recording = false
+  private let action: (String) -> Void
+  private let keys: [String: UInt16] = ["a":0,"s":1,"d":2,"f":3,"h":4,"g":5,"z":6,"x":7,"c":8,"v":9,"b":11,"q":12,"w":13,"e":14,"r":15,"y":16,"t":17,"1":18,"2":19,"3":20,"4":21,"6":22,"5":23,"9":25,"7":26,"8":28,"0":29,"o":31,"u":32,"i":34,"p":35,"l":37,"j":38,"k":40,"n":45,"m":46,"space":49]
+  private let modifiers: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+  private let labels = ["search": "搜索凭据", "lock": "锁定保险库", "new": "新建记录"]
+  private let reserved = ["command+c", "command+v", "command+x", "command+a", "command+z", "command+shift+z", "command+w", "command+q", "command+h", "command+m"]
+
+  init(action: @escaping (String) -> Void) {
+    self.action = action
+    localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+      guard let self = self, !self.recording, NSApp.modalWindow == nil,
+            let window = (NSApp.delegate as? AppDelegate)?.mainFlutterWindow,
+            NSApp.isActive, event.window === window, window.isKeyWindow else { return event }
+      let flags = event.modifierFlags.intersection(self.modifiers)
+      for (name, binding) in self.localBindings where binding.0 == event.keyCode && binding.1 == flags {
+        if !event.isARepeat { self.action(name) }
+        return nil
+      }
+      return event
+    }
+  }
+
+  private func parse(_ text: String) -> (UInt16, NSEvent.ModifierFlags)? {
+    let parts = text.split(separator: "+").map(String.init)
+    guard let last = parts.last, let key = keys[last], (2...5).contains(parts.count) else { return nil }
+    var flags: NSEvent.ModifierFlags = []
+    for part in parts.dropLast() {
+      switch part {
+      case "command": flags.insert(.command)
+      case "control": flags.insert(.control)
+      case "option": flags.insert(.option)
+      case "shift": flags.insert(.shift)
+      default: return nil
+      }
+    }
+    guard flags.contains(.command) || flags.contains(.control) else { return nil }
+    return (key, flags)
+  }
+
+  func apply(_ settings: [String: Any]) {
+    localBindings.removeAll()
+    for name in ["search", "lock", "new"] {
+      if let text = settings["shortcut_" + name] as? String, let binding = parse(text) {
+        localBindings[name] = binding
+      }
+    }
+  }
+
+  func record(name: String, bindings: [String: String]) -> String? {
+    guard !recording, NSApp.modalWindow == nil else { return nil }
+    recording = true
+    defer { recording = false }
+    let alert = NSAlert()
+    alert.messageText = "设置快捷键 · \(labels[name] ?? name)"
+    alert.informativeText = "请直接按下组合键，包含 ⌘ 或 ⌃，搭配字母、数字或空格。按 Esc 取消。"
+    let preview = NSTextField(wrappingLabelWithString: "等待按键…")
+    preview.frame = NSRect(x: 0, y: 0, width: 380, height: 60)
+    alert.accessoryView = preview
+    alert.addButton(withTitle: "使用此组合")
+    alert.addButton(withTitle: "取消")
+    alert.buttons.first?.isEnabled = false
+    var chosen: String?
+    let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+      guard let self = self, event.window === alert.window else { return event }
+      let flags = event.modifierFlags.intersection(self.modifiers)
+      if event.keyCode == 53 && flags.isEmpty {
+        NSApp.abortModal()
+        alert.window.orderOut(nil)
+        return nil
+      }
+      if event.keyCode == 36 && flags.isEmpty && chosen != nil { return event }
+      if event.isARepeat { return nil }
+      chosen = nil
+      alert.buttons.first?.isEnabled = false
+      guard let key = self.keys.first(where: { $0.value == event.keyCode })?.key,
+            flags.contains(.command) || flags.contains(.control) else {
+        preview.stringValue = "请使用 ⌘ 或 ⌃ 搭配字母、数字或空格。"
+        return nil
+      }
+      if self.reserved.contains(where: { self.parse($0).map { $0.0 == event.keyCode && $0.1 == flags } ?? false }) {
+        preview.stringValue = "此组合保留给系统编辑或窗口操作，请换一个组合。"
+        return nil
+      }
+      if let duplicate = bindings.first(where: { entry in
+        entry.key != name && (self.parse(entry.value).map { $0.0 == event.keyCode && $0.1 == flags } ?? false)
+      }) {
+        preview.stringValue = "与「\(self.labels[duplicate.key] ?? duplicate.key)」重复，请换一个组合。"
+        return nil
+      }
+      var parts: [String] = []
+      if flags.contains(.control) { parts.append("control") }
+      if flags.contains(.option) { parts.append("option") }
+      if flags.contains(.shift) { parts.append("shift") }
+      if flags.contains(.command) { parts.append("command") }
+      chosen = (parts + [key]).joined(separator: "+")
+      preview.stringValue = (flags.contains(.control) ? "⌃" : "") + (flags.contains(.option) ? "⌥" : "") + (flags.contains(.shift) ? "⇧" : "") + (flags.contains(.command) ? "⌘" : "") + (key == "space" ? "Space" : key.uppercased())
+      alert.buttons.first?.isEnabled = true
+      return nil
+    }
+    defer { if let monitor = monitor { NSEvent.removeMonitor(monitor) } }
+    return alert.runModal() == .alertFirstButtonReturn ? chosen : nil
+  }
+
+  deinit {
+    if let localMonitor = localMonitor { NSEvent.removeMonitor(localMonitor) }
   }
 }

@@ -247,7 +247,8 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final current = await AgentBridge.fetchAppSettings();
       if (!mounted) return;
-      if (jsonEncode(current['settings']) != jsonEncode(_saved)) {
+      Map<String, dynamic> general(Map<String, dynamic> value) => Map<String, dynamic>.from(value)..removeWhere((key, _) => key.startsWith('shortcut_'));
+      if (jsonEncode(general(Map<String, dynamic>.from(current['settings'] as Map))) != jsonEncode(general(_saved))) {
         setState(() => _message = '配置已在其他位置更新，请重新加载后再保存。');
         return;
       }
@@ -271,7 +272,10 @@ class _SettingsPageState extends State<SettingsPage> {
         if (confirmed != true) return;
       }
       if (!mounted) return;
-      final next = Map<String, dynamic>.from(_draft);
+      final next = Map<String, dynamic>.from(current['settings'] as Map);
+      for (final entry in _draft.entries) {
+        if (!entry.key.startsWith('shortcut_')) next[entry.key] = entry.value;
+      }
       for (final key in _numericKeys) {
         final value = int.parse(_numbers[key]!.text);
         next[key] = key == 'vault_idle_seconds' || key == 'browser_idle_seconds'
@@ -392,6 +396,16 @@ class _SettingsPageState extends State<SettingsPage> {
                       _number('master_password_idle_hours', '长时间未解锁后验证主密码',
                           '1～24 小时。从上次成功解锁计算，浏览或复制不会延长。', '小时', 1, 24),
                     ])),
+                const SizedBox(height: 16),
+                AppPanel(title: 'SSH 签名授权', icon: Icons.security_outlined, child: Column(children: [
+                  DropdownButtonFormField<String>(
+                    value: _draft['ssh_sign_policy']?.toString() ?? 'session',
+                    decoration: InputDecoration(labelText: tr('默认授权策略')),
+                    items: const [DropdownMenuItem(value:'session',child:LText('同一连接限时复用')),DropdownMenuItem(value:'confirm',child:LText('每次签名确认')),DropdownMenuItem(value:'biometric',child:LText('每次确认并重新验证身份'))],
+                    onChanged: (v) => setState(() { _draft['ssh_sign_policy'] = v; _dirty = true; })),
+                  const SizedBox(height: 12),
+                  const LText('每把密钥可在详细资料中覆盖。会话授权使用敏感操作的有效期，锁定或切换密钥立即失效；不据此推断最终目标主机。'),
+                ])),
                 const SizedBox(height: 16),
                 AppPanel(title: '密码与外观', icon: Icons.tune_rounded, child: Column(children: [
                   _number('password_history_limit', '默认历史密码保留数量', '0～50；0 表示不保留。下次密码启用时按新上限清理，可按单条凭据覆盖。', '条', 0, 50),

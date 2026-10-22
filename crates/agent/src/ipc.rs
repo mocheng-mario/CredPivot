@@ -227,7 +227,27 @@ pub async fn handle_request(
 ) -> AgentResponse {
     let operation = req.operation();
     crate::diagnostics::debug(operation, "request started");
+    let mutates = matches!(&req,
+        AgentRequest::CredentialSave { .. } | AgentRequest::CredentialUpdate { .. } | AgentRequest::BrowserCredentialUpdate { .. }
+        | AgentRequest::CredentialTrash { .. } | AgentRequest::TotpCreate { .. } | AgentRequest::ImportBitwarden { .. }
+        | AgentRequest::SshKeyGenerate { .. } | AgentRequest::SshSelectKey { .. }
+        | AgentRequest::RecoveryCodesCreate { .. } | AgentRequest::RecoveryCodesUpdate { .. }
+        | AgentRequest::ServerProfileCreate { .. } | AgentRequest::ServerProfileUpdate { .. })
+        || matches!(&req, AgentRequest::CredentialGroupCreate { .. }
+            | AgentRequest::CredentialGroupDelete { .. } | AgentRequest::CredentialItemSetGroup { .. })
+        || matches!(&req,AgentRequest::VaultManage { action } if matches!(action,
+            credpivot_core::VaultAction::ItemDetailsSave { .. } | credpivot_core::VaultAction::TotpUpdate { .. }
+            | credpivot_core::VaultAction::CandidateCreate { .. } | credpivot_core::VaultAction::CandidateActivate { .. }
+            | credpivot_core::VaultAction::CandidateDiscard { .. } | credpivot_core::VaultAction::HistoryRestore { .. }
+            | credpivot_core::VaultAction::TrashRestore { .. } | credpivot_core::VaultAction::TrashPurge { .. }
+            | credpivot_core::VaultAction::NoteCreate { .. } | credpivot_core::VaultAction::BitwardenImport { .. }
+            | credpivot_core::VaultAction::SshImport { .. } | credpivot_core::VaultAction::RecoveryEntryUse { .. }));
     let response = handle_request_inner(st, req, peer).await;
+    if mutates && matches!(&response,AgentResponse::Ok { .. }) {
+        let mut v = st.vault.lock().await;
+        v.data_revision = uuid::Uuid::new_v4().to_string();
+        v.ssh_authorization.clear();
+    }
     match &response {
         AgentResponse::Ok { .. } => match operation {
             "credential_save" | "credential_update" | "credential_trash"
@@ -277,6 +297,7 @@ async fn handle_request_inner(
         | AgentRequest::SensitiveAuthGrant | AgentRequest::ExtensionGateGrant { .. }
         | AgentRequest::AppSettingsGet | AgentRequest::AppSettingsBackup | AgentRequest::AppSettingsSet { .. }
         | AgentRequest::VaultManage { .. }
+        | AgentRequest::SshAuthorizationsPending | AgentRequest::SshAuthorizationResolve { .. }
         | AgentRequest::UnlockPassword { .. } | AgentRequest::VaultCreate { .. }) && !peer.from_app {
         return AgentResponse::err("forbidden", "authentication control is App-only");
     }
@@ -407,6 +428,21 @@ async fn handle_request_inner(
                 "expires_in_secs": ttl,
                 "idle_secs": idle,
             }))
+        }
+        AgentRequest::SshAuthorizationsPending => {
+            let mut v = st.vault.lock().await;
+            v.ssh_authorization.expire();
+            AgentResponse::ok(json!({"requests":v.ssh_authorization.pending.values().collect::<Vec<_>>()}))
+        }
+        AgentRequest::SshAuthorizationResolve { request_id, approved } => {
+            let mut v = st.vault.lock().await;
+            v.ssh_authorization.expire();
+            if !v.ssh_authorization.pending.contains_key(&request_id) {
+                return AgentResponse::err("request_gone", "SSH 请求已断开或过期");
+            }
+            if approved && (!v.unlocked || !v.authorize_sensitive_operation()) { return AgentResponse::err("auth_required","请先验证身份"); }
+            if v.ssh_authorization.resolve(&request_id,approved) { AgentResponse::ok(json!({"resolved":true})) }
+            else { AgentResponse::err("request_gone","SSH 请求已断开或过期") }
         }
         AgentRequest::Status => {
             let v = st.vault.lock().await;

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -24,36 +26,45 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
   List<Map<String, dynamic>> _sshKeys = [];
   Map<String, dynamic>? _selected;
   String _status = '';
+  int _refreshGeneration = 0;
+
+  void _onVaultChanged() { if (mounted) _refresh(); }
+
+  @override
+  void dispose() {
+    AgentBridge.vaultChanges.removeListener(_onVaultChanged);
+    super.dispose();
+  }
 
   @override
   void initState() {
     super.initState();
+    AgentBridge.vaultChanges.addListener(_onVaultChanged);
     _refresh();
   }
 
   Future<void> _refresh() async {
+    final generation = ++_refreshGeneration;
     try {
-      final selectedId = _selected?['id'] as String?;
-      _items = await AgentBridge.listServerProfiles();
-      _logins = await AgentBridge.listCredentials();
-      _totps = await AgentBridge.listTotp();
-      _sshKeys = await AgentBridge.listSshKeys();
-      if (selectedId != null) {
-        Map<String, dynamic>? next;
-        for (final row in _items) {
-          if (row['id'] == selectedId) {
-            next = row;
-            break;
-          }
+      final items = await AgentBridge.listServerProfiles();
+      final logins = await AgentBridge.listCredentials();
+      final totps = await AgentBridge.listTotp();
+      final sshKeys = await AgentBridge.listSshKeys();
+      if (!mounted || generation != _refreshGeneration) return;
+      final selectedId = _selected?['id'];
+      setState(() {
+        _items = items;
+        _logins = logins;
+        _totps = totps;
+        _sshKeys = sshKeys;
+        _selected = null;
+        for (final row in items) {
+          if (row['id'] == selectedId) _selected = row;
         }
-        _selected = next;
-      }
-      _status = '';
-      setState(() {});
+        _status = '';
+      });
     } on AgentException catch (e) {
-      setState(
-        () => _status = '${AgentBridge.friendlyMessage(e)}\n（详情见「诊断」标签中的 Agent 日志）',
-      );
+      if (mounted && generation == _refreshGeneration) setState(() => _status = AgentBridge.friendlyMessage(e));
     }
   }
 
@@ -114,6 +125,9 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
 
   Future<void> _addOrEdit({Map<String, dynamic>? existing}) async {
     final isEdit = existing != null;
+    final logins = List<Map<String, dynamic>>.from(_logins);
+    final totps = List<Map<String, dynamic>>.from(_totps);
+    final sshKeys = List<Map<String, dynamic>>.from(_sshKeys);
 
     final labelCtl = TextEditingController(text: existing?['label']?.toString() ?? '');
     final hostCtl = TextEditingController(text: existing?['host']?.toString() ?? '');
@@ -122,20 +136,77 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     final rawLogin = existing?['linked_login_id'] as String?;
     final rawTotp = existing?['linked_totp_id'] as String?;
     final rawSsh = existing?['linked_ssh_key_id'] as String?;
-    var linkedLogin = dropdownValueIfPresent(rawLogin, _logins);
-    var linkedTotp = dropdownValueIfPresent(rawTotp, _totps);
-    var linkedSsh = dropdownValueIfPresent(rawSsh, _sshKeys);
+    var linkedLogin = dropdownValueIfPresent(rawLogin, logins);
+    var linkedTotp = dropdownValueIfPresent(rawTotp, totps);
+    var linkedSsh = dropdownValueIfPresent(rawSsh, sshKeys);
     final hadStaleLink = isEdit &&
         (staleLinkWasCleared(rawLogin, linkedLogin) ||
             staleLinkWasCleared(rawTotp, linkedTotp) ||
             staleLinkWasCleared(rawSsh, linkedSsh));
 
+    String snapshot() => jsonEncode([labelCtl.text,hostCtl.text,portCtl.text,manualUserCtl.text,linkedLogin,linkedTotp,linkedSsh]);
+    final initialSnapshot = snapshot();
+    var closing = false, confirmingDiscard = false, saving = false;
+    var formError = '';
+    ModalRoute<bool>? dialogRoute;
+    Future<void> cancel(BuildContext ctx) async {
+      if (closing || confirmingDiscard || saving) return;
+      confirmingDiscard = true;
+      try {
+        if (snapshot() != initialSnapshot && !await confirmDiscardChanges(ctx)) return;
+        if (ctx.mounted) { closing = true; Navigator.pop(ctx, false); }
+      } finally { confirmingDiscard = false; }
+    }
+    Future<void> save(BuildContext ctx, StateSetter setLocal) async {
+      if (saving || closing) return;
+      final port = int.tryParse(portCtl.text.trim());
+      final noLinkedLogin = linkedLogin == null || linkedLogin!.isEmpty;
+      if (hostCtl.text.trim().isEmpty || port == null || port < 1 || port > 65535 ||
+          (noLinkedLogin && manualUserCtl.text.trim().isEmpty)) {
+        setLocal(() => formError = '请填写主机、有效端口（1～65535）和登录用户名');
+        return;
+      }
+      setLocal(() { saving = true; formError = ''; });
+      try {
+        if (isEdit && !await requireTouchId(ctx, reason: '保存服务器配置')) return;
+        if (!ctx.mounted || closing) return;
+        if (isEdit) {
+          await AgentBridge.updateServerProfile(
+            id: existing!['id'] as String,
+            expectedRevision: existing['current_revision'] as String,
+            label: labelCtl.text.trim(), host: hostCtl.text.trim(), port: port,
+            manualUsername: noLinkedLogin ? manualUserCtl.text.trim() : '',
+            linkedLoginId: linkedLogin, linkedTotpId: linkedTotp, linkedSshKeyId: linkedSsh,
+          );
+        } else {
+          await AgentBridge.createServerProfile(
+            label: labelCtl.text.trim().isEmpty ? hostCtl.text.trim() : labelCtl.text.trim(),
+            host: hostCtl.text.trim(), port: port,
+            manualUsername: noLinkedLogin ? manualUserCtl.text.trim() : '',
+            linkedLoginId: linkedLogin, linkedTotpId: linkedTotp, linkedSshKeyId: linkedSsh,
+          );
+        }
+        if (ctx.mounted && !closing) {
+          closing = true;
+          Navigator.pop(ctx, true);
+          if (hadStaleLink && mounted) ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: LText('已清除失效的关联凭据。')));
+        }
+      } catch (e) {
+        if (ctx.mounted && !closing) setLocal(() => formError = e is AgentException ? AgentBridge.friendlyMessage(e) : '保存失败，请重试');
+      } finally {
+        if (ctx.mounted && !closing) setLocal(() => saving = false);
+      }
+    }
+    try {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
+      builder: (ctx) {
+        dialogRoute = ModalRoute.of<bool>(ctx);
+        return PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(ctx); }, child: StatefulBuilder(
         builder: (ctx, setLocal) => AlertDialog(
           title: LText(isEdit ? '编辑服务器' : '添加服务器 / 堡垒机'),
-          content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(
+          content: SizedBox(width: appEditDialogWidth(ctx), child: AbsorbPointer(absorbing: saving, child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: appFormFields([
@@ -156,7 +227,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                   decoration: InputDecoration(labelText: tr('关联登录密码')),
                   items: [
                     const DropdownMenuItem(value: null, child: LText('（不关联，使用下方手动用户名）')),
-                    ..._logins.map(
+                    ...logins.map(
                       (c) => DropdownMenuItem(
                         value: c['id'] as String,
                         child: Text(
@@ -170,11 +241,11 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                   onChanged: (v) => setLocal(() {
                     linkedLogin = v;
                     if ((linkedTotp == null || linkedTotp!.isEmpty) && v != null && v.isNotEmpty) {
-                      for (final row in _logins) {
+                      for (final row in logins) {
                         if (row['id'] == v) {
                           linkedTotp = dropdownValueIfPresent(
                             row['linked_totp_id'] as String?,
-                            _totps,
+                            totps,
                           );
                           break;
                         }
@@ -201,7 +272,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                   ),
                   items: [
                     const DropdownMenuItem(value: null, child: LText('（不关联）')),
-                    ..._totps.map(
+                    ...totps.map(
                       (t) => DropdownMenuItem(
                         value: t['id'] as String,
                         child: LText(
@@ -220,7 +291,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                   decoration: InputDecoration(labelText: tr('关联 SSH 密钥')),
                   items: [
                     const DropdownMenuItem(value: null, child: LText('（不关联）')),
-                    ..._sshKeys.map(
+                    ...sshKeys.map(
                       (s) => DropdownMenuItem(
                         value: s['id'] as String,
                         child: Text(
@@ -233,62 +304,27 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                   ],
                   onChanged: (v) => setLocal(() => linkedSsh = v),
                 ),
+                if (formError.isNotEmpty) Text(formError, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
               ]),
             ),
-          )),
+          ))),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('保存')),
+            TextButton(onPressed: saving ? null : () => cancel(ctx), child: const LText('取消')),
+            FilledButton(onPressed: saving ? null : () => save(ctx, setLocal), child: LText(saving ? '保存中…' : '保存')),
           ],
         ),
-      ),
+      ));
+      },
     );
-    if (ok != true) return;
-    if (isEdit && !await requireTouchId(context, reason: '保存服务器配置')) return;
-
-    if (hadStaleLink && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: LText('部分关联凭据已删除，保存后将清除无效关联；请按需重新选择。'),
-        ),
-      );
+    if (ok == true && mounted) await _refresh();
+    } finally {
+      await dialogRoute?.completed;
+      labelCtl.dispose();
+      hostCtl.dispose();
+      portCtl.dispose();
+      manualUserCtl.dispose();
     }
 
-    final port = int.tryParse(portCtl.text.trim()) ?? 22;
-    final noLinkedLogin = linkedLogin == null || (linkedLogin?.isEmpty ?? true);
-    final manualUser = manualUserCtl.text.trim();
-    if (noLinkedLogin && manualUser.isEmpty) {
-      setState(() => _status = '未关联登录密码时，请填写手动 SSH 用户名');
-      return;
-    }
-    try {
-      if (isEdit) {
-        await AgentBridge.updateServerProfile(
-          id: existing!['id'] as String,
-          expectedRevision: existing['current_revision'] as String,
-          label: labelCtl.text.trim(),
-          host: hostCtl.text.trim(),
-          port: port,
-          manualUsername: noLinkedLogin ? manualUser : '',
-          linkedLoginId: linkedLogin,
-          linkedTotpId: linkedTotp,
-          linkedSshKeyId: linkedSsh,
-        );
-      } else {
-        await AgentBridge.createServerProfile(
-          label: labelCtl.text.trim().isEmpty ? hostCtl.text.trim() : labelCtl.text.trim(),
-          host: hostCtl.text.trim(),
-          port: port,
-          manualUsername: noLinkedLogin ? manualUser : '',
-          linkedLoginId: linkedLogin,
-          linkedTotpId: linkedTotp,
-          linkedSshKeyId: linkedSsh,
-        );
-      }
-      await _refresh();
-    } on AgentException catch (e) {
-      setState(() => _status = AgentBridge.friendlyMessage(e));
-    }
   }
 
   Future<void> _deleteSelected() async {

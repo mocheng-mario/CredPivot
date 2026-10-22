@@ -52,6 +52,188 @@ Future<void> _showTextRevealDialog(
   );
 }
 
+Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existing}) async {
+    final isEdit = existing != null;
+    List<Map<String, dynamic>> totps = [];
+    List<Map<String, dynamic>> groups = [];
+    try {
+      totps = await AgentBridge.listTotp();
+      groups = await loadCredentialGroups('login');
+    } on AgentException catch (e) {
+      if (context.mounted) vaultMessage(context, e);
+      return false;
+    }
+    List<Map<String, dynamic>> websiteRules = [newWebsiteRule()];
+    List<String> linkedMfaIds = [];
+    var passwordActiveSince = DateTime.now().millisecondsSinceEpoch;
+    if (isEdit) {
+      try {
+        final result = await AgentBridge.manage({'action': 'login_website_rules', 'credential_id': existing!['id']});
+        websiteRules = (result['rules'] as List).map((row) => Map<String, dynamic>.from(row as Map)).toList();
+        linkedMfaIds = (result['linked_mfa_ids'] as List? ?? []).cast<String>();
+      } on AgentException catch (e) {
+        if (context.mounted) vaultMessage(context, e);
+        return false;
+      }
+    }
+    if (!context.mounted) return false;
+    var validating = false;
+    var closing = false;
+    var formError = '';
+    ModalRoute<bool>? dialogRoute;
+    final nameCtl = TextEditingController(text: existing?['display_name']?.toString() ?? '');
+    final userCtl = TextEditingController(text: existing?['username']?.toString() ?? '');
+    final passCtl = TextEditingController();
+    final rawGroupId = existing?['group_id'] as String?;
+    var groupId = dropdownValueIfPresent(rawGroupId, groups);
+    final rawTotp = existing?['linked_totp_id'] as String?;
+    final linkedTotp = dropdownValueIfPresent(rawTotp, totps);
+    String snapshot() => jsonEncode([nameCtl.text,userCtl.text,passCtl.text,groupId,websiteRules,linkedMfaIds,passwordActiveSince]);
+    final initialSnapshot = snapshot();
+    var confirmingDiscard = false;
+    Future<void> cancel(BuildContext ctx) async {
+      if (validating || closing || confirmingDiscard) return;
+      confirmingDiscard = true;
+      try {
+        if (snapshot() != initialSnapshot && !await confirmDiscardChanges(ctx)) return;
+        if (ctx.mounted) { closing = true; Navigator.pop(ctx, false); }
+      } finally { confirmingDiscard = false; }
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        dialogRoute ??= ModalRoute.of<bool>(ctx);
+        return StatefulBuilder(
+        builder: (ctx, setLocal) => PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(ctx); }, child: AlertDialog(
+        title: LText(isEdit ? '编辑登录' : '添加登录'),
+        content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: appFormFields([
+              TextField(
+                controller: nameCtl,
+                enabled: !validating,
+                decoration: InputDecoration(labelText: tr('名称'), hintText: tr('例如：公司 VPN 账号')),
+              ),
+              DropdownButtonFormField<String?>(
+                isExpanded: true,
+                value: groupId,
+                decoration: InputDecoration(labelText: tr('分组')),
+                items: [
+                  const DropdownMenuItem(value: null, child: LText('（未分组）')),
+                  ...groups.map(
+                    (g) => DropdownMenuItem(
+                      value: g['id'] as String,
+                      child: Text(
+                        g['name']?.toString() ?? '',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+                onChanged: validating ? null : (v) => setLocal(() => groupId = v),
+              ),
+              TextField(enabled: !validating, controller: userCtl, decoration: InputDecoration(labelText: tr('用户名'))),
+              TextField(
+                controller: passCtl,
+                enabled: !validating,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: tr(isEdit ? '候选密码（留空则不修改）' : '密码'),
+                  helperText: isEdit ? tr('确认在网站应用后，从「候选与历史」启用') : null,
+                  suffixIcon: IconButton(tooltip: tr('生成密码'), icon: const Icon(Icons.auto_awesome), onPressed: validating ? null : () async {
+                    final generated = await generatePasswordDialog(ctx);
+                    if (ctx.mounted && !closing && generated != null) passCtl.text = generated;
+                  }),
+                ),
+              ),
+              if (!isEdit) PasswordActiveDateField(value: passwordActiveSince, enabled: !validating,
+                onChanged: (v) => setLocal(() => passwordActiveSince = v)),
+              WebsiteRulesEditor(rules: websiteRules, enabled: !validating),
+              MfaBindingsEditor(linkedIds: linkedMfaIds, mfas: totps, enabled: !validating,
+                onEdit: (mfa) async {
+                  if (validating || closing) return;
+                  setLocal(() => validating = true);
+                  try {
+                    if (await showTotpEditor(ctx, existing: mfa)) {
+                      final updated = await AgentBridge.listTotp();
+                      if (ctx.mounted) setLocal(() => totps = updated);
+                    }
+                  } finally {
+                    if (ctx.mounted && !closing) setLocal(() => validating = false);
+                  }
+                }),
+              if (formError.isNotEmpty) Text(formError, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+            ]),
+          ),
+        )),
+        actions: [
+          TextButton(onPressed: validating || closing ? null : () => cancel(ctx), child: const LText('取消')),
+          FilledButton(onPressed: validating || closing ? null : () async {
+            if (validating || closing) return;
+            setLocal(() { validating = true; formError = ''; });
+            try {
+              final validationError = await websiteRulesError(websiteRules);
+              if (!ctx.mounted) return;
+              if (validationError == null) {
+                if (isEdit && !await requireTouchId(ctx, reason: '保存登录凭据与 MFA 关联修改')) return;
+                final origin = websiteRules.first['uri'].toString().trim();
+                final user = userCtl.text.trim();
+                final displayName = nameCtl.text.trim();
+                if (isEdit) {
+                  await AgentBridge.updateLogin(
+                    credentialId: existing!['id'] as String,
+                    expectedRevision: existing['current_revision'] as String,
+                    origin: origin,
+                    websiteRules: websiteRules,
+                    linkedMfaIds: linkedMfaIds,
+                    username: user,
+                    displayName: displayName,
+                    groupId: groupId,
+                    connectionHost: existing['connection_host']?.toString() ?? '',
+                    linkedTotpId: linkedTotp,
+                    password: passCtl.text.isEmpty ? null : passCtl.text,
+                  );
+                } else {
+                  await AgentBridge.createLogin(
+                    origin: origin,
+                    websiteRules: websiteRules,
+                    linkedMfaIds: linkedMfaIds,
+                    username: user,
+                    password: passCtl.text,
+                    passwordActiveSinceMs: passwordActiveSince,
+                    displayName: displayName,
+                    groupId: groupId,
+                    linkedTotpId: linkedTotp,
+                  );
+                }
+                if (ctx.mounted && !closing) {
+                  closing = true;
+                  Navigator.pop(ctx, true);
+                }
+                return;
+              }
+              setLocal(() => formError = validationError);
+            } catch (e) {
+              if (ctx.mounted && !closing) setLocal(() => formError = e is AgentException ? e.message : '保存失败，请重试');
+            } finally {
+              if (ctx.mounted && !closing) setLocal(() => validating = false);
+            }
+          }, child: LText(validating ? '保存中…' : '保存')),
+        ],
+      )),
+        );
+      },
+    );
+    // pop 的结果早于退出动画；待路由移除后再释放仍被输入框使用的控制器。
+    await dialogRoute?.completed;
+    for (final controller in [nameCtl, userCtl, passCtl]) { controller.dispose(); }
+    return ok == true;
+  }
+
+
 /// 凭据 Tab：登录 / MFA / SSH 分栏，均可手动添加。
 class CredentialsTab extends StatelessWidget {
   const CredentialsTab({super.key, required this.unlocked, this.onUnlock});
@@ -125,27 +307,33 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
   Map<String, dynamic>? _selected;
   String _status = '';
   bool _busy = false;
+  int _refreshGeneration = 0;
+
+  void _onVaultChanged() { if (mounted) _refresh(); }
 
   @override
   void initState() {
     super.initState();
+    AgentBridge.vaultChanges.addListener(_onVaultChanged);
     _refresh();
   }
 
   @override
   void dispose() {
+    AgentBridge.vaultChanges.removeListener(_onVaultChanged);
     _search.dispose();
     super.dispose();
   }
 
   Future<void> _refresh() async {
     if (!mounted) return;
+    final generation = ++_refreshGeneration;
     setState(() => _busy = true);
     try {
       final q = _search.text.trim();
       final items = await AgentBridge.listCredentials(q.isEmpty ? null : q);
       final groups = await loadCredentialGroups('login');
-      if (!mounted) return;
+      if (!mounted || generation != _refreshGeneration) return;
       final selectedId = _selected?['id'];
       _items = items;
       _groups = groups;
@@ -160,181 +348,14 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
       _filterGroupId = dropdownValueIfPresent(_filterGroupId, _groups);
       _status = '';
     } on AgentException catch (e) {
-      _status = AgentBridge.friendlyMessage(e);
+      if (generation == _refreshGeneration) _status = AgentBridge.friendlyMessage(e);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted && generation == _refreshGeneration) setState(() => _busy = false);
     }
   }
 
   Future<void> _addOrEdit({Map<String, dynamic>? existing}) async {
-    final isEdit = existing != null;
-    List<Map<String, dynamic>> totps = [];
-    try {
-      totps = await AgentBridge.listTotp();
-    } on AgentException catch (e) {
-      setState(() => _status = AgentBridge.friendlyMessage(e));
-      return;
-    }
-    List<Map<String, dynamic>> websiteRules = [newWebsiteRule()];
-    List<String> linkedMfaIds = [];
-    var passwordActiveSince = DateTime.now().millisecondsSinceEpoch;
-    if (isEdit) {
-      try {
-        final result = await AgentBridge.manage({'action': 'login_website_rules', 'credential_id': existing!['id']});
-        websiteRules = (result['rules'] as List).map((row) => Map<String, dynamic>.from(row as Map)).toList();
-        linkedMfaIds = (result['linked_mfa_ids'] as List? ?? []).cast<String>();
-      } on AgentException catch (e) {
-        if (mounted) setState(() => _status = e.message);
-        return;
-      }
-    }
-    if (!mounted) return;
-    var validating = false;
-    var closing = false;
-    var formError = '';
-    ModalRoute<bool>? dialogRoute;
-    final nameCtl = TextEditingController(text: existing?['display_name']?.toString() ?? '');
-    final userCtl = TextEditingController(text: existing?['username']?.toString() ?? '');
-    final passCtl = TextEditingController();
-    final rawGroupId = existing?['group_id'] as String?;
-    var groupId = dropdownValueIfPresent(rawGroupId, _groups);
-    final rawTotp = existing?['linked_totp_id'] as String?;
-    final linkedTotp = dropdownValueIfPresent(rawTotp, totps);
-    final ok = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        dialogRoute ??= ModalRoute.of<bool>(ctx);
-        return StatefulBuilder(
-        builder: (ctx, setLocal) => PopScope(canPop: !validating, child: AlertDialog(
-        title: LText(isEdit ? '编辑登录' : '添加登录'),
-        content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: appFormFields([
-              TextField(
-                controller: nameCtl,
-                enabled: !validating,
-                decoration: InputDecoration(labelText: tr('名称'), hintText: tr('例如：公司 VPN 账号')),
-              ),
-              DropdownButtonFormField<String?>(
-                isExpanded: true,
-                value: groupId,
-                decoration: InputDecoration(labelText: tr('分组')),
-                items: [
-                  const DropdownMenuItem(value: null, child: LText('（未分组）')),
-                  ..._groups.map(
-                    (g) => DropdownMenuItem(
-                      value: g['id'] as String,
-                      child: Text(
-                        g['name']?.toString() ?? '',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                ],
-                onChanged: validating ? null : (v) => setLocal(() => groupId = v),
-              ),
-              TextField(enabled: !validating, controller: userCtl, decoration: InputDecoration(labelText: tr('用户名'))),
-              TextField(
-                controller: passCtl,
-                enabled: !validating,
-                obscureText: true,
-                decoration: InputDecoration(
-                  labelText: tr(isEdit ? '候选密码（留空则不修改）' : '密码'),
-                  helperText: isEdit ? tr('确认在网站应用后，从「候选与历史」启用') : null,
-                  suffixIcon: IconButton(tooltip: tr('生成密码'), icon: const Icon(Icons.auto_awesome), onPressed: validating ? null : () async {
-                    final generated = await generatePasswordDialog(ctx);
-                    if (ctx.mounted && !closing && generated != null) passCtl.text = generated;
-                  }),
-                ),
-              ),
-              if (!isEdit) PasswordActiveDateField(value: passwordActiveSince, enabled: !validating,
-                onChanged: (v) => setLocal(() => passwordActiveSince = v)),
-              WebsiteRulesEditor(rules: websiteRules, enabled: !validating),
-              MfaBindingsEditor(linkedIds: linkedMfaIds, mfas: totps, enabled: !validating,
-                onEdit: (mfa) async {
-                  if (validating || closing) return;
-                  setLocal(() => validating = true);
-                  try {
-                    if (await showTotpEditor(ctx, existing: mfa)) {
-                      final updated = await AgentBridge.listTotp();
-                      if (ctx.mounted) setLocal(() => totps = updated);
-                    }
-                  } finally {
-                    if (ctx.mounted && !closing) setLocal(() => validating = false);
-                  }
-                }),
-              if (formError.isNotEmpty) Text(formError, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
-            ]),
-          ),
-        )),
-        actions: [
-          TextButton(onPressed: validating || closing ? null : () {
-            closing = true;
-            Navigator.pop(ctx, false);
-          }, child: const LText('取消')),
-          FilledButton(onPressed: validating || closing ? null : () async {
-            if (validating || closing) return;
-            setLocal(() { validating = true; formError = ''; });
-            try {
-              final validationError = await websiteRulesError(websiteRules);
-              if (!ctx.mounted) return;
-              if (validationError == null) {
-                if (isEdit && !await requireTouchId(ctx, reason: '保存登录凭据与 MFA 关联修改')) return;
-                final origin = websiteRules.first['uri'].toString().trim();
-                final user = userCtl.text.trim();
-                final displayName = nameCtl.text.trim();
-                if (isEdit) {
-                  await AgentBridge.updateLogin(
-                    credentialId: existing!['id'] as String,
-                    expectedRevision: existing['current_revision'] as String,
-                    origin: origin,
-                    websiteRules: websiteRules,
-                    linkedMfaIds: linkedMfaIds,
-                    username: user,
-                    displayName: displayName,
-                    groupId: groupId,
-                    connectionHost: existing['connection_host']?.toString() ?? '',
-                    linkedTotpId: linkedTotp,
-                    password: passCtl.text.isEmpty ? null : passCtl.text,
-                  );
-                } else {
-                  await AgentBridge.createLogin(
-                    origin: origin,
-                    websiteRules: websiteRules,
-                    linkedMfaIds: linkedMfaIds,
-                    username: user,
-                    password: passCtl.text,
-                    passwordActiveSinceMs: passwordActiveSince,
-                    displayName: displayName,
-                    groupId: groupId,
-                    linkedTotpId: linkedTotp,
-                  );
-                }
-                if (ctx.mounted && !closing) {
-                  closing = true;
-                  Navigator.pop(ctx, true);
-                }
-                return;
-              }
-              setLocal(() => formError = validationError);
-            } catch (e) {
-              if (ctx.mounted && !closing) setLocal(() => formError = e is AgentException ? e.message : '保存失败，请重试');
-            } finally {
-              if (ctx.mounted && !closing) setLocal(() => validating = false);
-            }
-          }, child: LText(validating ? '保存中…' : '保存')),
-        ],
-      )),
-        );
-      },
-    );
-    // pop 的结果早于退出动画；待路由移除后再释放仍被输入框使用的控制器。
-    await dialogRoute?.completed;
-    for (final controller in [nameCtl, userCtl, passCtl]) { controller.dispose(); }
-    if (ok == true && mounted) await _refresh();
+    if (await showLoginEditor(context, existing: existing) && mounted) await _refresh();
   }
 
   Future<void> _copyPassword(String id) async {
@@ -411,7 +432,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                               row['origin']?.toString() ??
                               '')),
                       subtitle: LText('${row['origin']} · ${row['username']}'),
-                      onTap: () => setState(() => _selected = row),
+                      onTap: () => setState(() { _selected = row; }),
                     );
                   },
                 )),
@@ -520,22 +541,44 @@ class _TotpPanelState extends State<_TotpPanel> {
   String _status = '';
   String? _liveCode;
   String? _liveCodeForId;
+  int _refreshGeneration = 0;
+
+  void _onVaultChanged() { if (mounted) _refresh(); }
+
+  @override
+  void dispose() {
+    AgentBridge.vaultChanges.removeListener(_onVaultChanged);
+    super.dispose();
+  }
 
   @override
   void initState() {
     super.initState();
+    AgentBridge.vaultChanges.addListener(_onVaultChanged);
     _refresh();
   }
 
   Future<void> _refresh() async {
+    final generation = ++_refreshGeneration;
     try {
-      _items = await AgentBridge.listTotp();
-      _groups = await loadCredentialGroups('totp');
-      _filterGroupId = dropdownValueIfPresent(_filterGroupId, _groups);
-      _status = '';
-      setState(() {});
+      final items = await AgentBridge.listTotp();
+      final groups = await loadCredentialGroups('totp');
+      if (!mounted || generation != _refreshGeneration) return;
+      final selectedId = _selected?['id'];
+      setState(() {
+        _items = items;
+        _groups = groups;
+        _selected = null;
+        for (final row in items) {
+          if (row['id'] == selectedId) _selected = row;
+        }
+        _filterGroupId = dropdownValueIfPresent(_filterGroupId, groups);
+        _liveCode = null;
+        _liveCodeForId = null;
+        _status = '';
+      });
     } on AgentException catch (e) {
-      setState(() => _status = e.message);
+      if (mounted && generation == _refreshGeneration) setState(() => _status = AgentBridge.friendlyMessage(e));
     }
   }
 
@@ -810,22 +853,33 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
   String _storagePath = '';
   String _agentSocket = '';
   bool _deleting = false;
+  int _refreshGeneration = 0;
+
+  void _onVaultChanged() { if (mounted) _refresh(); }
+
+  @override
+  void dispose() {
+    AgentBridge.vaultChanges.removeListener(_onVaultChanged);
+    super.dispose();
+  }
 
   @override
   void initState() {
     super.initState();
+    AgentBridge.vaultChanges.addListener(_onVaultChanged);
     _refresh();
   }
 
   Future<void> _refresh() async {
+    final generation = ++_refreshGeneration;
     try {
       final response = await AgentBridge.request({'type': 'ssh_key_list'});
       final payload = AgentBridge.payloadOf(response);
       final items = (payload['items'] as List<dynamic>? ?? [])
           .map((item) => Map<String, dynamic>.from(item as Map)).toList();
-      if (!mounted) return;
+      if (!mounted || generation != _refreshGeneration) return;
       final groups = await loadCredentialGroups('ssh');
-      if (!mounted) return;
+      if (!mounted || generation != _refreshGeneration) return;
       Map<String, dynamic>? selected;
       for (final row in items) {
         if (row['id'] == _selected?['id']) selected = row;
@@ -840,7 +894,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
         _status = '';
       });
     } on AgentException catch (e) {
-      if (mounted) setState(() => _status = AgentBridge.friendlyMessage(e));
+      if (mounted && generation == _refreshGeneration) setState(() => _status = AgentBridge.friendlyMessage(e));
     }
   }
 
@@ -1007,7 +1061,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                           trailing: row['is_default'] == true
                               ? const Chip(label: LText('默认'))
                               : null,
-                          onTap: () => setState(() => _selected = row),
+                          onTap: () => setState(() { _selected = row; }),
                         );
                       },
                     ),
@@ -1118,9 +1172,12 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
   final _recoveryKey = TextEditingController();
   final _rebuildPassword = TextEditingController();
 
+  void _onVaultChanged() { if (mounted && widget.unlocked) _loadAll(); }
+
   @override
   void initState() {
     super.initState();
+    AgentBridge.vaultChanges.addListener(_onVaultChanged);
     if (widget.unlocked) {
       _loadAll();
     }
@@ -1128,6 +1185,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
 
   @override
   void dispose() {
+    AgentBridge.vaultChanges.removeListener(_onVaultChanged);
     _serviceName.dispose();
     _codesText.dispose();
     _recoveryKey.dispose();

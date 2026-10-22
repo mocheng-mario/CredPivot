@@ -165,6 +165,8 @@ pub struct ItemDetails {
     pub history_limit: Option<usize>,
     pub reminder_days: Option<u32>,
     pub mfa_state: String,
+    // 空值继承本机默认策略，随凭据加密保存。
+    pub ssh_sign_policy: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomField {
@@ -708,7 +710,8 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             details.linked_mfa_ids = stored.linked_mfa_ids;
             details.mfa_bindings = stored.mfa_bindings;
             details.pending_mfa_uris = stored.pending_mfa_uris;
-            if details.notes.len() > 1_000_000
+            if !matches!(details.ssh_sign_policy.as_str(), "" | "session" | "confirm" | "biometric")
+                || details.notes.len() > 1_000_000
                 || details.otp_extra_parameters.len() > 32
                 || details.otp_extra_parameters.iter().any(|(k,v)| k.len()>100 || v.len()>4096 || matches!(k.to_ascii_lowercase().as_str(),"secret"|"issuer"|"algorithm"|"digits"|"period"|"counter"|"encoder"|"encoding") || (k.eq_ignore_ascii_case("t0") && v!="0"))
                 || details.tags.len() > 100
@@ -797,7 +800,7 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
                 let login:Option<(String,String)>=conn.query_row("SELECT origin,username FROM login_credentials WHERE item_id=?1",[row["id"].as_str().unwrap_or_default()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
                 let account_match=login.is_some_and(|(origin,user)|origin.to_lowercase().contains(&q)||user.to_lowercase().contains(&q)||d.uris.iter().any(|rule|rule.uri.to_lowercase().contains(&q)));
                 if q.is_empty() || account_match || row["title"].as_str().unwrap_or_default().to_lowercase().contains(&q) || d.tags.iter().any(|t|t.to_lowercase().contains(&q)) || d.category.to_lowercase().contains(&q) || d.notes.to_lowercase().contains(&q) || d.custom_fields.iter().any(|f|!f.secret && (f.name.to_lowercase().contains(&q)||f.value.to_lowercase().contains(&q))) {
-                    row.as_object_mut().unwrap().remove("details_json"); row["tags"]=json!(d.tags); row["favorite"]=json!(d.favorite); row["category"]=json!(d.category);found.push(row);
+                    row.as_object_mut().unwrap().remove("details_json"); row["tags"]=json!(d.tags); row["favorite"]=json!(d.favorite); row["category"]=json!(d.category);row["related_item_ids"]=json!(d.related_item_ids);found.push(row);
                 }
             }
             json!({"items":found})

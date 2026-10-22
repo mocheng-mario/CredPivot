@@ -21,6 +21,13 @@ pub struct AppSettings {
     pub restore_keep_count: usize,
     pub password_history_limit: usize,
     pub password_reminder_days: u32,
+    pub ssh_sign_policy: String,
+    pub shortcut_search: String,
+    pub shortcut_lock: String,
+    // 只接收旧配置中的此字段；复制已恢复为系统行为，保存时移除。
+    #[serde(skip_serializing)]
+    pub shortcut_copy: String,
+    pub shortcut_new: String,
     pub theme: String,
     pub language: String,
     pub log_level: String,
@@ -47,6 +54,11 @@ impl Default for AppSettings {
             restore_keep_count: crate::MAX_RESTORE_POINTS,
             password_history_limit: 20,
             password_reminder_days: 90,
+            ssh_sign_policy: "session".into(),
+            shortcut_search: "command+k".into(),
+            shortcut_lock: "command+l".into(),
+            shortcut_copy: String::new(),
+            shortcut_new: "command+n".into(),
             theme: "system".into(),
             language: "zh-CN".into(),
             log_level: "info".into(),
@@ -62,7 +74,20 @@ impl Default for AppSettings {
 
 impl AppSettings {
     pub fn validate(&self) -> io::Result<()> {
-        let valid = self.password_history_limit <= 50
+        let shortcuts = [&self.shortcut_search, &self.shortcut_lock, &self.shortcut_new];
+        let mut seen = std::collections::HashSet::new();
+        let valid = shortcuts.iter().all(|v| {
+            let mut parts: Vec<_> = v.split('+').collect();
+            parts.sort_unstable();
+            let normalized = parts.join("+");
+            valid_shortcut(v) && !matches!(normalized.as_str(),
+                "c+command" | "command+v" | "command+x" | "a+command"
+                | "command+z" | "command+shift+z" | "command+w" | "command+q"
+                | "command+h" | "command+m")
+                && (v.is_empty() || seen.insert(normalized))
+        })
+            && matches!(self.ssh_sign_policy.as_str(), "session" | "confirm" | "biometric")
+            && self.password_history_limit <= 50
             && self.password_reminder_days <= 3650
             && matches!(self.theme.as_str(), "system" | "light" | "dark")
             && !self.language.is_empty() && self.language.len() <= 64
@@ -102,7 +127,8 @@ impl AppSettings {
     }
 
     pub fn security_differs(&self, other: &Self) -> bool {
-        self.vault_idle_seconds != other.vault_idle_seconds
+        self.ssh_sign_policy != other.ssh_sign_policy
+            || self.vault_idle_seconds != other.vault_idle_seconds
             || self.sensitive_auth_seconds != other.sensitive_auth_seconds
             || self.browser_idle_seconds != other.browser_idle_seconds
             || self.clipboard_clear_seconds != other.clipboard_clear_seconds
@@ -122,9 +148,18 @@ pub fn read_app_settings() -> io::Result<AppSettings> {
     let path = app_settings_path();
     match fs::read(path) {
         Ok(bytes) => {
-            let settings: AppSettings = serde_json::from_slice(&bytes).map_err(|_| {
+            let mut settings: AppSettings = serde_json::from_slice(&bytes).map_err(|_| {
                 io::Error::new(io::ErrorKind::InvalidData, "配置文件 JSON 格式无效")
             })?;
+            // 旧版默认组合随本次调整迁移；其他自定义组合保持原样。
+            if settings.shortcut_copy == "command+shift+c" {
+                if matches!(settings.shortcut_search.as_str(), "command+shift+space" | "command+option+space") {
+                    settings.shortcut_search = "command+k".into();
+                }
+                if settings.shortcut_lock == "command+shift+l" {
+                    settings.shortcut_lock = "command+l".into();
+                }
+            }
             settings.validate()?;
             Ok(settings)
         }
@@ -162,6 +197,7 @@ pub fn effective_app_settings() -> AppSettings {
         AppSettings {
             vault_idle_seconds: 60,
             sensitive_auth_seconds: 0,
+            ssh_sign_policy: "biometric".into(),
             browser_idle_seconds: 60,
             clipboard_clear_seconds: 5,
             master_password_days: 1,
@@ -234,4 +270,16 @@ pub fn write_app_settings(settings: &AppSettings) -> io::Result<()> {
     file.write_all(b"\n")?;
     file.sync_all()?;
     fs::rename(next, path)
+}
+
+// 仅支持可明确映射的单个主键，空值停用；限制组合避免误注册普通文字键。
+fn valid_shortcut(value: &str) -> bool {
+    if value.is_empty() { return true; }
+    let parts: Vec<_> = value.split('+').collect();
+    let Some(key) = parts.last() else { return false; };
+    let mut seen = std::collections::HashSet::new();
+    parts.len() >= 2 && parts.len() <= 5
+        && parts[..parts.len()-1].iter().all(|m| matches!(*m,"command"|"control"|"option"|"shift") && seen.insert(*m))
+        && (seen.contains("command") || seen.contains("control"))
+        && (*key == "space" || (key.len() == 1 && key.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())))
 }

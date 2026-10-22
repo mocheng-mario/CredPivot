@@ -391,6 +391,7 @@ pub fn import_with_choices(
             d.reminder_days = previous.reminder_days;
             d.related_item_ids = previous.related_item_ids;
             d.linked_mfa_ids = previous.linked_mfa_ids;
+            d.ssh_sign_policy = previous.ssh_sign_policy;
         }
         let group = if let Some(name) = folders.get(text(v, "folderId")) {
             let scope = if kind == 1 { "login" } else { "secure_note" };

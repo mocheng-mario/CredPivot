@@ -15,6 +15,8 @@ import 'memory_format.dart';
 import 'vault_lock_coordinator.dart';
 import 'agent_readiness.dart';
 import 'settings_page.dart';
+import 'shortcuts_page.dart';
+import 'vault_tools.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -74,12 +76,14 @@ class _VaultHomePageState extends State<VaultHomePage> {
   bool _vaultLockPolling = false;
   int _statusRequestGeneration = 0;
   int _lastVaultLockGen = 0;
+  String? _lastDataRevision;
 
   @override
   void initState() {
     super.initState();
     AppPresentation.instance.addListener(_onPresentationChanged);
     installVaultLockCoordinator(_onVaultLockedExternally);
+    AgentBridge.onShortcut = _handleShortcut;
     AgentBridge.installVaultLockHandler(notifyVaultLocked);
     _vaultLockPoll = Timer.periodic(const Duration(seconds: 2), (_) => _pollVaultLockGeneration());
     _bootstrap();
@@ -100,6 +104,9 @@ class _VaultHomePageState extends State<VaultHomePage> {
       final payload = AgentBridge.payloadOf(raw);
       final gen = (payload['vault_lock_generation'] as num?)?.toInt() ?? 0;
       final agentUnlocked = payload['unlocked'] == true;
+      final revision = payload['data_revision']?.toString();
+      if (agentUnlocked && _lastDataRevision != null && revision != _lastDataRevision) AgentBridge.notifyVaultChanged();
+      _lastDataRevision = revision;
       if (!agentUnlocked && _unlocked) {
         notifyVaultLocked();
       } else if (agentUnlocked && !_unlocked) {
@@ -140,6 +147,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
 
   @override
   void dispose() {
+    AgentBridge.onShortcut = null;
     AppPresentation.instance.removeListener(_onPresentationChanged);
     _vaultLockPoll?.cancel();
     _password.dispose();
@@ -483,6 +491,19 @@ class _VaultHomePageState extends State<VaultHomePage> {
     });
   }
 
+  Future<void> _handleShortcut(String action) async {
+    if (!mounted || _busy) return;
+    if (!_unlocked) {
+      if (_status['master_password_required'] == false && _status['local_unlock_configured'] == true) await _unlockTouchId();
+      else { _passwordFocus.requestFocus(); return; }
+      if (!mounted || !_unlocked) return;
+    }
+    // 搜索和新建不跨过正在打开的编辑窗口，避免打断当前草稿。
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    if (action == 'search') await showCredentialSearch(context);
+    if (action == 'new') await showNewCredentialMenu(context);
+  }
+
   void _selectPage(int index) {
     if (_status.isEmpty || (_vaultExists && !_unlocked)) return;
     setState(() {
@@ -535,6 +556,10 @@ class _VaultHomePageState extends State<VaultHomePage> {
                                   style: Theme.of(context).textTheme.bodySmall),
                             ])),
                         const SizedBox(width: 12),
+                        if (agentReady && _unlocked) ...[
+                          IconButton(tooltip: tr('搜索全部凭据'), onPressed: _busy ? null : () => _handleShortcut('search'), icon: const Icon(Icons.search_rounded)),
+                          IconButton(tooltip: tr('新建记录'), onPressed: _busy ? null : () => _handleShortcut('new'), icon: const Icon(Icons.add_rounded)),
+                        ],
                         AppStatusBadge(agentReady ? vaultLabel : '未连接',
                             color: agentReady && _unlocked
                                 ? AppColors.green
@@ -716,6 +741,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
             onRestartAgent: _restartAgent,
             onRelaunchApp: _relaunchApp,
             onOpenSettings: () => _selectPage(5));
+      case 6:
+        return ShortcutsPage(active: _pageIndex == 6, busy: _busy);
       case 5:
         return SettingsPage(
             active: _pageIndex == 5,

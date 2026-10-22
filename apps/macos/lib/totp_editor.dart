@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'credential_confirm.dart';
 import 'package:flutter/material.dart';
 import 'agent_bridge.dart';
 import 'app_ui.dart';
@@ -39,12 +41,16 @@ class _TotpEditorState extends State<_TotpEditor> {
   Map<String, dynamic>? parsed;
   String error = '';
   bool busy = false, parsing = false, concealed = true;
+  bool closing = false, confirmingDiscard = false;
+  late final String initialSnapshot;
+  String snapshot() => jsonEncode([input.text,issuer.text,account.text,groupId,rules]);
   Timer? debounce;
   int generation = 0;
 
   @override
   void initState() {
     super.initState();
+    initialSnapshot = snapshot();
     if (input.text.isNotEmpty) scheduleMicrotask(() => parseInput(fillMetadata: false));
   }
   @override
@@ -93,7 +99,17 @@ class _TotpEditorState extends State<_TotpEditor> {
     } catch (e) { if (mounted) setState(() => error = e is AgentException ? e.message : '二维码读取失败'); }
   }
 
+  Future<void> cancel() async {
+    if (busy || closing || confirmingDiscard) return;
+    confirmingDiscard = true;
+    try {
+      if (snapshot() != initialSnapshot && !await confirmDiscardChanges(context)) return;
+      if (mounted) { closing = true; Navigator.pop(context, false); }
+    } finally { confirmingDiscard = false; }
+  }
+
   Future<void> save() async {
+    if (busy || closing) return;
     debounce?.cancel();
     setState(() => busy = true);
     try {
@@ -111,13 +127,13 @@ class _TotpEditorState extends State<_TotpEditor> {
         await AgentBridge.createTotp(issuer: issuer.text.trim(), account: account.text.trim(),
           secretBase32: input.text.trim(), groupId: groupId, websiteRules: rules);
       }
-      if (mounted) Navigator.pop(context, true);
+      if (mounted) { closing = true; Navigator.pop(context, true); }
     } catch (e) { if (mounted) setState(() => error = e is AgentException ? e.message : '保存 MFA 失败，请重试'); }
-    finally { if (mounted) setState(() => busy = false); }
+    finally { if (mounted && !closing) setState(() => busy = false); }
   }
 
   @override
-  Widget build(BuildContext context) => PopScope(canPop: !busy, child: AlertDialog(
+  Widget build(BuildContext context) => PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(); }, child: AlertDialog(
     title: LText(widget.existing == null ? '添加 MFA / TOTP' : '编辑 MFA / TOTP'),
     content: SizedBox(width: appEditDialogWidth(context), child: SingleChildScrollView(child: Column(
       mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: appFormFields([
@@ -163,7 +179,7 @@ class _TotpEditorState extends State<_TotpEditor> {
         if (error.isNotEmpty) Text(error, style: TextStyle(color: Theme.of(context).colorScheme.error)),
       ]),
     ))),
-    actions: [TextButton(onPressed: busy ? null : () => Navigator.pop(context, false), child: const LText('取消')),
+    actions: [TextButton(onPressed: busy ? null : cancel, child: const LText('取消')),
       FilledButton(onPressed: busy || parsing ? null : save, child: LText(busy ? '保存中…' : '保存'))],
   ));
 }

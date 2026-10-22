@@ -54,6 +54,9 @@ pub struct VaultSession {
     settings: credpivot_core::AppSettings,
     sensitive_authenticated_at: Option<Instant>,
     pub ssh_signing_key: Option<SigningKey>,
+    pub ssh_signing_key_id: Option<String>,
+    pub ssh_authorization: crate::ssh_agent::SshAuthorization,
+    pub data_revision: String,
     pub idle_timeout: Duration,
     pub last_activity: Instant,
 }
@@ -94,6 +97,9 @@ impl VaultSession {
             local_unlock_policy: LocalUnlockPolicy::default(),
             sensitive_authenticated_at: None,
             ssh_signing_key: None,
+            ssh_signing_key_id: None,
+            ssh_authorization: Default::default(),
+            data_revision: uuid::Uuid::new_v4().to_string(),
             idle_timeout: Duration::from_secs(settings.vault_idle_seconds),
             settings,
             last_activity: Instant::now(),
@@ -116,6 +122,8 @@ impl VaultSession {
     }
 
     fn abort_partial_unlock(&mut self) {
+        self.ssh_authorization.clear();
+        self.ssh_signing_key_id = None;
         self.unlocked = false;
         self.vmk = None;
         self.db = None;
@@ -142,6 +150,8 @@ impl VaultSession {
         let rec = db
             .default_ssh()
             .map_err(|e| AgentError::Vault(e.to_string()))?;
+        self.ssh_signing_key_id = rec.as_ref().map(|key| key.id.clone());
+        self.ssh_authorization.clear();
         self.ssh_signing_key = rec.map(|key| SigningKey::from_bytes(&key.seed));
         Ok(())
     }
@@ -173,6 +183,7 @@ impl VaultSession {
             .unwrap_or(0);
         let mut out = serde_json::json!({
             "format": "m2",
+            "data_revision": self.data_revision,
             "schema_user_version": credpivot_core::SCHEMA_USER_VERSION,
             "vault_exists": self.vault_exists(),
             "vault_path": self.vault_dir.to_string_lossy(),
@@ -201,7 +212,7 @@ impl VaultSession {
 
     pub fn apply_settings(&mut self, settings: credpivot_core::AppSettings) -> bool {
         let security_changed = self.settings.security_differs(&settings);
-        if security_changed { self.sensitive_authenticated_at = None; }
+        if security_changed { self.sensitive_authenticated_at = None; self.ssh_authorization.clear(); }
         self.idle_timeout = Duration::from_secs(settings.vault_idle_seconds);
         self.settings = settings;
         security_changed
@@ -219,6 +230,8 @@ impl VaultSession {
             crate::diagnostics::info("vault", "locked");
         }
         self.unlocked = false;
+        self.ssh_authorization.clear();
+        self.ssh_signing_key_id = None;
         self.sensitive_authenticated_at = None;
         self.vmk = None;
         self.db = None;
@@ -238,6 +251,8 @@ impl VaultSession {
         let rec = db
             .load_ssh_key(key_id)
             .map_err(|e| AgentError::Vault(e.to_string()))?;
+        self.ssh_authorization.clear();
+        self.ssh_signing_key_id = Some(rec.id.clone());
         self.ssh_signing_key = Some(SigningKey::from_bytes(&rec.seed));
         Ok(())
     }

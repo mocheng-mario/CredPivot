@@ -27,13 +27,13 @@
 		33CC10F32044A3C60003C045 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F22044A3C60003C045 /* Assets.xcassets */; };
 		33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F42044A3C60003C045 /* MainMenu.xib */; };
 		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
+		A17C0101204400010003C045 /* credpivot-native-host in Resources */ = {isa = PBXBuildFile; fileRef = A17C0102204400010003C045 /* credpivot-native-host */; };
+		A17C0103204400010003C045 /* credpivot-chrome-extension in Resources */ = {isa = PBXBuildFile; fileRef = A17C0104204400010003C045 /* credpivot-chrome-extension */; };
 		CP10F0012044CP0010003C045 /* CredPivotPlatform.swift in Sources */ = {isa = PBXBuildFile; fileRef = CP10R0012044CP0010003C045 /* CredPivotPlatform.swift */; };
 		CP10F0022044CP0020003C045 /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CP10R0022044CP0020003C045 /* MenuBarController.swift */; };
 		CP10F0032044CP0030003C045 /* LifecycleBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = CP10R0032044CP0030003C045 /* LifecycleBridge.swift */; };
 		CP10F0042044CP0040003C045 /* CredPivotRustFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CP10R0052044CP0050003C045 /* CredPivotRustFFI.swift */; };
 		CP10F0062044CP0060003C045 /* ProcessMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = CP10R0062044CP0060003C045 /* ProcessMemory.swift */; };
-		A17C0101204400010003C045 /* credpivot-native-host in Resources */ = {isa = PBXBuildFile; fileRef = A17C0102204400010003C045 /* credpivot-native-host */; };
-		A17C0103204400010003C045 /* credpivot-chrome-extension in Resources */ = {isa = PBXBuildFile; fileRef = A17C0104204400010003C045 /* credpivot-chrome-extension */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -71,7 +71,7 @@
 		331C80D7294CF71000263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		333000ED22D3DE5D00554162 /* Warnings.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Warnings.xcconfig; sourceTree = "<group>"; };
 		335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = GeneratedPluginRegistrant.swift; sourceTree = "<group>"; };
-		33CC10ED2044A3C60003C045 /* credpivot_macos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "credpivot_macos.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		33CC10ED2044A3C60003C045 /* credpivot_macos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = credpivot_macos.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		33CC10F02044A3C60003C045 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		33CC10F22044A3C60003C045 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Runner/Assets.xcassets; sourceTree = "<group>"; };
 		33CC10F52044A3C60003C045 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
@@ -85,14 +85,14 @@
 		33E5194F232828860026EE4D /* AppInfo.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AppInfo.xcconfig; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		A17C0102204400010003C045 /* credpivot-native-host */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = "credpivot-native-host"; sourceTree = "<group>"; };
+		A17C0104204400010003C045 /* credpivot-chrome-extension */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "credpivot-chrome-extension"; sourceTree = "<group>"; };
 		CP10R0012044CP0010003C045 /* CredPivotPlatform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredPivotPlatform.swift; sourceTree = "<group>"; };
 		CP10R0022044CP0020003C045 /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
 		CP10R0032044CP0030003C045 /* LifecycleBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleBridge.swift; sourceTree = "<group>"; };
 		CP10R0042044CP0040003C045 /* RustFFI.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = RustFFI.xcconfig; sourceTree = "<group>"; };
 		CP10R0052044CP0050003C045 /* CredPivotRustFFI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredPivotRustFFI.swift; sourceTree = "<group>"; };
 		CP10R0062044CP0060003C045 /* ProcessMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessMemory.swift; sourceTree = "<group>"; };
-		A17C0102204400010003C045 /* credpivot-native-host */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = "credpivot-native-host"; sourceTree = "<group>"; };
-		A17C0104204400010003C045 /* credpivot-chrome-extension */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "credpivot-chrome-extension"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -261,7 +261,6 @@
 					33CC10EC2044A3C60003C045 = {
 						CreatedOnToolsVersion = 9.2;
 						LastSwiftMigration = 1100;
-						ProvisioningStyle = Automatic;
 						SystemCapabilities = {
 							com.apple.Sandbox = {
 								enabled = 1;
@@ -506,9 +505,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/DebugProfile.entitlements;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = JZ7NG8D7QU;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -639,9 +640,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/DebugProfile.entitlements;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = JZ7NG8D7QU;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -660,9 +663,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Release.entitlements;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = JZ7NG8D7QU;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

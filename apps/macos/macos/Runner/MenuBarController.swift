@@ -12,7 +12,7 @@ final class MenuBarController {
     let menu = NSMenu()
     let showItem = NSMenuItem(title: "显示 CredPivot", action: #selector(AppDelegate.showMainWindow), keyEquivalent: "")
     showItem.target = appDelegate
-    let lockItem = NSMenuItem(title: "锁定 Vault", action: #selector(AppDelegate.lockFromMenu), keyEquivalent: "l")
+    let lockItem = NSMenuItem(title: "锁定 Vault", action: #selector(AppDelegate.lockFromMenu), keyEquivalent: "")
     lockItem.target = appDelegate
     let quitItem = NSMenuItem(title: "退出 CredPivot", action: #selector(AppDelegate.quitApp), keyEquivalent: "q")
     quitItem.target = appDelegate

@@ -9,6 +9,8 @@ pub const MIN_COMPATIBLE_PROTOCOL: u32 = 2;
 pub enum AgentRequest {
     Ping,
     Status,
+    SshAuthorizationsPending,
+    SshAuthorizationResolve { request_id: String, approved: bool },
     AppSettingsGet,
     AppSettingsBackup,
     AppSettingsSet { settings: credpivot_core::AppSettings },
@@ -239,6 +241,8 @@ impl AgentRequest {
         match self {
             Self::Ping => "ping",
             Self::Status => "status",
+            Self::SshAuthorizationsPending => "ssh_authorizations_pending",
+            Self::SshAuthorizationResolve { .. } => "ssh_authorization_resolve",
             Self::AppSettingsGet => "app_settings_get",
             Self::AppSettingsBackup => "app_settings_backup",
             Self::AppSettingsSet { .. } => "app_settings_set",

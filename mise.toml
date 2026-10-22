@@ -1,6 +1,6 @@
 [tools]
 rust = "1.99.1"
-flutter = "3.41.9"
+flutter = "3.47.7"
 
 [env]
 # 修复为 Flutter 中国社区的标准镜像域名

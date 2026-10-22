@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 
 /// 通过 Swift 平台通道调用进程内 Agent（Rust FFI 在 Runner 内链接）。
 class AgentBridge {
@@ -8,12 +9,17 @@ class AgentBridge {
 
   /// 接收菜单栏/系统触发的锁定通知。
   static void Function()? _onVaultLocked;
+  static void Function(String)? onShortcut;
+  static final vaultChanges = ValueNotifier<int>(0);
+  static void notifyVaultChanged() => vaultChanges.value++;
 
   static void installVaultLockHandler(void Function() onLocked) {
     _onVaultLocked = onLocked;
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onVaultLocked') {
         _onVaultLocked?.call();
+      } else if (call.method == 'onShortcut' && call.arguments is String) {
+        onShortcut?.call(call.arguments as String);
       }
       return null;
     });
@@ -188,6 +194,9 @@ class AgentBridge {
 
   static Future<void> registerLoginItem(bool enabled) =>
       _channel.invokeMethod('registerLoginItem', enabled);
+
+  static Future<String?> recordShortcut(String name, Map<String, String> bindings) =>
+      _channel.invokeMethod<String>('recordShortcut', {'name': name, 'bindings': bindings});
 
   static Future<Map<String, dynamic>> fetchAppSettings() async =>
       payloadOf(await request({'type': 'app_settings_get'}));

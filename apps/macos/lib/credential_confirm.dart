@@ -28,3 +28,13 @@ Future<bool> confirmCredentialDanger(
   );
   return result == true;
 }
+
+Future<bool> confirmDiscardChanges(BuildContext context) async =>
+    await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const LText('放弃未保存的修改？'),
+      content: const LText('当前修改尚未保存，返回编辑可继续保留草稿。'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('返回编辑')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('放弃修改')),
+      ],
+    )) == true;

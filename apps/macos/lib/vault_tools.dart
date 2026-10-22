@@ -5,6 +5,8 @@ import 'agent_bridge.dart';
 import 'touch_id_gate.dart';
 import 'app_ui.dart';
 import 'totp_editor.dart';
+import 'credentials_page.dart' show showLoginEditor;
+import 'credential_confirm.dart';
 
 Future<Map<String, dynamic>> vaultAction(
     BuildContext context, Map<String, dynamic> action,
@@ -308,6 +310,19 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
       .toSet();
   bool busy = false;
   String message = '';
+  bool closing = false, confirmingDiscard = false;
+  late final String initialSnapshot;
+  String snapshot() => jsonEncode([title.text,notes.text,tags.text,category.text,history.text,reminder.text,fields,related.toList()..sort(),activeSince,details['favorite'],details['mfa_state'],details['ssh_sign_policy']]);
+  @override
+  void initState() { super.initState(); initialSnapshot = snapshot(); }
+  Future<void> cancel() async {
+    if (busy || closing || confirmingDiscard) return;
+    confirmingDiscard = true;
+    try {
+      if (snapshot() != initialSnapshot && !await confirmDiscardChanges(context)) return;
+      if (mounted) { closing = true; Navigator.pop(context); }
+    } finally { confirmingDiscard = false; }
+  }
   @override
   void dispose() {
     for (final c in [title, notes, tags, category, history, reminder]) {
@@ -317,6 +332,7 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
   }
 
   Future<void> save() async {
+    if (busy || closing) return;
     final h = history.text.trim().isEmpty ? null : int.tryParse(history.text);
     final r = reminder.text.trim().isEmpty ? null : int.tryParse(reminder.text);
     if ((history.text.isNotEmpty && (h == null || h < 0 || h > 50)) ||
@@ -324,10 +340,10 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
       setState(() => message = '历史数量 0–50，提醒天数 0–3650；留空继承全局配置');
       return;
     }
-    if (!await confirmVaultAction(context, '保存详细资料？', isLogin ? '保存资料及密码设置；启用日期只描述当前密码，不会替换密码。' : '保存备注、标签和关联资料。')) return;
-    if (!mounted) return;
     setState(() => busy = true);
     try {
+      if (!await confirmVaultAction(context, '保存详细资料？', isLogin ? '保存资料及密码设置；启用日期只描述当前密码，不会替换密码。' : '保存备注、标签和关联资料。')) return;
+      if (!mounted) return;
       await vaultAction(
           context,
           {
@@ -352,17 +368,17 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
             }
           },
           confirmed: true);
-      if (mounted) Navigator.pop(context);
+      if (mounted) { closing = true; Navigator.pop(context); }
     } catch (e) {
       if (mounted)
         setState(() => message = e is AgentException ? e.message : '保存失败');
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && !closing) setState(() => busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => PopScope(canPop: !busy, child: AlertDialog(
+  Widget build(BuildContext context) => PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(); }, child: AlertDialog(
           title: LText(
               '详细资料 · ${widget.row['title'] ?? widget.row['display_name'] ?? ''}'),
           content: SizedBox(
@@ -434,6 +450,11 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                         icon: const Icon(Icons.add),
                         label: const LText('添加字段（勾选为隐藏）')),
                     const SizedBox(height: 12),
+                    if (widget.row['kind'] == 'ssh_key') DropdownButtonFormField<String>(
+                      value: details['ssh_sign_policy']?.toString() ?? '',
+                      decoration: InputDecoration(labelText: tr('SSH 签名授权策略')),
+                      items: const [DropdownMenuItem(value:'',child:LText('继承本机默认')),DropdownMenuItem(value:'session',child:LText('同一连接限时复用')),DropdownMenuItem(value:'confirm',child:LText('每次签名确认')),DropdownMenuItem(value:'biometric',child:LText('每次确认并重新验证身份'))],
+                      onChanged: busy ? null : (v) => setState(() => details['ssh_sign_policy'] = v)),
                     if (isLogin) ...[
                     const Divider(),
                     LText('密码设置', style: Theme.of(context).textTheme.titleMedium),
@@ -474,7 +495,21 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                     const Divider(),
                     LText('关联信息', style: Theme.of(context).textTheme.titleMedium),
                     const LText('仅便于查阅相关凭据，不影响浏览器填充或 MFA 选择。'),
-                    const LText('关联凭据（可多选）'),
+                    if (related.isNotEmpty) Wrap(spacing: 8, runSpacing: 8, children: [
+                      for (final item in widget.all.where((v) => related.contains(v['id']))) ActionChip(
+                        avatar: const Icon(Icons.open_in_new, size: 16),
+                        label: Text(item['title']?.toString() ?? ''),
+                        onPressed: busy ? null : () => openCredentialActions(context, Map<String, dynamic>.from(item))),
+                    ]),
+                    if (widget.all.any((v) => (v['related_item_ids'] as List? ?? []).contains(widget.row['item_id'] ?? widget.row['id']))) ...[
+                      const LText('被以下凭据关联'),
+                      Wrap(spacing: 8, runSpacing: 8, children: [
+                        for (final item in widget.all.where((v) => (v['related_item_ids'] as List? ?? []).contains(widget.row['item_id'] ?? widget.row['id']))) ActionChip(
+                          label: Text(item['title']?.toString() ?? ''),
+                          onPressed: busy ? null : () => openCredentialActions(context, Map<String, dynamic>.from(item))),
+                      ]),
+                    ],
+                    const LText('选择关联凭据（可多选；关系保持单向）'),
                     for (final stale in related
                         .where(
                             (id) => !widget.all.any((item) => item['id'] == id))
@@ -496,7 +531,7 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                   ]))))),
           actions: [
             TextButton(
-                onPressed: busy ? null : () => Navigator.pop(context),
+                onPressed: busy ? null : cancel,
                 child: const LText('取消')),
             FilledButton(
                 onPressed: busy ? null : save, child: const LText('保存'))
@@ -511,17 +546,28 @@ class VaultToolsPanel extends StatefulWidget {
 
 class _VaultToolsPanelState extends State<VaultToolsPanel> {
   String mode = 'items', query = '', message = '';
+  int _loadGeneration = 0;
   bool busy = false, favorites = false;
   List<Map<String, dynamic>> items = [];
+  void _onVaultChanged() { if (mounted) load(); }
+
+  @override
+  void dispose() {
+    AgentBridge.vaultChanges.removeListener(_onVaultChanged);
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
+    AgentBridge.vaultChanges.addListener(_onVaultChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) load();
     });
   }
 
   Future<void> load() async {
+    final generation = ++_loadGeneration;
     setState(() => busy = true);
     try {
       final result = await vaultAction(context, {
@@ -532,7 +578,7 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
                 : 'item_search',
         if (mode == 'items') 'query': query
       });
-      if (mounted)
+      if (mounted && generation == _loadGeneration)
         setState(() {
           items = (result['items'] as List? ?? [])
               .map((v) => Map<String, dynamic>.from(v as Map))
@@ -541,50 +587,14 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
               mode == 'security' ? result['weak_rule']?.toString() ?? '' : '';
         });
     } catch (e) {
-      vaultMessage(context, e);
+      if (generation == _loadGeneration) vaultMessage(context, e);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && generation == _loadGeneration) setState(() => busy = false);
     }
   }
 
   Future<void> note() async {
-    final title = TextEditingController();
-    final text = TextEditingController();
-    final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-                title: const LText('新建安全笔记'),
-                content: SizedBox(
-                    width: appEditDialogWidth(ctx),
-                    child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
-                      TextField(
-                          controller: title,
-                          decoration: InputDecoration(labelText: tr('标题'))),
-                      TextField(
-                          controller: text,
-                          minLines: 4,
-                          maxLines: 8,
-                          decoration: InputDecoration(labelText: tr('内容')))
-                    ])))),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const LText('取消')),
-                  FilledButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const LText('创建'))
-                ]));
-    if (ok == true && mounted) {
-      try {
-        await vaultAction(context,
-            {'action': 'note_create', 'title': title.text, 'text': text.text});
-        await load();
-      } catch (e) {
-        vaultMessage(context, e);
-      }
-    }
-    title.dispose();
-    text.dispose();
+    if (await showNoteEditor(context) && mounted) await load();
   }
 
   Future<void> trashChange(Map<String, dynamic> row, bool purge) async {
@@ -691,7 +701,8 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
                     onTap: mode == 'trash'
                         ? null
                         : () async {
-                            await editItemDetails(context, row);
+                            if (mode == 'security') { await openCredentialActions(context, row); }
+                            else { await editItemDetails(context, row); }
                             if (mounted) load();
                           },
                     trailing: mode == 'trash'
@@ -705,7 +716,17 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
                                     busy ? null : () => trashChange(row, true),
                                 child: const LText('永久删除'))
                           ])
-                        : Wrap(children: [
+                        : mode == 'security'
+                            ? PopupMenuButton<String>(
+                                tooltip: tr('处理此项'),
+                                onSelected: (action) => openCredentialActions(context, row, action: action),
+                                itemBuilder: (_) => const [
+                                  PopupMenuItem(value: 'edit', child: LText('修改登录 / MFA 关联')),
+                                  PopupMenuItem(value: 'history', child: LText('密码候选与历史')),
+                                  PopupMenuItem(value: 'details', child: LText('启用日期与提醒')),
+                                ],
+                              )
+                            : Wrap(children: [
                             IconButton(
                                 icon: const Icon(Icons.more_horiz),
                                 onPressed: () async {
@@ -1357,4 +1378,173 @@ class _PasswordGeneratorDialogState extends State<_PasswordGeneratorDialog> {
                     : () => Navigator.pop(context, password),
                 child: const LText('使用此密码'))
           ]);
+}
+
+Future<void> copySelectedCredential(BuildContext context, Map<String, dynamic> row) async {
+  try {
+    final kind = row['kind'];
+    if (kind == 'totp') { await copyTotpCode(context, row['id'].toString()); return; }
+    if (kind == 'ssh_key') { await AgentBridge.copyConcealed(row['public_openssh']?.toString() ?? ''); return; }
+    if (kind != 'login') return;
+    if (!await requireTouchId(context, reason: '复制当前登录密码')) return;
+    final detail = await AgentBridge.getCredential(row['id'].toString());
+    await AgentBridge.copyConcealed(detail['password']?.toString() ?? '');
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: LText('已复制，将按设置清除剪贴板')));
+  } catch (e) { vaultMessage(context, e); }
+}
+
+Future<void> openCredentialActions(BuildContext context, Map<String, dynamic> item, {String? action}) async {
+  try {
+    final result = await AgentBridge.manage({'action':'item_search','query':''});
+    final itemId = item['item_id'] ?? item['id'];
+    final matches = (result['items'] as List).cast<Map>().where((v) => v['id'] == itemId);
+    if (matches.isEmpty) throw AgentException('not_found','凭据已不存在，请刷新');
+    final meta = Map<String, dynamic>.from(matches.first);
+    final kind = meta['kind'];
+    Map<String, dynamic> current = meta;
+    if (kind == 'login') {
+      final rows = await AgentBridge.listCredentials();
+      current = rows.firstWhere((v) => v['item_id'] == itemId);
+    } else if (kind == 'totp') {
+      current = (await AgentBridge.listTotp()).firstWhere((v) => v['item_id'] == itemId);
+    } else if (kind == 'ssh_key') {
+      current = (await AgentBridge.listSshKeys()).firstWhere((v) => v['item_id'] == itemId);
+    } else if (kind == 'recovery_codes') {
+      current = (await AgentBridge.listRecoveryCodes()).firstWhere((v) => v['item_id'] == itemId);
+    } else if (kind == 'server_login') {
+      current = (await AgentBridge.listServerProfiles()).firstWhere((v) => v['item_id'] == itemId);
+    }
+    if (!context.mounted) return;
+    if (action == 'details') { await editItemDetails(context,{...meta,...current,'item_id':itemId,'kind':kind}); AgentBridge.notifyVaultChanged(); return; }
+    if (action == 'edit' && kind == 'login') { await showLoginEditor(context, existing: current); AgentBridge.notifyVaultChanged(); return; }
+    if (action == 'edit' && kind == 'totp') { if (await showTotpEditor(context, existing: current)) AgentBridge.notifyVaultChanged(); return; }
+    if (action == 'history' && kind == 'login') { await showPasswordVersions(context,current); AgentBridge.notifyVaultChanged(); return; }
+    await showDialog<void>(context: context, builder: (ctx) => SimpleDialog(
+      title: Text(meta['title']?.toString() ?? ''),
+      children: [
+        if (kind == 'login') ...[
+          Padding(padding: const EdgeInsets.fromLTRB(24, 0, 24, 12), child: SelectableText('${current['origin']}\n${current['username']}')),
+          SimpleDialogOption(onPressed: () => openCredentialActions(ctx,meta,action:'edit'), child: const LText('编辑登录密码与 MFA 关联')),
+          SimpleDialogOption(onPressed: () => openCredentialActions(ctx,meta,action:'history'), child: const LText('密码候选与历史')),
+          SimpleDialogOption(onPressed: () => copySelectedCredential(ctx,{...current,'kind':'login'}), child: const LText('复制当前密码')),
+        ],
+        if (kind == 'totp') ...[
+          SimpleDialogOption(onPressed: () => openCredentialActions(ctx,meta,action:'edit'), child: const LText('编辑 MFA 与适用网站')),
+          SimpleDialogOption(onPressed: () => showTotpStatus(ctx,current['id'].toString()), child: const LText('查看动态验证码')),
+          SimpleDialogOption(onPressed: () => copyTotpCode(ctx,current['id'].toString()), child: const LText('复制验证码')),
+        ],
+        if (kind == 'ssh_key') Padding(padding: const EdgeInsets.symmetric(horizontal:24), child: SelectableText(current['public_openssh']?.toString() ?? '')),
+        if (kind == 'server_login') Padding(padding: const EdgeInsets.symmetric(horizontal:24), child: SelectableText('${current['host']}:${current['port']}\n${current['manual_username'] ?? ''}')),
+        if (kind == 'recovery_codes') SimpleDialogOption(onPressed: () => manageRecoveryEntries(ctx,current), child: const LText('管理恢复码')),
+        SimpleDialogOption(onPressed: () async { await editItemDetails(ctx,{...meta,...current,'item_id':itemId,'kind':kind}); AgentBridge.notifyVaultChanged(); }, child: const LText('详细资料与关联凭据')),
+        SimpleDialogOption(onPressed: () => Navigator.pop(ctx), child: const LText('关闭')),
+      ],
+    ));
+  } catch (e) { vaultMessage(context,e); }
+}
+
+Future<void> showCredentialSearch(BuildContext context) => showDialog<void>(context: context, builder: (_) => const _CredentialSearch());
+class _CredentialSearch extends StatefulWidget {
+  const _CredentialSearch();
+  @override
+  State<_CredentialSearch> createState() => _CredentialSearchState();
+}
+class _CredentialSearchState extends State<_CredentialSearch> {
+  final query = TextEditingController();
+  Timer? debounce;
+  int generation = 0;
+  List<Map<String, dynamic>> rows = [];
+  String error = '';
+  bool loading = false;
+  void _onVaultChanged() { if (mounted) search(); }
+  @override
+  void initState() { super.initState(); AgentBridge.vaultChanges.addListener(_onVaultChanged); search(); }
+  @override
+  void dispose() { AgentBridge.vaultChanges.removeListener(_onVaultChanged); debounce?.cancel(); query.dispose(); super.dispose(); }
+  Future<void> search() async {
+    final version = ++generation;
+    setState(() {loading=true;error='';});
+    try {
+      final result = await AgentBridge.manage({'action':'item_search','query':query.text.trim()});
+      if (mounted && version == generation) setState(() => rows = (result['items'] as List).map((v) => Map<String,dynamic>.from(v as Map)).toList());
+    } catch (e) { if (mounted && version == generation) setState(() => error = e is AgentException ? e.message : '搜索失败'); }
+    finally { if (mounted && version == generation) setState(() => loading=false); }
+  }
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const LText('搜索全部凭据'),
+    content: SizedBox(width:appEditDialogWidth(context),height:400,child:Column(children:[
+      TextField(controller:query,autofocus:true,decoration:InputDecoration(hintText:tr('搜索名称、网站、账号、标签或备注')),
+        onChanged:(_){generation++;debounce?.cancel();debounce=Timer(const Duration(milliseconds:250),search);},onSubmitted:(_)=>search()),
+      if(loading) const LinearProgressIndicator(),
+      if(error.isNotEmpty) AppNotice(error),
+      Expanded(child:ListView(children:[for(final row in rows.take(100)) ListTile(title:Text(row['title']?.toString()??''),subtitle:Text(row['kind'].toString()),onTap:()=>openCredentialActions(context,row)),
+        if(rows.length>100) const ListTile(title:LText('结果较多，请细化搜索条件'))])),
+    ])),
+    actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const LText('关闭'))],
+  );
+}
+
+Future<void> showNewCredentialMenu(BuildContext context) async {
+  ModalRoute<String>? route;
+  final choice = await showDialog<String>(context:context,builder:(ctx) {
+    route = ModalRoute.of<String>(ctx);
+    return SimpleDialog(title:const LText('新建记录'),children:[
+    SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'login'),child:const LText('登录密码')),
+    SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'totp'),child:const LText('MFA / TOTP')),
+    SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'ssh'),child:const LText('导入 SSH 密钥')),
+    SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'note'),child:const LText('安全笔记')),
+  ]);
+  });
+  await route?.completed;
+  if(!context.mounted)return;
+  if(choice=='login'){if(await showLoginEditor(context))AgentBridge.notifyVaultChanged();}
+  if(choice=='totp'){if(await showTotpEditor(context))AgentBridge.notifyVaultChanged();}
+  if(choice=='ssh'){await transferSshKey(context);AgentBridge.notifyVaultChanged();}
+  if(choice=='note'){if(await showNoteEditor(context))AgentBridge.notifyVaultChanged();}
+}
+
+Future<bool> showNoteEditor(BuildContext context) async {
+  final title = TextEditingController(), text = TextEditingController();
+  ModalRoute<bool>? route;
+  var closing = false, confirmingDiscard = false, saving = false;
+  var error = '';
+  Future<void> cancel(BuildContext ctx) async {
+    if (closing || confirmingDiscard || saving) return;
+    confirmingDiscard = true;
+    try {
+      if ((title.text.isNotEmpty || text.text.isNotEmpty) && !await confirmDiscardChanges(ctx)) return;
+      if (ctx.mounted) { closing = true; Navigator.pop(ctx, false); }
+    } finally { confirmingDiscard = false; }
+  }
+  Future<void> save(BuildContext ctx, StateSetter setLocal) async {
+    if (closing || saving) return;
+    if (title.text.trim().isEmpty) { setLocal(() => error = '请输入标题'); return; }
+    setLocal(() { saving = true; error = ''; });
+    try {
+      await vaultAction(ctx, {'action':'note_create','title':title.text,'text':text.text});
+      if (ctx.mounted && !closing) { closing = true; Navigator.pop(ctx, true); }
+    } catch (e) {
+      if (ctx.mounted && !closing) setLocal(() => error = e is AgentException ? e.message : '创建失败，请重试');
+    } finally { if (ctx.mounted && !closing) setLocal(() => saving = false); }
+  }
+  try {
+    final ok = await showDialog<bool>(context: context, builder: (ctx) {
+      route = ModalRoute.of<bool>(ctx);
+      return PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(ctx); }, child: StatefulBuilder(builder: (ctx, setLocal) => AlertDialog(
+        title: const LText('新建安全笔记'),
+        content: SizedBox(width: appEditDialogWidth(ctx), child: AbsorbPointer(absorbing: saving, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
+          TextField(controller: title, decoration: InputDecoration(labelText: tr('标题'))),
+          TextField(controller: text, minLines: 4, maxLines: 8, decoration: InputDecoration(labelText: tr('内容'))),
+          if (error.isNotEmpty) Text(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+        ]))))),
+        actions: [
+          TextButton(onPressed: saving ? null : () => cancel(ctx), child: const LText('取消')),
+          FilledButton(onPressed: saving ? null : () => save(ctx, setLocal), child: LText(saving ? '创建中…' : '创建')),
+        ],
+      )));
+    });
+    return ok == true;
+  } catch (e) { vaultMessage(context,e); return false; }
+  finally { await route?.completed; title.dispose(); text.dispose(); }
 }
