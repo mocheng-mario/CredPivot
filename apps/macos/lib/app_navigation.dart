@@ -2,15 +2,15 @@ import 'package:flutter/material.dart';
 
 import 'app_ui.dart';
 
-const appPageTitles = ['保险库', '凭据', '浏览器连接', '安全中心', '诊断', '设置', '快捷键'];
+const appPageTitles = ['navigation.vault.title', 'navigation.credentials.title', 'navigation.browser.title', 'navigation.security.title', 'navigation.diagnostics.title', 'navigation.settings.title', 'navigation.shortcuts.title'];
 const appPageDescriptions = [
-  '管理保险库、主密码与备份',
-  '让密码、验证码与服务器井然有序',
-  '连接 Chrome，安全地保存与填充',
-  '管理恢复码、备份与数据迁移',
-  '查看运行日志、排查连接问题与重启应用',
-  '按你的习惯管理安全策略与本机偏好',
-  '按键设置搜索、锁定与新建，仅在 App 内生效',
+  'navigation.vault.description',
+  'navigation.credentials.description',
+  'navigation.browser.description',
+  'navigation.security.description',
+  'navigation.diagnostics.description',
+  'navigation.settings.description',
+  'navigation.shortcuts.description',
 ];
 
 class AppSidebar extends StatelessWidget {
@@ -67,7 +67,7 @@ class AppSidebar extends StatelessWidget {
           if (!compact)
             Padding(
               padding: EdgeInsets.only(left: 12, bottom: 12),
-              child: LText('工作空间',
+              child: LText('navigation.workspace',
                   style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -90,7 +90,7 @@ class AppSidebar extends StatelessWidget {
           if (compact)
             Tooltip(
               message:
-                  agentReady ? (unlocked ? '保险库已解锁' : '保险库已锁定') : 'Agent 未就绪',
+                  agentReady ? (unlocked ? tr('vault.status.unlocked') : tr('vault.status.locked')) : tr('agent.status.notReady'),
               child: Icon(
                   unlocked
                       ? Icons.lock_open_rounded
@@ -115,12 +115,12 @@ class AppSidebar extends StatelessWidget {
                           size: 15,
                           color: AppColors.muted),
                       const SizedBox(width: 7),
-                      const LText('本机保险库',
+                      const LText('navigation.localVault',
                           style: TextStyle(
                               fontSize: 12, fontWeight: FontWeight.w600)),
                     ]),
                     const SizedBox(height: 8),
-                    AppStatusBadge(agentReady ? 'Agent 已就绪' : 'Agent 未就绪',
+                    AppStatusBadge(agentReady ? tr('agent.status.ready') : tr('agent.status.notReady'),
                         color: agentReady ? AppColors.green : AppColors.muted),
                     const SizedBox(height: 8),
                     Text(footer,

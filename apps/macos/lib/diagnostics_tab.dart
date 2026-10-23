@@ -64,7 +64,7 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
       final restarted = await AgentBridge.restartAgent();
       if (!mounted) return;
       if (!restarted) {
-        setState(() => _repairMsg = 'Agent 重启失败，请完全退出 App 后重开');
+        setState(() => _repairMsg = tr('agent.errors.restartFailed'));
         return;
       }
       final host = await AgentBridge.chromeHostStatus();
@@ -72,18 +72,18 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
       final extId = host['stored_extension_id']?.toString() ?? '';
       if (extId.isEmpty) {
         setState(
-            () => _repairMsg = 'Agent 已重启。请在「设置」页保存扩展 ID，再到「浏览器连接」更新 Native Host。');
+            () => _repairMsg = tr('diagnostics.repairAgentAndHost.text'));
       } else {
         final r = await AgentBridge.installChromeHost(extId);
         if (!mounted) return;
         setState(
-            () => _repairMsg = r['message']?.toString() ?? '已尝试重装 Native Host');
+            () => _repairMsg = r['message']?.toString() ?? tr('diagnostics.repairAgentAndHost.text.item2'));
       }
       await _refresh();
     } catch (e) {
       if (mounted)
         setState(() => _repairMsg =
-            '修复失败：${e is AgentException ? AgentBridge.diagnosticMessage(e) : '操作失败，请查看诊断日志'}');
+            tr('diagnostics.errors.repair', args: {'error': e is AgentException ? AgentBridge.diagnosticMessage(e) : tr('diagnostics.labels.text')}));
     } finally {
       if (mounted) setState(() => _repairing = false);
     }
@@ -103,11 +103,11 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
         }
         _logText = data['text']?.toString() ?? '';
         if (_logText.isEmpty) {
-          _logText = '（暂无日志，Agent 启动后会写入 ~/.credpivot/logs/agent.log）';
+          _logText = tr('diagnostics.refresh.text');
         }
       });
     } catch (_) {
-      if (mounted) setState(() => _logText = '读取日志失败，请确认 Agent 已就绪');
+      if (mounted) setState(() => _logText = tr('diagnostics.refresh.text.item2'));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -126,8 +126,8 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
             shape: const Border(),
             collapsedShape: const Border(),
             leading: Icon(Icons.build_outlined, color: AppColors.primary),
-            title: const LText('故障排查'),
-            subtitle: const LText('连接异常时使用；重启后可能需要重新解锁和验证浏览器。'),
+            title: const LText('diagnostics.build.text'),
+            subtitle: const LText('diagnostics.build.text.item2'),
             childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             children: [
               Align(
@@ -136,17 +136,17 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                   OutlinedButton.icon(
                     onPressed: _busy ? null : widget.onRestartAgent,
                     icon: const Icon(Icons.restart_alt_rounded),
-                    label: const LText('重启后台（Agent）')),
+                    label: const LText('diagnostics.build.text.item3')),
                   OutlinedButton.icon(
                     onPressed: _busy ? null : widget.onRelaunchApp,
                     icon: const Icon(Icons.refresh_rounded),
-                    label: const LText('重新打开 App')),
+                    label: const LText('diagnostics.build.text.item4')),
                   Tooltip(
-                    message: '重启 Agent 并按已保存的扩展 ID 重装 Native Host，完成后请在 Chrome 重新加载扩展。',
+                    message: tr('diagnostics.build.message'),
                     child: OutlinedButton.icon(
                       onPressed: _busy ? null : _repairAgentAndHost,
                       icon: const Icon(Icons.build_outlined),
-                      label: LText(_repairing ? '修复中…' : '修复本机连接'))),
+                      label: LText(_repairing ? tr('diagnostics.build.text.item5') : tr('diagnostics.build.text.item6')))),
                 ]),
               ),
             ],
@@ -156,8 +156,8 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
         const SizedBox(height: 16),
         Card(
           child: ExpansionTile(
-            title: const LText('运行日志'),
-            subtitle: const LText('展开查看日志、筛选级别或复制运行记录'),
+            title: const LText('diagnostics.build.text.item7'),
+            subtitle: const LText('diagnostics.build.text.item8'),
             leading: Icon(Icons.article_outlined, color: AppColors.primary),
             shape: const Border(),
             collapsedShape: const Border(),
@@ -165,8 +165,8 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
             childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             children: [
               AppSectionHeader(
-                title: '日志记录',
-                subtitle: '本地记录 · 用于排查 Agent 与浏览器连接问题',
+                title: tr('diagnostics.build.title'),
+                subtitle: tr('diagnostics.build.description'),
                 action: Wrap(spacing: 8, runSpacing: 8, children: [
                   OutlinedButton.icon(
                     onPressed: filteredLogText.isEmpty
@@ -174,15 +174,15 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                         : () {
                             Clipboard.setData(ClipboardData(text: filteredLogText));
                             ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: LText('已复制当前筛选日志')));
+                                const SnackBar(content: LText('diagnostics.build.text.item9')));
                           },
                     icon: const Icon(Icons.copy_outlined),
-                    label: const LText('复制'),
+                    label: const LText('common.copy'),
                   ),
                   FilledButton.icon(
                       onPressed: _busy ? null : _refresh,
                       icon: const Icon(Icons.refresh_rounded),
-                      label: const LText('刷新')),
+                      label: const LText('common.refresh')),
                 ]),
               ),
               Card(
@@ -197,7 +197,7 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                         Icon(Icons.filter_list_rounded,
                             size: 18, color: AppColors.muted),
                         const SizedBox(width: 8),
-                        LText('查看级别', style: TextStyle(color: AppColors.ink)),
+                        LText('diagnostics.build.text.item10', style: TextStyle(color: AppColors.ink)),
                         const SizedBox(width: 12),
                         DropdownButtonHideUnderline(
                             child: DropdownButton<String>(
@@ -219,13 +219,13 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                         const SizedBox(width: 8),
                         Tooltip(
                             message:
-                                '仅筛选下方已读取的日志，不改变记录级别，也不会补回之前未记录的事件。',
+                                tr('diagnostics.build.message.item2'),
                             child: Icon(Icons.info_outline_rounded,
                                 size: 16, color: AppColors.muted)),
                       ]),
                       TextButton(
                           onPressed: widget.onOpenSettings,
-                          child: LText('记录级别 ${_recordLevel.toUpperCase()} · 前往设置')),
+                          child: LText('diagnostics.log.recordLevel', args: {'level': _recordLevel.toUpperCase()})),
                     ]),
               )),
               const SizedBox(height: 16),
@@ -267,9 +267,9 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                     padding: const EdgeInsets.all(16),
                     child: SelectableText(
                         _logText.isEmpty
-                            ? '正在读取运行日志…'
+                            ? tr('diagnostics.build.text.item12')
                             : (filteredLogText.isEmpty
-                                ? '暂无 ${_logLevel.toUpperCase()} 及以上级别的日志'
+                                ? tr('diagnostics.log.noMatchingEntries', args: {'level': _logLevel.toUpperCase()})
                                 : filteredLogText),
                         style: const TextStyle(
                             fontFamily: 'monospace',

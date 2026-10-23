@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
+import 'app_presentation.dart';
 
 /// 通过 Swift 平台通道调用进程内 Agent（Rust FFI 在 Runner 内链接）。
 class AgentBridge {
@@ -107,34 +108,34 @@ class AgentBridge {
           (e.message.contains('agent_not_started') || e.message.contains('agent not started')));
 
   static String friendlyMessage(AgentException e) {
-    if (e.code == 'auth_required') return '身份验证已过期，请重新确认操作';
+    if (e.code == 'auth_required') return tr('agent.friendlyMessage.text');
     if (isAgentNotStartedError(e)) {
-      return '后台 Agent 未启动。请先点「重启 Agent」；仍失败请「重新打开应用」（或 Cmd+Q 退出后重开）。';
+      return tr('agent.friendlyMessage.text.item2');
     }
     return e.message;
   }
 
   /// 日志区域只显示固定错误分类，避免异常中的导入内容或路径被复制、留存。
   static String diagnosticMessage(AgentException e) {
-    if (isAgentNotStartedError(e)) return '后台 Agent 未启动，请重启 Agent';
+    if (isAgentNotStartedError(e)) return tr('agent.diagnosticMessage.text');
     switch (e.code) {
       case 'locked':
-        return '保险库已锁定，请重新解锁';
+        return tr('agent.diagnosticMessage.text.item2');
       case 'bad_unlock':
-        return '身份验证失败';
+        return tr('agent.diagnosticMessage.text.item3');
       case 'auth_required':
-        return '身份验证已过期，请重新确认操作';
+        return tr('agent.friendlyMessage.text');
       case 'conflict':
-        return '记录已更新，请刷新后重试';
+        return tr('agent.diagnosticMessage.text.item4');
       case 'not_found':
-        return '记录不存在或已删除';
+        return tr('agent.diagnosticMessage.text.item5');
       case 'peer_denied':
       case 'forbidden':
-        return '操作未获授权';
+        return tr('agent.diagnosticMessage.text.item6');
       case 'log_config':
-        return '日志级别保存失败';
+        return tr('agent.diagnosticMessage.text.item7');
       default:
-        return '操作失败，请查看「诊断」页的事件记录';
+        return tr('agent.diagnosticMessage.text.item8');
     }
   }
 
@@ -149,7 +150,7 @@ class AgentBridge {
   }
 
   /// 身份验证按用户配置限时复用，过期后优先 Touch ID、可回退主密码。
-  static Future<bool> authenticateTouchId([String reason = 'CredPivot 需要验证您的身份']) async {
+  static Future<bool> authenticateTouchId([String reason = 'agent.authenticateTouchId.reason']) async {
     return await _channel.invokeMethod<bool>('authenticateTouchId', reason) ?? false;
   }
 
@@ -230,7 +231,7 @@ class AgentBridge {
     if (raw is Map) {
       return Map<String, dynamic>.from(raw);
     }
-    return {'ok': false, 'message': '未知返回: $raw'};
+    return {'ok': false, 'message': tr('browser.errors.unexpectedResponse', args: {'raw': raw})};
   }
 
   static Future<Map<String, dynamic>> revealChromeExtensionDir() async {
@@ -238,7 +239,7 @@ class AgentBridge {
     if (raw is Map) {
       return Map<String, dynamic>.from(raw);
     }
-    return {'ok': false, 'message': '未知返回: $raw'};
+    return {'ok': false, 'message': tr('browser.errors.unexpectedResponse', args: {'raw': raw})};
   }
 
   static Future<Map<String, dynamic>> openChromeExtensionsPage() async {
@@ -246,7 +247,7 @@ class AgentBridge {
     if (raw is Map) {
       return Map<String, dynamic>.from(raw);
     }
-    return {'ok': false, 'message': '未知返回: $raw'};
+    return {'ok': false, 'message': tr('browser.errors.unexpectedResponse', args: {'raw': raw})};
   }
 
   static Future<Map<String, dynamic>> sshIdentityAgentStatus() async {
@@ -259,7 +260,7 @@ class AgentBridge {
     if (raw is Map) {
       return Map<String, dynamic>.from(raw);
     }
-    return {'ok': false, 'message': '未知返回: $raw'};
+    return {'ok': false, 'message': tr('browser.errors.unexpectedResponse', args: {'raw': raw})};
   }
 
   static Future<Map<String, dynamic>> removeSshIdentityAgent() async {
@@ -267,7 +268,7 @@ class AgentBridge {
     if (raw is Map) {
       return Map<String, dynamic>.from(raw);
     }
-    return {'ok': false, 'message': '未知返回: $raw'};
+    return {'ok': false, 'message': tr('browser.errors.unexpectedResponse', args: {'raw': raw})};
   }
 
   static Future<int> residentMemoryBytes() async =>
@@ -367,7 +368,7 @@ class AgentBridge {
   static Future<String> materializeSshAskpass() async {
     final path = await _channel.invokeMethod<String>('materializeSshAskpass');
     if (path == null || path.isEmpty) {
-      throw AgentException('ssh_askpass', 'SSH askpass 安装失败');
+      throw AgentException('ssh_askpass', tr('agent.materializeSshAskpass.text'));
     }
     return path;
   }
@@ -391,7 +392,7 @@ class AgentBridge {
     final payload = payloadOf(resp);
     final id = payload['session_id'] as String?;
     if (id == null || id.isEmpty) {
-      throw AgentException('ssh_session', '无法创建 SSH 会话');
+      throw AgentException('ssh_session', tr('agent.sshSessionPrepare.text'));
     }
     return id;
   }

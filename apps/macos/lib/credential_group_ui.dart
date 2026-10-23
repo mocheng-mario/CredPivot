@@ -17,11 +17,11 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setLocal) => AlertDialog(
-        title: const LText('管理分组'),
+        title: const LText('groups.showManageGroupsDialog.text'),
         content: SizedBox(
           width: appEditDialogWidth(ctx),
           child: groups.isEmpty
-              ? const LText('暂无分组，可点击下方新建。')
+              ? const LText('groups.showManageGroupsDialog.text.item2')
               : ListView.builder(
                   shrinkWrap: true,
                   itemCount: groups.length,
@@ -32,8 +32,8 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
                       trailing: IconButton(
                         icon: const Icon(Icons.delete_outline),
                         onPressed: () async {
-                          if (!await confirmCredentialDanger(ctx, title: '删除分组',
-                              message: '删除「${g['name']}」？凭据不会删除，将移到未分组。', confirmLabel: '删除分组')) return;
+                          if (!await confirmCredentialDanger(ctx, title: tr('groups.showManageGroupsDialog.title'),
+                              message: tr('groups.delete.confirmation', args: {'name': g['name']}), confirmLabel: tr('groups.showManageGroupsDialog.title'))) return;
                           if (!ctx.mounted) return;
                           try {
                             await AgentBridge.deleteCredentialGroup(g['id'] as String);
@@ -58,21 +58,21 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
                 final created = await showDraftDialog<bool>(context: ctx,
                   hasChanges: () => nameCtl.text.isNotEmpty, isBusy: () => busy,
                   builder: (d) => StatefulBuilder(builder: (d, update) => AlertDialog(
-                    title: const LText('新建分组'),
+                    title: const LText('groups.showManageGroupsDialog.text.item3'),
                     content: SizedBox(width: appEditDialogWidth(d), child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      TextField(controller: nameCtl, enabled: !busy, decoration: InputDecoration(labelText: tr('分组名称'))),
+                      TextField(controller: nameCtl, enabled: !busy, decoration: InputDecoration(labelText: tr('groups.showManageGroupsDialog.text.item4'))),
                       if (error.isNotEmpty) LText(error),
                     ])),
                     actions: [
-                      TextButton(onPressed: busy ? null : () => Navigator.maybePop(d), child: const LText('取消')),
+                      TextButton(onPressed: busy ? null : () => Navigator.maybePop(d), child: const LText('common.cancel')),
                       FilledButton(onPressed: busy ? null : () async {
-                        if (nameCtl.text.trim().isEmpty) { update(() => error = '请输入分组名称'); return; }
+                        if (nameCtl.text.trim().isEmpty) { update(() => error = tr('groups.showManageGroupsDialog.text.item5')); return; }
                         update(() => busy = true);
                         try {
                           await AgentBridge.createCredentialGroup(scope, nameCtl.text.trim());
                           if (d.mounted) Navigator.pop(d, true);
                         } on AgentException catch (e) { if (d.mounted) update(() { error = e.message; busy = false; }); }
-                      }, child: const LText('创建')),
+                      }, child: const LText('groups.showManageGroupsDialog.text.item6')),
                     ],
                   )));
                 if (created == true && ctx.mounted) {
@@ -81,9 +81,9 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
                 }
               } finally { nameCtl.dispose(); }
             },
-            child: const LText('新建分组'),
+            child: const LText('groups.showManageGroupsDialog.text.item3'),
           ),
-          FilledButton(onPressed: () => Navigator.pop(ctx), child: const LText('完成')),
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.done')),
         ],
       ),
     ),
@@ -105,24 +105,24 @@ Future<void> showMoveItemToGroupDialog(
   var error = '';
   await showDraftDialog<void>(context: context, hasChanges: () => selected != initial, isBusy: () => busy,
     builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
-      title: const LText('移到分组'),
+      title: const LText('credentials.build.text.item20'),
       content: SizedBox(width: appEditDialogWidth(ctx), child: Column(mainAxisSize: MainAxisSize.min, children: [
         DropdownButtonFormField<String?>(isExpanded: true, value: selected,
-          decoration: InputDecoration(labelText: tr('目标分组')),
-          items: [const DropdownMenuItem(value: null, child: LText('（未分组）')),
+          decoration: InputDecoration(labelText: tr('groups.showMoveItemToGroupDialog.text')),
+          items: [const DropdownMenuItem(value: null, child: LText('common.ungroupedOption')),
             for (final group in groups) DropdownMenuItem(value: group['id'] as String, child: Text(group['name'].toString()))],
           onChanged: busy ? null : (value) => update(() => selected = value)),
         if (error.isNotEmpty) LText(error),
       ])),
       actions: [
-        TextButton(onPressed: busy ? null : () => Navigator.maybePop(ctx), child: const LText('取消')),
+        TextButton(onPressed: busy ? null : () => Navigator.maybePop(ctx), child: const LText('common.cancel')),
         FilledButton(onPressed: busy ? null : () async {
           update(() => busy = true);
           try {
             await AgentBridge.setItemGroup(itemId, selected);
             if (ctx.mounted) Navigator.pop(ctx);
           } on AgentException catch (e) { if (ctx.mounted) update(() { error = e.message; busy = false; }); }
-        }, child: const LText('保存')),
+        }, child: const LText('common.save')),
       ],
     )));
 }
@@ -143,9 +143,9 @@ Widget buildGroupFilterBar({
             value: dropdownValueIfPresent(selectedGroupId, groups),
             isExpanded: true,
             decoration: InputDecoration(
-                labelText: tr('分组'), prefixIcon: Icon(Icons.folder_outlined)),
+                labelText: tr('common.group'), prefixIcon: Icon(Icons.folder_outlined)),
             items: [
-              const DropdownMenuItem(value: null, child: LText('全部')),
+              const DropdownMenuItem(value: null, child: LText('common.all')),
               ...groups.map(
                 (g) => DropdownMenuItem(
                   value: g['id'] as String,
@@ -164,7 +164,7 @@ Widget buildGroupFilterBar({
         IconButton(
             onPressed: onManage,
             icon: const Icon(Icons.folder_outlined),
-            tooltip: tr('管理分组')),
+            tooltip: tr('groups.showManageGroupsDialog.text')),
       ],
     ),
   );
@@ -194,7 +194,7 @@ List<Widget> buildGroupedListTiles({
     });
   final out = <Widget>[];
   for (final key in keys) {
-    final title = key == null ? '未分组' : (groupName[key] ?? '分组');
+    final title = key == null ? tr('common.ungrouped') : (groupName[key] ?? tr('common.group'));
     out.add(Padding(
       padding: const EdgeInsets.only(left: 4, top: 8, bottom: 10),
       child: LText('$title  ·  ${buckets[key]!.length}',

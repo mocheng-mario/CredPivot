@@ -118,6 +118,32 @@ class _SettingsPageState extends State<SettingsPage> {
     _draft['launch_at_login'] = settings['launch_at_login'] == true;
   }
 
+  Future<void> _importLanguage() async {
+    try {
+      final locale = await AppPresentation.instance.importPack();
+      if (locale != null && mounted) {
+        setState(() {
+          _draft['language'] = locale;
+          _dirty = true;
+          _message = tr('settings.build.status');
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _message = AppPresentation.instance.errorMessage(error));
+    }
+  }
+
+  Future<void> _exportLanguage({required bool template}) async {
+    try {
+      final path = template
+          ? await AppPresentation.instance.exportTemplate()
+          : await AppPresentation.instance.exportPack(_draft['language']?.toString() ?? 'zh-CN');
+      if (path != null && mounted) setState(() => _message = tr('language.status.exported', args: {'path': path}));
+    } catch (_) {
+      if (mounted) setState(() => _message = tr('language.errors.exportFailed'));
+    }
+  }
+
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
@@ -136,7 +162,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _dirty = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _message = '配置读取失败，请重试');
+      if (mounted) setState(() => _message = tr('settings.load.status'));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -147,15 +173,15 @@ class _SettingsPageState extends State<SettingsPage> {
       final discard = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-                title: const LText('放弃未保存的修改？'),
-                content: const LText('重新加载将恢复当前已保存的配置。'),
+                title: const LText('confirmation.confirmDiscardChanges.text'),
+                content: const LText('settings.reload.text'),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, false),
-                      child: const LText('取消')),
+                      child: const LText('common.cancel')),
                   FilledButton(
                       onPressed: () => Navigator.pop(ctx, true),
-                      child: const LText('重新加载')),
+                      child: const LText('common.reload')),
                 ],
               ));
       if (discard != true || !mounted) return;
@@ -176,7 +202,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     setState(() {
       _sshConfigured = null;
-      _sshMessage = '正在读取 SSH 接入状态…';
+      _sshMessage = tr('settings.refreshSshStatus.text');
     });
     try {
       final status = await AgentBridge.sshIdentityAgentStatus();
@@ -186,13 +212,13 @@ class _SettingsPageState extends State<SettingsPage> {
             ? status['configured'] as bool
             : null;
         _sshMessage = _sshConfigured == null
-            ? status['message']?.toString() ?? '读取 SSH 接入状态失败，请刷新重试'
+            ? status['message']?.toString() ?? tr('settings.refreshSshStatus.text.item2')
             : _sshConfigured!
-                ? '已写入 CredPivot SSH IdentityAgent 配置'
-                : '尚未配置 CredPivot SSH IdentityAgent';
+                ? tr('settings.refreshSshStatus.text.item3')
+                : tr('settings.refreshSshStatus.text.item4');
       });
     } catch (_) {
-      if (mounted) setState(() => _sshMessage = '读取 SSH 接入状态失败，请刷新重试');
+      if (mounted) setState(() => _sshMessage = tr('settings.refreshSshStatus.text.item2'));
     }
   }
 
@@ -204,7 +230,7 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       await action();
     } catch (_) {
-      if (mounted) setState(() => _message = 'SSH 配置操作未完成，请核对接入状态后重试。');
+      if (mounted) setState(() => _message = tr('settings.changeSshConfiguration.status'));
     } finally {
       // 以落盘状态更新按钮，不能把操作失败当成状态切换成功。
       await _refreshSshStatus();
@@ -228,11 +254,10 @@ class _SettingsPageState extends State<SettingsPage> {
           'vault_directory': _saved['vault_directory'],
         });
         _dirty = true;
-        _message = '${backup == null ? '当前没有配置文件，无需备份。' : '当前配置已备份。'}'
-            '已载入默认配置，点击「保存配置」后生效。';
+        _message = tr('settings.defaults.loaded', args: {'backupStatus': backup == null ? tr('settings.labels.text') : tr('settings.labels.text.item2')});
       });
     } catch (_) {
-      if (mounted) setState(() => _message = '配置备份失败，未恢复默认值，请检查配置目录权限后重试。');
+      if (mounted) setState(() => _message = tr('settings.restoreDefaults.status.item2'));
     } finally {
       if (mounted) setState(() => _restoringDefaults = false);
     }
@@ -249,24 +274,24 @@ class _SettingsPageState extends State<SettingsPage> {
       if (!mounted) return;
       Map<String, dynamic> general(Map<String, dynamic> value) => Map<String, dynamic>.from(value)..removeWhere((key, _) => key.startsWith('shortcut_'));
       if (jsonEncode(general(Map<String, dynamic>.from(current['settings'] as Map))) != jsonEncode(general(_saved))) {
-        setState(() => _message = '配置已在其他位置更新，请重新加载后再保存。');
+        setState(() => _message = tr('settings.save.status'));
         return;
       }
       if (current['vault_exists'] == true) {
-        if (!await requireTouchId(context, reason: '保存应用配置')) return;
+        if (!await requireTouchId(context, reason: tr('settings.save.reason'))) return;
       } else {
         final confirmed = await showDialog<bool>(
             context: context,
             builder: (ctx) => AlertDialog(
-                  title: const LText('保存应用配置？'),
-                  content: const LText('修改将应用于本机；减少日志保留数量会清理多余的旧日志。'),
+                  title: const LText('settings.save.text'),
+                  content: const LText('settings.save.text.item2'),
                   actions: [
                     TextButton(
                         onPressed: () => Navigator.pop(ctx, false),
-                        child: const LText('取消')),
+                        child: const LText('common.cancel')),
                     FilledButton(
                         onPressed: () => Navigator.pop(ctx, true),
-                        child: const LText('保存')),
+                        child: const LText('common.save')),
                   ],
                 ));
         if (confirmed != true) return;
@@ -291,7 +316,7 @@ class _SettingsPageState extends State<SettingsPage> {
       await _load();
       if (!mounted) return;
       final notice = result['platform_notice']?.toString() ?? '';
-      setState(() => _message = notice.isEmpty ? '配置已保存并生效' : notice);
+      setState(() => _message = notice.isEmpty ? tr('settings.save.text.item3') : notice);
     } on AgentException catch (e) {
       if (mounted)
         setState(() => _message =
@@ -299,7 +324,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ? e.message
                 : AgentBridge.diagnosticMessage(e));
     } catch (_) {
-      if (mounted) setState(() => _message = '配置保存未完成，请重新加载确认当前状态');
+      if (mounted) setState(() => _message = tr('settings.save.status.item2'));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -322,7 +347,7 @@ class _SettingsPageState extends State<SettingsPage> {
           validator: (text) {
             final value = int.tryParse(text ?? '');
             return value == null || value < min || value > max
-                ? '请输入 $min～$max 之间的整数'
+                ? tr('settings.number.text', args: {'min': min, 'max': max})
                 : null;
           },
         ),
@@ -335,8 +360,8 @@ class _SettingsPageState extends State<SettingsPage> {
           child: _loading
               ? const CircularProgressIndicator()
               : Column(mainAxisSize: MainAxisSize.min, children: [
-                  LText(_message.isEmpty ? '配置尚未加载' : _message),
-                  TextButton(onPressed: _load, child: const LText('重试')),
+                  LText(_message.isEmpty ? tr('settings.build.text') : _message),
+                  TextButton(onPressed: _load, child: const LText('common.retry')),
                 ]));
     }
     return AbsorbPointer(
@@ -350,15 +375,15 @@ class _SettingsPageState extends State<SettingsPage> {
                   Expanded(
                       child: LText(
                           _warning.isNotEmpty
-                              ? '配置需要修复'
+                              ? tr('settings.build.text.item2')
                               : _dirty
-                                  ? '有未保存的修改'
-                                  : '所有更改已保存',
+                                  ? tr('settings.build.text.item3')
+                                  : tr('settings.build.text.item4'),
                           style: Theme.of(context).textTheme.bodySmall)),
-                  TextButton(onPressed: _reload, child: const LText('重新加载')),
+                  TextButton(onPressed: _reload, child: const LText('common.reload')),
                   TextButton(
                       onPressed: _restoreDefaults,
-                      child: const LText('恢复默认')),
+                      child: const LText('common.restoreDefaults')),
                   const SizedBox(width: 8),
                   FilledButton.icon(
                       onPressed:
@@ -366,7 +391,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               ? _save
                               : null,
                       icon: const Icon(Icons.check_rounded),
-                      label: LText(_saving ? '保存中…' : '保存配置')),
+                      label: LText(_saving ? tr('common.saving') : tr('settings.build.text.item5'))),
                 ]),
                 if (_busy) const LinearProgressIndicator(),
                 if (_warning.isNotEmpty) AppNotice(_warning),
@@ -375,62 +400,71 @@ class _SettingsPageState extends State<SettingsPage> {
                       onDismiss: () => setState(() => _message = '')),
                 if (_backupPath.isNotEmpty)
                   AppPanel(
-                    title: '恢复默认前的配置备份',
+                    title: tr('settings.build.title'),
                     child: SelectableText(_backupPath)),
                 const SizedBox(height: 16),
                 AppPanel(
-                    title: '安全与解锁',
-                    subtitle: '每次敏感操作仍需确认；重启、锁屏与睡眠后的验证始终保留。',
+                    title: tr('settings.build.title.item2'),
+                    subtitle: tr('settings.build.description'),
                     icon: Icons.lock_outline_rounded,
                     child: Column(children: [
-                      _number('vault_idle_seconds', '保险库空闲锁定',
-                          '1～30 分钟。凭据操作计为活动，后台状态轮询不会延长时间。', '分钟', 1, 30),
-                      _number('sensitive_auth_seconds', '敏感操作验证复用',
-                          '0～300 秒。0 表示每次验证；复用窗口不会随操作延长。', '秒', 0, 300),
-                      _number('browser_idle_seconds', '浏览器空闲授权到期',
-                          '1～30 分钟。保险库锁定或浏览器重开后仍须重新验证。', '分钟', 1, 30),
-                      _number('clipboard_clear_seconds', '敏感剪贴板自动清除',
-                          '5～300 秒。只清除本次复制的内容，不覆盖后来复制的其他内容。', '秒', 5, 300),
-                      _number('master_password_days', '主密码验证周期',
-                          '1～7 天，达到周期后必须输入主密码。', '天', 1, 7),
-                      _number('master_password_idle_hours', '长时间未解锁后验证主密码',
-                          '1～24 小时。从上次成功解锁计算，浏览或复制不会延长。', '小时', 1, 24),
+                      _number('vault_idle_seconds', tr('settings.build.text.item6'),
+                          tr('settings.build.text.item7'), tr('common.units.minutes'), 1, 30),
+                      _number('sensitive_auth_seconds', tr('settings.build.text.item8'),
+                          tr('settings.build.text.item9'), tr('common.units.seconds'), 0, 300),
+                      _number('browser_idle_seconds', tr('settings.build.text.item10'),
+                          tr('settings.build.text.item11'), tr('common.units.minutes'), 1, 30),
+                      _number('clipboard_clear_seconds', tr('settings.build.text.item12'),
+                          tr('settings.build.text.item13'), tr('common.units.seconds'), 5, 300),
+                      _number('master_password_days', tr('settings.build.text.item14'),
+                          tr('settings.build.text.item15'), tr('common.units.days'), 1, 7),
+                      _number('master_password_idle_hours', tr('settings.build.text.item16'),
+                          tr('settings.build.text.item17'), tr('common.units.hours'), 1, 24),
                     ])),
                 const SizedBox(height: 16),
-                AppPanel(title: 'SSH 签名授权', icon: Icons.security_outlined, child: Column(children: [
+                AppPanel(title: tr('settings.build.title.item3'), icon: Icons.security_outlined, child: Column(children: [
                   DropdownButtonFormField<String>(
                     value: _draft['ssh_sign_policy']?.toString() ?? 'session',
-                    decoration: InputDecoration(labelText: tr('默认授权策略')),
-                    items: const [DropdownMenuItem(value:'session',child:LText('同一连接限时复用')),DropdownMenuItem(value:'confirm',child:LText('每次签名确认')),DropdownMenuItem(value:'biometric',child:LText('每次确认并重新验证身份'))],
+                    decoration: InputDecoration(labelText: tr('settings.build.text.item18')),
+                    items: const [DropdownMenuItem(value:'session',child:LText('settings.build.text.item19')),DropdownMenuItem(value:'confirm',child:LText('settings.build.text.item20')),DropdownMenuItem(value:'biometric',child:LText('settings.build.text.item21'))],
                     onChanged: (v) => setState(() { _draft['ssh_sign_policy'] = v; _dirty = true; })),
                   const SizedBox(height: 12),
-                  const LText('每把密钥可在详细资料中覆盖。会话授权使用敏感操作的有效期，锁定或切换密钥立即失效；不据此推断最终目标主机。'),
+                  const LText('settings.build.text.item22'),
                 ])),
                 const SizedBox(height: 16),
-                AppPanel(title: '密码与外观', icon: Icons.tune_rounded, child: Column(children: [
-                  _number('password_history_limit', '默认历史密码保留数量', '0～50；0 表示不保留。下次密码启用时按新上限清理，可按单条凭据覆盖。', '条', 0, 50),
-                  _number('password_reminder_days', '默认改密提醒间隔', '0～3650；0 关闭提醒。单条凭据可覆盖，启用时间未知时不会假定已启用。', '天', 0, 3650),
-                  DropdownButtonFormField<String>(value: _draft['theme']?.toString() ?? 'system', decoration: InputDecoration(labelText: tr('外观')), items: const [DropdownMenuItem(value:'system',child:LText('跟随系统')),DropdownMenuItem(value:'light',child:LText('浅色')),DropdownMenuItem(value:'dark',child:LText('深色'))],onChanged:(v)=>setState((){_draft['theme']=v;_dirty=true;})),
+                AppPanel(title: tr('settings.build.title.item4'), icon: Icons.tune_rounded, child: Column(children: [
+                  _number('password_history_limit', tr('settings.build.text.item23'), tr('settings.build.text.item24'), tr('common.units.items'), 0, 50),
+                  _number('password_reminder_days', tr('settings.build.text.item25'), tr('settings.build.text.item26'), tr('common.units.days'), 0, 3650),
+                  DropdownButtonFormField<String>(value: _draft['theme']?.toString() ?? 'system', decoration: InputDecoration(labelText: tr('settings.theme.label')), items: const [DropdownMenuItem(value:'system',child:LText('settings.theme.system')),DropdownMenuItem(value:'light',child:LText('settings.theme.light')),DropdownMenuItem(value:'dark',child:LText('settings.theme.dark'))],onChanged:(v)=>setState((){_draft['theme']=v;_dirty=true;})),
                   const SizedBox(height:16),
-                  DropdownButtonFormField<String>(key:ValueKey(_draft['language']),value:AppPresentation.instance.names.containsKey(_draft['language'])?_draft['language'].toString():'zh-CN',decoration:InputDecoration(labelText: tr('界面语言')),items:AppPresentation.instance.names.entries.map((v)=>DropdownMenuItem(value:v.key,child:Text(v.value))).toList(),onChanged:(v)=>setState((){_draft['language']=v;_dirty=true;})),
+                  DropdownButtonFormField<String>(key:ValueKey(_draft['language']),value:AppPresentation.instance.names.containsKey(_draft['language'])?_draft['language'].toString():'zh-CN',decoration:InputDecoration(labelText: tr('settings.language.label')),items:AppPresentation.instance.names.entries.map((v)=>DropdownMenuItem(value:v.key,child:Text(v.value))).toList(),onChanged:(v)=>setState((){_draft['language']=v;_dirty=true;})),
                   const SizedBox(height:8),
-                  const LText('语言包为 JSON。导出中文模板，翻译 messages 并更改 locale、name 后导入；缺失文案回退中文。{0} 等占位符须保留。'),
-                  Wrap(spacing:8,children:[TextButton.icon(onPressed:()async{try{final locale=await AppPresentation.instance.importPack();if(locale!=null&&mounted)setState((){_draft['language']=locale;_dirty=true;_message='语言包已导入，保存配置后应用';});}catch(_){if(mounted)setState(()=>_message='语言包导入失败，请检查格式、大小和占位符');}},icon:const Icon(Icons.file_upload_outlined),label:const LText('导入语言包')),TextButton.icon(onPressed:()async{try{final path=await AppPresentation.instance.exportPack(_draft['language']?.toString()??'zh-CN');if(path!=null&&mounted)setState(()=>_message='语言包已导出：$path');}catch(_){if(mounted)setState(()=>_message='语言包导出失败');}},icon:const Icon(Icons.file_download_outlined),label:const LText('导出语言包'))]),
+                  const LText('language.help'),
+                  Text(AppPresentation.instance.coverage(_draft['language']?.toString() ?? 'zh-CN')),
+                  for (final warning in AppPresentation.instance.loadWarnings) AppNotice(warning),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    TextButton.icon(onPressed: _importLanguage,
+                      icon: const Icon(Icons.file_upload_outlined), label: const LText('language.actions.import')),
+                    TextButton.icon(onPressed: () => _exportLanguage(template: true),
+                      icon: const Icon(Icons.translate), label: const LText('language.actions.exportTemplate')),
+                    TextButton.icon(onPressed: () => _exportLanguage(template: false),
+                      icon: const Icon(Icons.file_download_outlined), label: const LText('language.actions.exportCurrent')),
+                  ]),
                 ])),
                 const SizedBox(height:16),
                 AppPanel(
-                    title: '自动恢复点',
+                    title: tr('settings.build.title.item5'),
                     icon: Icons.history_rounded,
                     child: Column(children: [
-                      _number('restore_interval_hours', '自动恢复点间隔',
-                          '1～24 小时。有变更且已解锁时创建，危险操作前仍强制创建。', '小时', 1, 24),
-                      _number('restore_keep_count', '恢复点保留数量',
-                          '1～100 份。减少后会在下次创建恢复点时清理旧副本。', '份', 1, 100),
+                      _number('restore_interval_hours', tr('settings.build.text.item28'),
+                          tr('settings.build.text.item29'), tr('common.units.hours'), 1, 24),
+                      _number('restore_keep_count', tr('settings.build.text.item30'),
+                          tr('settings.build.text.item31'), tr('common.units.copies'), 1, 100),
                     ])),
                 const SizedBox(height: 16),
                 AppPanel(
-                    title: '日志记录',
-                    subtitle: '查看日志和处理连接问题，请前往「诊断」。',
+                    title: tr('diagnostics.build.title'),
+                    subtitle: tr('settings.build.description.item2'),
                     icon: Icons.article_outlined,
                     child: Column(children: [
                       DropdownButtonFormField<String>(
@@ -438,8 +472,8 @@ class _SettingsPageState extends State<SettingsPage> {
                         value: _draft['log_level'] as String,
                         isExpanded: true,
                         decoration: InputDecoration(
-                            labelText: tr('日志记录级别'),
-                            helperText: tr('记录此级别及更严重的事件；诊断页的查看筛选独立设置。'),
+                            labelText: tr('settings.build.text.item32'),
+                            helperText: tr('settings.build.text.item33'),
                             helperMaxLines: 2),
                         items: ['debug', 'info', 'warn', 'error']
                             .map((level) => DropdownMenuItem(
@@ -454,19 +488,19 @@ class _SettingsPageState extends State<SettingsPage> {
                         },
                       ),
                       const SizedBox(height: 16),
-                      _number('log_max_mb', '单个日志文件大小',
-                          '1～100 MB。达到上限后轮转；日志脱敏始终开启。', 'MB', 1, 100),
-                      _number('log_backup_count', '旧日志保留数量',
-                          '1～10 份，不含当前日志。减少后会清理多余的旧日志。', '份', 1, 10),
+                      _number('log_max_mb', tr('settings.build.text.item34'),
+                          tr('settings.build.text.item35'), 'MB', 1, 100),
+                      _number('log_backup_count', tr('settings.build.text.item36'),
+                          tr('settings.build.text.item37'), tr('common.units.copies'), 1, 10),
                     ])),
                 const SizedBox(height: 16),
                 AppPanel(
-                    title: '保险库位置',
+                    title: tr('settings.build.title.item6'),
                     icon: Icons.folder_outlined,
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          LText('当前保险库',
+                          LText('settings.build.text.item38',
                               style: Theme.of(context).textTheme.titleSmall),
                           const SizedBox(height: 6),
                           SelectableText(_vaultPath,
@@ -481,24 +515,24 @@ class _SettingsPageState extends State<SettingsPage> {
                                         if (mounted) await _load();
                                       },
                                 icon: const Icon(Icons.folder_open_outlined),
-                                label: const LText('切换保险库（会锁定当前保险库）'),
+                                label: const LText('settings.build.text.item39'),
                               )),
                         ])),
                 const SizedBox(height: 16),
                 AppPanel(
-                    title: '通用',
+                    title: tr('settings.build.title.item7'),
                     icon: Icons.desktop_mac_outlined,
                     child: Column(children: [
                       SwitchListTile.adaptive(
                         contentPadding: EdgeInsets.zero,
-                        title: const LText('登录系统时启动'),
+                        title: const LText('settings.build.text.item40'),
                         subtitle: LText(_login['supported'] != true
-                            ? '当前系统不支持，需要 macOS 13 或更新版本'
+                            ? tr('settings.build.text.item41')
                             : _login['requires_approval'] == true
-                                ? '系统状态：等待登录项批准'
+                                ? tr('settings.build.text.item42')
                                 : _login['enabled'] == true
-                                    ? '系统状态：已启用'
-                                    : '系统状态：未启用'),
+                                    ? tr('settings.build.text.item43')
+                                    : tr('settings.build.text.item44')),
                         value: _draft['launch_at_login'] == true,
                         onChanged: _login['supported'] == true
                             ? (value) => setState(() {
@@ -510,8 +544,8 @@ class _SettingsPageState extends State<SettingsPage> {
                     ])),
                 const SizedBox(height: 16),
                 AppPanel(
-                    title: 'SSH 与终端',
-                    subtitle: '终端选择随配置保存；SSH 接入与撤销立即生效。',
+                    title: tr('settings.build.title.item8'),
+                    subtitle: tr('settings.build.description.item3'),
                     icon: Icons.terminal_rounded,
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -519,9 +553,9 @@ class _SettingsPageState extends State<SettingsPage> {
                           Row(children: [
                             Expanded(
                               child: Tooltip(
-                                message: _terminal.text.isEmpty ? '未选择终端应用' : _terminal.text,
+                                message: _terminal.text.isEmpty ? tr('settings.build.text.item45') : _terminal.text,
                                 child: InputDecorator(
-                                  decoration: InputDecoration(labelText: tr('SSH 终端应用')),
+                                  decoration: InputDecoration(labelText: tr('settings.build.text.item46')),
                                   child: Text(
                                     terminalDisplayName({'path': _terminal.text}),
                                     maxLines: 1,
@@ -530,7 +564,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             OutlinedButton.icon(
                                   onPressed: _pickTerminal,
                                   icon: const Icon(Icons.folder_open_outlined),
-                                  label: const LText('选择终端')),
+                                  label: const LText('settings.build.text.item47')),
                           ]),
                           const SizedBox(height: 16),
                           Row(children: [
@@ -538,31 +572,31 @@ class _SettingsPageState extends State<SettingsPage> {
                                 style: Theme.of(context).textTheme.bodySmall)),
                             IconButton(
                                 onPressed: _busy ? null : _refreshSshStatus,
-                                tooltip: tr('刷新 SSH 接入状态'),
+                                tooltip: tr('settings.build.text.item48'),
                                 icon: const Icon(Icons.refresh_rounded)),
                           ]),
                           Wrap(spacing: 10, runSpacing: 10, children: [
                             OutlinedButton(
                                 onPressed: _sshConfigured == false && widget.onConfigureSsh != null
                                     ? () => _changeSshConfiguration(remove: false) : null,
-                                child: const LText('配置 SSH IdentityAgent')),
+                                child: const LText('settings.build.text.item49')),
                             OutlinedButton(
                                 onPressed: _sshConfigured == true
                                     ? () => _changeSshConfiguration(remove: true) : null,
-                                child: const LText('撤销 SSH IdentityAgent')),
+                                child: const LText('settings.build.text.item50')),
                           ]),
                         ])),
                 const SizedBox(height: 16),
                 AppPanel(
-                    title: '浏览器',
-                    subtitle: '管理 Chrome 扩展标识；安装和连接状态请前往「浏览器连接」。',
+                    title: tr('settings.build.title.item9'),
+                    subtitle: tr('settings.build.description.item4'),
                     icon: Icons.language_rounded,
                     child: Column(children: [
                       TextFormField(
                         controller: _extensionId,
                         decoration: InputDecoration(
-                            labelText: tr('Chrome 扩展 ID'),
-                            helperText: tr('从 chrome://extensions 复制 32 位 ID。保存后更新本机连接；清空则停用。'),
+                            labelText: tr('browser.build.text.item9'),
+                            helperText: tr('settings.build.text.item51'),
                             helperMaxLines: 3),
                         onChanged: (_) => setState(() => _dirty = true),
                         validator: (value) =>
@@ -570,14 +604,14 @@ class _SettingsPageState extends State<SettingsPage> {
                                     RegExp(r'^[a-p]{32}$')
                                         .hasMatch(value!.trim())
                                 ? null
-                                : '请输入由 a～p 组成的 32 位扩展 ID',
+                                : tr('settings.build.text.item52'),
                       ),
                     ])),
                 const SizedBox(height: 16),
                 AppPanel(
-                    title: '配置文件',
+                    title: tr('settings.build.title.item10'),
                     subtitle:
-                        'JSON 格式，不包含主密码、密钥或指纹解锁材料。页面保存会应用配置；手动编辑文件后请重新启动 App。',
+                        tr('settings.build.description.item5'),
                     icon: Icons.data_object_rounded,
                     child: SelectableText(_path,
                         style: Theme.of(context).textTheme.bodySmall)),

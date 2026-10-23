@@ -71,21 +71,21 @@ class AgentNotReadyPane extends StatelessWidget {
         padding: const EdgeInsets.all(24),
         children: [
           AppPanel(
-            title: '正在等待本机 Agent',
+            title: tr('agentReadiness.build.title'),
             icon: Icons.hub_outlined,
-            subtitle: '保险库与服务器连接依赖本机 Agent。服务就绪后，这里会自动恢复。',
+            subtitle: tr('agentReadiness.build.description'),
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const AppNotice('如果长时间没有恢复，请尝试重启 Agent；仍失败时可完全退出应用后重新打开。'),
+                  AppNotice(tr('agentReadiness.build.text')),
                   const SizedBox(height: 10),
                   Wrap(spacing: 10, runSpacing: 10, children: [
                     FilledButton.icon(
                         onPressed: onRestartAgent,
                         icon: const Icon(Icons.refresh_rounded),
-                        label: const LText('重启 Agent')),
+                        label: const LText('vault.showAgentNotStartedHint.text.item4')),
                     OutlinedButton(
-                        onPressed: onRelaunchApp, child: const LText('重新打开应用')),
+                        onPressed: onRelaunchApp, child: const LText('vault.showAgentNotStartedHint.text.item5')),
                   ]),
                 ]),
           ),
@@ -95,7 +95,7 @@ class AgentNotReadyPane extends StatelessWidget {
                 child: ExpansionTile(
               shape: const Border(),
               collapsedShape: const Border(),
-              title: const LText('查看诊断信息'),
+              title: const LText('agentReadiness.build.text.item2'),
               leading: const Icon(Icons.info_outline_rounded),
               childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
               children: [

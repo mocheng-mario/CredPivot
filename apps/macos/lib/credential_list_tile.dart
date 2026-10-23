@@ -85,10 +85,10 @@ class CredentialWorkspace extends StatelessWidget {
                 width: 300,
                 child: Card(
                   child: detail == null
-                      ? const AppEmptyState(
+                      ? AppEmptyState(
                           icon: Icons.touch_app_outlined,
-                          title: '选择一条凭据',
-                          message: '在左侧选择，查看详情与可用操作。')
+                          title: tr('credentialsUi.build.title'),
+                          message: tr('credentialsUi.build.message'))
                       : SingleChildScrollView(
                           padding: const EdgeInsets.all(20),
                           child: Column(
@@ -200,7 +200,7 @@ class CredentialDetails extends StatelessWidget {
                     LText(field.key,
                         style: Theme.of(context).textTheme.bodySmall),
                     const SizedBox(height: 5),
-                    SelectableText(field.value.isEmpty ? tr('未填写') : field.value,
+                    SelectableText(field.value.isEmpty ? tr('common.empty') : field.value,
                         style: const TextStyle(fontSize: 13)),
                   ]),
             )),

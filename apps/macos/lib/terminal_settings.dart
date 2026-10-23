@@ -32,7 +32,7 @@ String terminalDisplayName(Map<String, String> pref) {
   final name = pref['name'] ?? '';
   if (name.isNotEmpty) return name;
   final path = pref['path'] ?? '';
-  if (path.isEmpty) return '未选择';
+  if (path.isEmpty) return tr('common.notSelected');
   final parts = path.split('/');
   return parts.isNotEmpty ? parts.last : path;
 }
@@ -89,7 +89,7 @@ class _TerminalSettingsDialogState extends State<_TerminalSettingsDialog> {
   Future<void> _save() async {
     if (_busy) return;
     if (_appPath.text.trim().isEmpty) {
-      setState(() => _status = '请先选择终端 .app');
+      setState(() => _status = tr('terminal.save.text'));
       return;
     }
     setState(() => _busy = true);
@@ -97,14 +97,14 @@ class _TerminalSettingsDialogState extends State<_TerminalSettingsDialog> {
       await AgentBridge.setTerminalLaunchConfig({'path': _appPath.text.trim()});
       if (mounted) Navigator.pop(context, true);
     } catch (_) {
-      if (mounted) setState(() { _busy = false; _status = '终端配置保存失败，请重试或前往设置页检查配置'; });
+      if (mounted) setState(() { _busy = false; _status = tr('terminal.save.text.item2'); });
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) _cancel(); }, child: AlertDialog(
-      title: const LText('选择终端'),
+      title: const LText('settings.build.text.item47'),
       content: SizedBox(
         width: appEditDialogWidth(context),
         child: Column(
@@ -112,22 +112,21 @@ class _TerminalSettingsDialogState extends State<_TerminalSettingsDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const LText(
-              '一键 SSH / 自动认证会在所选终端中打开新标签。'
-              ' 已内置 Terminal、iTerm、Warp、Tabby 等常见应用的启动方式。',
+              'terminal.build.text',
               style: TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 12),
             LText(
               _appName.text.isNotEmpty
-                  ? '当前：${_appName.text}\n${_appPath.text}'
-                  : '当前：未选择',
+                  ? tr('terminal.selection.current', args: {'name': _appName.text, 'path': _appPath.text})
+                  : tr('terminal.build.text.item3'),
               style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
             ),
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: _busy ? null : _pickApp,
               icon: const Icon(Icons.apps, size: 18),
-              label: const LText('选择 .app'),
+              label: const LText('terminal.build.text.item4'),
             ),
             if (_status.isNotEmpty) ...[
               const SizedBox(height: 8),
@@ -140,8 +139,8 @@ class _TerminalSettingsDialogState extends State<_TerminalSettingsDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: _busy ? null : _cancel, child: const LText('取消')),
-        FilledButton(onPressed: _busy ? null : _save, child: const LText('保存')),
+        TextButton(onPressed: _busy ? null : _cancel, child: const LText('common.cancel')),
+        FilledButton(onPressed: _busy ? null : _save, child: const LText('common.save')),
       ],
     ));
   }

@@ -56,14 +56,14 @@ final class CredPivotPlatform: NSObject {
     NSApp.activate(ignoringOtherApps: true)
     let alert = NSAlert()
     let policy = request["policy"] as? String ?? "confirm"
-    alert.messageText = policy == "unlock" ? NativePresentation.tr("解锁保险库以使用 SSH 密钥？") : NativePresentation.tr("允许 SSH 密钥签名？")
-    let scope = policy == "session" ? NativePresentation.tr("允许后，仅同一连接在敏感授权期限内可复用。") : NativePresentation.tr("仅允许这一次签名。")
-    let caller = request["caller"] as? String ?? NativePresentation.tr("未知进程")
+    alert.messageText = policy == "unlock" ? NativePresentation.tr("ssh.authorization.unlockTitle") : NativePresentation.tr("ssh.authorization.confirmTitle")
+    let scope = policy == "session" ? NativePresentation.tr("ssh.authorization.sessionScope") : NativePresentation.tr("ssh.authorization.onceScope")
+    let caller = request["caller"] as? String ?? NativePresentation.tr("common.unknownProcess")
     alert.informativeText = policy == "unlock"
-      ? NativePresentation.tr("调用：{0}\n\n验证后提供 SSH 公钥，实际签名仍需另行授权。", caller)
-      : NativePresentation.tr("密钥：{0}\n{1}\n调用：{2}\n\n无法从 SSH Agent 协议可靠确认最终目标主机。\n{3}", request["key_label"] as? String ?? NativePresentation.tr("未知"), request["fingerprint"] as? String ?? "", caller, scope)
-    alert.addButton(withTitle: NativePresentation.tr("允许"))
-    alert.addButton(withTitle: NativePresentation.tr("拒绝"))
+      ? NativePresentation.tr("ssh.authorization.unlockBody", arguments: ["caller": caller])
+      : NativePresentation.tr("ssh.authorization.signBody", arguments: ["label": request["key_label"] as? String ?? NativePresentation.tr("common.unknown"), "fingerprint": request["fingerprint"] as? String ?? "", "caller": caller, "scope": scope])
+    alert.addButton(withTitle: NativePresentation.tr("common.allow"))
+    alert.addButton(withTitle: NativePresentation.tr("common.deny"))
     // runModal 使用独立运行循环；请求已断开或过期时主动关闭，避免留下失效弹窗。
     let expiry = Timer(timeInterval: 0.5, repeats: true) { _ in
       guard let pending = LocalVaultUnlock.request(["type": "ssh_authorizations_pending"])?["requests"] as? [[String: Any]],
@@ -86,9 +86,9 @@ final class CredPivotPlatform: NSObject {
       self?.showingSshAuthorization = false
     }
     if policy == "biometric" {
-      TouchIdGate.shared.authenticateForExtensionGate(reason: NativePresentation.tr("允许本次 SSH 密钥签名"), completion: complete)
+      TouchIdGate.shared.authenticateForExtensionGate(reason: NativePresentation.tr("ssh.authorization.biometricReason"), completion: complete)
     } else {
-      TouchIdGate.shared.authenticateSensitiveOperation(reason: policy == "unlock" ? NativePresentation.tr("解锁保险库以使用 SSH 密钥") : NativePresentation.tr("允许 SSH 密钥签名"), completion: complete)
+      TouchIdGate.shared.authenticateSensitiveOperation(reason: policy == "unlock" ? NativePresentation.tr("ssh.authorization.unlockReason") : NativePresentation.tr("ssh.authorization.reason"), completion: complete)
     }
   }
 
@@ -101,12 +101,12 @@ final class CredPivotPlatform: NSObject {
     let origin = request["origin"] as? String ?? ""
     let candidates = request["candidates"] as? [[String: Any]] ?? []
     let alert = NSAlert()
-    alert.messageText = NativePresentation.tr(create ? "保存通行密钥到 CredPivot？" : "使用 CredPivot 通行密钥登录？")
-    let website = NativePresentation.tr("网站：{0}", origin)
+    alert.messageText = NativePresentation.tr(create ? NativePresentation.tr("passkey.authorization.createTitle") : NativePresentation.tr("passkey.authorization.loginTitle"))
+    let website = NativePresentation.tr("passkey.authorization.website", arguments: ["origin": origin])
     let account = passkeyAccountLabel(request["username"] as? String ?? "", request["display_name"] as? String ?? "")
     alert.informativeText = create
-      ? website + "\n" + NativePresentation.tr("账号：{0}\n\n私钥保存在加密保险库中，随 CredPivot 加密备份迁移和恢复。", account)
-      : website + "\n\n" + NativePresentation.tr("选择用于本次登录的账号，确认后验证身份。")
+      ? website + "\n" + NativePresentation.tr("passkey.authorization.createBody", arguments: ["account": account])
+      : website + "\n\n" + NativePresentation.tr("native.consumePasskeyAuthorization.text.item3")
     let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 380, height: 28), pullsDown: false)
     if !create {
       for (index, candidate) in candidates.enumerated() {
@@ -116,9 +116,9 @@ final class CredPivotPlatform: NSObject {
       }
       alert.accessoryView = picker
     }
-    alert.addButton(withTitle: NativePresentation.tr(create ? "保存到 CredPivot" : "允许登录"))
-    alert.addButton(withTitle: NativePresentation.tr("使用浏览器方式"))
-    alert.addButton(withTitle: NativePresentation.tr("取消"))
+    alert.addButton(withTitle: NativePresentation.tr(create ? NativePresentation.tr("passkey.authorization.save") : NativePresentation.tr("passkey.authorization.login")))
+    alert.addButton(withTitle: NativePresentation.tr("passkey.authorization.useBrowser"))
+    alert.addButton(withTitle: NativePresentation.tr("common.cancel"))
     // 取消、跳转、锁库后关闭失效确认窗；实际签名前 Agent 还会再次校验请求。
     let expiry = Timer(timeInterval: 0.5, repeats: true) { _ in
       guard let pending = LocalVaultUnlock.request(["type": "passkey_requests_pending"])?["requests"] as? [[String: Any]],
@@ -142,7 +142,7 @@ final class CredPivotPlatform: NSObject {
     guard decision == .alertFirstButtonReturn else { complete(false); return }
     // WebAuthn 的 UV 标志对应本次真实验证，不借用浏览器会话或敏感操作宽限期。
     TouchIdGate.shared.authenticateForExtensionGate(
-      reason: NativePresentation.tr(create ? "创建网站通行密钥" : "使用网站通行密钥登录"), completion: complete)
+      reason: NativePresentation.tr(create ? NativePresentation.tr("passkey.authorization.createReason") : NativePresentation.tr("passkey.authorization.loginReason")), completion: complete)
   }
 
   private func passkeyAccountLabel(_ username: String, _ displayName: String) -> String {
@@ -190,7 +190,7 @@ final class CredPivotPlatform: NSObject {
             let name = args["name"] as? String,
             let bindings = args["bindings"] as? [String: String],
             ["search", "lock", "new"].contains(name), let controller = shortcutController else {
-        result(FlutterError(code: "bad_args", message: "无法开始快捷键录入", details: nil))
+        result(FlutterError(code: "bad_args", message: NativePresentation.tr("native.handle.message"), details: nil))
         return
       }
       result(controller.record(name: name, bindings: bindings))
@@ -236,9 +236,9 @@ final class CredPivotPlatform: NSObject {
           if (previousSettings?["chrome_extension_id"] as? String) != (next["chrome_extension_id"] as? String) {
             let installation = ChromeHostInstaller.applyPreference()
             if installation["ok"] as? Bool != true {
-              notices.append("配置已保存，但浏览器连接尚未更新，请在「浏览器连接」页修复。")
+              notices.append(NativePresentation.tr("native.handle.text"))
             } else {
-              notices.append((next["chrome_extension_id"] as? String ?? "").isEmpty ? "本机浏览器连接已停用。" : "浏览器连接已更新，请完全退出 Chrome 后重开。")
+              notices.append((next["chrome_extension_id"] as? String ?? "").isEmpty ? NativePresentation.tr("native.handle.text.item2") : NativePresentation.tr("native.handle.text.item3"))
             }
           }
           if let data = response.data(using: .utf8),
@@ -265,7 +265,7 @@ final class CredPivotPlatform: NSObject {
       }
       result(LocalVaultUnlock.unlockPassword(password))
     case "authenticateTouchId":
-      let reason = (call.arguments as? String) ?? "CredPivot 需要验证您的身份"
+      let reason = (call.arguments as? String) ?? NativePresentation.tr("agent.authenticateTouchId.reason")
       TouchIdGate.shared.authenticateSensitiveOperation(reason: reason) { ok in
         DispatchQueue.main.async {
           result(ok)
@@ -295,7 +295,7 @@ final class CredPivotPlatform: NSObject {
       if !agentIsUnlocked() {
         result([
           "ok": false,
-          "message": "Vault 已锁定：请先解锁后再配置 SSH IdentityAgent（签名仍依赖解锁后的 Agent）",
+          "message": NativePresentation.tr("native.result.text"),
         ])
         return
       }
@@ -310,7 +310,7 @@ final class CredPivotPlatform: NSObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "选择"
+        panel.prompt = NativePresentation.tr("native.result.text.item2")
         result(panel.runModal() == .OK ? panel.url?.path : nil)
       }
     case "pickOpenFile":
@@ -320,7 +320,7 @@ final class CredPivotPlatform: NSObject {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.data]
-        panel.prompt = "打开"
+        panel.prompt = NativePresentation.tr("native.result.text.item3")
         result(panel.runModal() == .OK ? panel.url?.path : nil)
       }
     case "pickSaveFile":
@@ -329,7 +329,7 @@ final class CredPivotPlatform: NSObject {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = defaultName
         panel.allowedContentTypes = [.data]
-        panel.prompt = "保存"
+        panel.prompt = NativePresentation.tr("common.save")
         result(panel.runModal() == .OK ? panel.url?.path : nil)
       }
     case "readTextFile":
@@ -350,7 +350,7 @@ final class CredPivotPlatform: NSObject {
         }
         result(text)
       } catch {
-        result(FlutterError(code: "io", message: "请选择 4MB 以内的 UTF-8 文本文件", details: nil))
+        result(FlutterError(code: "io", message: NativePresentation.tr("native.result.message"), details: nil))
       }
     case "scanQrImage":
       DispatchQueue.main.async {
@@ -367,7 +367,7 @@ final class CredPivotPlatform: NSObject {
               .filter { $0.lowercased().hasPrefix("otpauth://totp/") }
             DispatchQueue.main.async { result(uris) }
           } catch {
-            DispatchQueue.main.async { result(FlutterError(code: "qr", message: "二维码识别失败", details: nil)) }
+            DispatchQueue.main.async { result(FlutterError(code: "qr", message: NativePresentation.tr("native.result.message.item2"), details: nil)) }
           }
         }
       }
@@ -379,7 +379,7 @@ final class CredPivotPlatform: NSObject {
       // 明文私钥和语言文件均使用私有临时文件，原子替换，避免短暂的宽权限文件。
       let temporary = path + "." + UUID().uuidString + ".tmp"
       let fd = Darwin.open(temporary, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
-      guard fd >= 0 else { result(FlutterError(code: "io", message: "文件创建失败", details: nil)); return }
+      guard fd >= 0 else { result(FlutterError(code: "io", message: NativePresentation.tr("native.result.message.item3"), details: nil)); return }
       do {
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         try handle.write(contentsOf: data)
@@ -389,7 +389,7 @@ final class CredPivotPlatform: NSObject {
         result(nil)
       } catch {
         try? FileManager.default.removeItem(atPath: temporary)
-        result(FlutterError(code: "io", message: "文件保存失败", details: nil))
+        result(FlutterError(code: "io", message: NativePresentation.tr("native.result.message.item4"), details: nil))
       }
     case "copyConcealed":
       guard let secret = call.arguments as? String else {
@@ -406,7 +406,7 @@ final class CredPivotPlatform: NSObject {
         result(FlutterError(code: "bad_args", message: "map required", details: nil))
         return
       }
-      result(TerminalLauncher.applyLaunchConfig(args) ? nil : FlutterError(code: "settings_write", message: "终端配置保存失败", details: nil))
+      result(TerminalLauncher.applyLaunchConfig(args) ? nil : FlutterError(code: "settings_write", message: NativePresentation.tr("native.result.message.item5"), details: nil))
     case "pickTerminalApplication":
       if let picked = TerminalLauncher.pickApplication() {
         result(picked)
@@ -511,7 +511,7 @@ enum ExtensionGateCoordinator {
           UUID(uuidString: session) != nil else { return }
     pending = true
     // LocalAuthentication 自行展示系统弹窗，不激活 App，避免打断 Chrome。
-    TouchIdGate.shared.authenticateForExtensionGate(reason: "允许当前 Chrome 会话访问保险库") { ok in
+    TouchIdGate.shared.authenticateForExtensionGate(reason: NativePresentation.tr("browser.authorization.reason")) { ok in
       pending = false
       let current = try? String(contentsOf: pendingPath, encoding: .utf8)
       guard current == session else { return }
@@ -582,7 +582,7 @@ enum LocalVaultUnlock {
     } else {
       _ = SecItemDelete(query(materialAccount) as CFDictionary)
       _ = SecItemDelete(query(policyAccount) as CFDictionary)
-      setupNotice = "本机指纹解锁材料保存失败，当前已通过主密码解锁；下次请使用主密码。请检查 Touch ID 和钥匙串访问权限。"
+      setupNotice = NativePresentation.tr("native.enroll.text")
     }
   }
 
@@ -705,7 +705,7 @@ enum LocalVaultUnlock {
           let publicData = record["ephemeral_public_key"].flatMap({ Data(base64Encoded: $0) }),
           let sealedData = record["sealed_vmk"].flatMap({ Data(base64Encoded: $0) }) else { completion(false); return }
     let context = LAContext()
-    context.localizedReason = NativePresentation.tr("解锁 CredPivot 保险库")
+    context.localizedReason = NativePresentation.tr("auth.biometric.unlockReason")
     context.localizedFallbackTitle = ""
     let epoch = TouchIdGate.beginAuthentication(context: context)
     DispatchQueue.global(qos: .userInitiated).async {
@@ -765,13 +765,13 @@ final class TouchIdGate {
     let epoch = TouchIdGate.beginAuthentication()
     NSApp.activate(ignoringOtherApps: true)
     let alert = NSAlert()
-    alert.messageText = NativePresentation.tr("验证保险库主密码")
+    alert.messageText = NativePresentation.tr("auth.masterPassword.title")
     alert.informativeText = reason
     let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-    field.placeholderString = NativePresentation.tr("保险库主密码（不是 Mac 登录密码）")
+    field.placeholderString = NativePresentation.tr("auth.masterPassword.placeholder")
     alert.accessoryView = field
-    alert.addButton(withTitle: NativePresentation.tr("验证"))
-    alert.addButton(withTitle: NativePresentation.tr("取消"))
+    alert.addButton(withTitle: NativePresentation.tr("auth.verify"))
+    alert.addButton(withTitle: NativePresentation.tr("common.cancel"))
     alert.window.initialFirstResponder = field
     let accepted = alert.runModal() == .alertFirstButtonReturn
     defer { field.stringValue = "" }
@@ -807,7 +807,7 @@ final class TouchIdGate {
       return
     }
     let context = LAContext()
-    context.localizedFallbackTitle = NativePresentation.tr("使用主密码")
+    context.localizedFallbackTitle = NativePresentation.tr("vault.actions.useMasterPassword")
     var error: NSError?
     guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
       askMasterPassword(reason: localizedReason, completion: completion)
@@ -841,21 +841,21 @@ enum LoginItemRegistrar {
     guard let desired = AppPreferences.settings()["launch_at_login"] as? Bool else { return nil }
     if #available(macOS 13.0, *) {
       let service = SMAppService.mainApp
-      if desired && service.status == .requiresApproval { return "登录启动等待批准，请在系统设置的「登录项」中允许 CredPivot。" }
+      if desired && service.status == .requiresApproval { return NativePresentation.tr("native.applyPreference.text") }
       if desired && service.status == .enabled { return nil }
       if !desired && service.status != .enabled && service.status != .requiresApproval { return nil }
       do {
         if desired { try service.register() } else { try service.unregister() }
-        if service.status == .requiresApproval { return "登录启动等待系统批准，请检查系统设置的「登录项」。" }
-        return (service.status == .enabled) == desired ? nil : "配置已保存，但登录项状态尚未同步，请重试或检查系统设置。"
-      } catch { return "配置已保存，但登录项注册未生效，请检查系统设置。" }
+        if service.status == .requiresApproval { return NativePresentation.tr("native.applyPreference.text.item2") }
+        return (service.status == .enabled) == desired ? nil : NativePresentation.tr("native.applyPreference.text.item3")
+      } catch { return NativePresentation.tr("native.applyPreference.text.item4") }
     }
-    return desired ? "当前系统不支持登录项注册，需要 macOS 13 或更新版本。" : nil
+    return desired ? NativePresentation.tr("native.applyPreference.text.item5") : nil
   }
 
   static func setEnabled(_ enabled: Bool, result: @escaping FlutterResult) {
     guard AppPreferences.update(["launch_at_login": enabled]) else {
-      result(FlutterError(code: "settings_write", message: "登录启动配置保存失败", details: nil)); return
+      result(FlutterError(code: "settings_write", message: NativePresentation.tr("native.setEnabled.message"), details: nil)); return
     }
     if let notice = applyPreference() { result(FlutterError(code: "login_item", message: notice, details: nil)) }
     else { result(nil) }
@@ -962,24 +962,24 @@ enum ChromeHostInstaller {
     guard let path = extensionDirectoryPath() else {
       return [
         "ok": false,
-        "message": "未找到扩展目录。请先在本机执行 make macos-sync-artifacts 或 make macos-build。",
+        "message": NativePresentation.tr("native.revealExtensionDirectory.text"),
       ]
     }
     NSWorkspace.shared.selectFile(
       URL(fileURLWithPath: path).appendingPathComponent("manifest.json").path,
       inFileViewerRootedAtPath: path
     )
-    return ["ok": true, "message": "已在 Finder 中显示扩展目录", "path": path]
+    return ["ok": true, "message": NativePresentation.tr("native.revealExtensionDirectory.text.item2"), "path": path]
   }
 
   static func openChromeExtensionsPage() -> [String: Any] {
     guard let url = URL(string: "chrome://extensions") else {
-      return ["ok": false, "message": "无法构造 chrome://extensions"]
+      return ["ok": false, "message": NativePresentation.tr("native.openChromeExtensionsPage.text")]
     }
     NSWorkspace.shared.open(url)
     return [
       "ok": true,
-      "message": "已尝试打开 Chrome 扩展页。若未跳转，请在 Chrome 地址栏手动输入 chrome://extensions",
+      "message": NativePresentation.tr("native.openChromeExtensionsPage.text.item2"),
     ]
   }
 
@@ -996,7 +996,7 @@ enum ChromeHostInstaller {
       throw NSError(
         domain: "CredPivot",
         code: 1,
-        userInfo: [NSLocalizedDescriptionKey: "App 包内缺少 native-host，请执行 make macos-build-debug 后完全退出并重新打开 App"]
+        userInfo: [NSLocalizedDescriptionKey: NativePresentation.tr("native.materializeHostBinary.text")]
       )
     }
     try FileManager.default.createDirectory(at: credPivotDir, withIntermediateDirectories: true)
@@ -1048,10 +1048,10 @@ enum ChromeHostInstaller {
     if extId.range(of: "^[a-p]{32}$", options: .regularExpression) == nil {
       return [
         "ok": false,
-        "message": "请填写 Chrome 扩展 ID（在 chrome://extensions 打开开发者模式后复制）",
+        "message": NativePresentation.tr("native.install.text"),
       ]
     }
-    guard AppPreferences.update(["chrome_extension_id": extId]) else { return ["ok": false, "message": "扩展 ID 保存失败"] }
+    guard AppPreferences.update(["chrome_extension_id": extId]) else { return ["ok": false, "message": NativePresentation.tr("native.install.text.item2")] }
 
     do {
       let host = try materializeHostBinary()
@@ -1069,7 +1069,7 @@ enum ChromeHostInstaller {
       applyTrustedNativeHostEnv()
       return [
         "ok": true,
-        "message": "已安装 Native Host。请完全退出 Chrome 后重开，再在扩展里点「连接 App」。",
+        "message": NativePresentation.tr("native.install.text.item3"),
         "manifest_path": manifestURL.path,
         "extension_id": extId,
         "host_binary": host,
@@ -1084,7 +1084,7 @@ enum ChromeHostInstaller {
     do {
       if FileManager.default.fileExists(atPath: manifestURL.path) { try FileManager.default.removeItem(at: manifestURL) }
       return ["ok": true]
-    } catch { return ["ok": false, "message": "浏览器连接配置清理失败"] }
+    } catch { return ["ok": false, "message": NativePresentation.tr("native.applyPreference.text.item6")] }
   }
 }
 
@@ -1102,11 +1102,11 @@ enum SshIdentityAgentHelper {
       // 只识别本应用管理的片段，不将用户自己的 IdentityAgent 配置视为已接入。
       if let start = text.range(of: markerStart),
          text.range(of: markerEnd, range: start.upperBound..<text.endIndex) == nil {
-        return ["ok": false, "message": "CredPivot SSH 配置片段不完整，请检查 ~/.ssh/config"]
+        return ["ok": false, "message": NativePresentation.tr("native.status.text")]
       }
       return ["ok": true, "configured": text.contains(markerStart)]
     } catch {
-      return ["ok": false, "message": "无法读取 ~/.ssh/config，请检查文件权限后刷新状态"]
+      return ["ok": false, "message": NativePresentation.tr("native.status.text.item2")]
     }
   }
 
@@ -1134,7 +1134,7 @@ Host *
           return [
             "ok": true,
             "already": true,
-            "message": "已配置 IdentityAgent，无需重复写入",
+            "message": NativePresentation.tr("native.appendSnippet.text"),
             "configPath": config.path,
             "socketPath": socket,
           ]
@@ -1151,14 +1151,14 @@ Host *
       return [
         "ok": true,
         "already": false,
-        "message": "已写入 ~/.ssh/config。请先解锁 Vault，再在终端执行: ssh-add -l",
+        "message": NativePresentation.tr("native.appendSnippet.text.item2"),
         "configPath": config.path,
         "socketPath": socket,
       ]
     } catch {
       return [
         "ok": false,
-        "message": "写入失败: \(error.localizedDescription)",
+        "message": NativePresentation.tr("ssh.configuration.writeFailed", arguments: ["error": String(describing: error.localizedDescription)]),
         "configPath": config.path,
         "socketPath": socket,
       ]
@@ -1172,7 +1172,7 @@ Host *
     guard FileManager.default.fileExists(atPath: config.path) else {
       return [
         "ok": false,
-        "message": "未找到 ~/.ssh/config",
+        "message": NativePresentation.tr("native.removeSnippet.text"),
         "configPath": config.path,
       ]
     }
@@ -1181,7 +1181,7 @@ Host *
       guard text.contains(markerStart) else {
         return [
           "ok": false,
-          "message": "配置中无 CredPivot IdentityAgent 标记块",
+          "message": NativePresentation.tr("native.removeSnippet.text.item2"),
           "configPath": config.path,
         ]
       }
@@ -1189,13 +1189,13 @@ Host *
       try text.write(to: config, atomically: true, encoding: .utf8)
       return [
         "ok": true,
-        "message": "已从 ~/.ssh/config 移除 CredPivot IdentityAgent 片段",
+        "message": NativePresentation.tr("native.removeSnippet.text.item3"),
         "configPath": config.path,
       ]
     } catch {
       return [
         "ok": false,
-        "message": "移除失败: \(error.localizedDescription)",
+        "message": NativePresentation.tr("ssh.configuration.removeFailed", arguments: ["error": String(describing: error.localizedDescription)]),
         "configPath": config.path,
       ]
     }
@@ -1334,8 +1334,8 @@ enum TerminalLauncher {
     panel.canChooseDirectories = false
     panel.allowsMultipleSelection = false
     panel.allowedContentTypes = [UTType.application]
-    panel.message = "选择用于 SSH 连接的终端应用（如 Terminal、iTerm、Tabby、Warp 等）"
-    panel.prompt = "选择"
+    panel.message = NativePresentation.tr("native.pickApplication.message")
+    panel.prompt = NativePresentation.tr("native.result.text.item2")
     guard panel.runModal() == .OK, let url = panel.url else {
       return nil
     }
@@ -1354,21 +1354,21 @@ enum TerminalLauncher {
     let scriptPath = launchScriptURL(sessionId: nil).path
     _ = writeLaunchScript(shellCommand: shellCommand)
     var lines: [String] = []
-    lines.append("=== CredPivot 终端启动计划 ===")
+    lines.append(NativePresentation.tr("native.describeLaunchPlan.text"))
     lines.append("")
-    lines.append("【1】写入 ~/.credpivot/terminal_launch.sh ：")
+    lines.append(NativePresentation.tr("native.describeLaunchPlan.text.item2"))
     lines.append(shellCommand)
     lines.append("")
     if let cli = tabbyCliPath(appPath: appPath) ?? inferredTabbyCli(appPath: appPath) {
       lines.append("【2】Tabby CLI：")
       lines.append("\(cli) run /bin/zsh \(scriptPath)")
     } else {
-      lines.append("【2】open 回退：")
+      lines.append(NativePresentation.tr("native.describeLaunchPlan.text.item3"))
       lines.append("/usr/bin/open -na \(shellQuote(appPath)) --args /bin/zsh \(scriptPath)")
     }
     lines.append("")
-    lines.append("说明：zsh -c 后面若跟多个参数（如 expect、脚本、--user 分开写），")
-    lines.append("zsh 会把它们当成多个「脚本文件」，出现 can't open input file。")
+    lines.append(NativePresentation.tr("native.describeLaunchPlan.text.item4"))
+    lines.append(NativePresentation.tr("native.describeLaunchPlan.text.item5"))
     let text = lines.joined(separator: "\n")
     persistLaunchPlan(text)
     return text
@@ -1399,10 +1399,10 @@ enum TerminalLauncher {
   /// 成功返回 nil；失败返回错误文案。
   static func openSsh(host: String, port: Int, user: String) -> String? {
     guard let appPath = currentAppPath(), !appPath.isEmpty else {
-      return "未选择终端应用：请在「凭据 → 服务器」点「终端设置」选择 .app"
+      return NativePresentation.tr("native.openSsh.text")
     }
     if !FileManager.default.fileExists(atPath: appPath) {
-      return "终端应用不存在：\(appPath)"
+      return NativePresentation.tr("native.openSsh.text.item2", arguments: ["appPath": String(describing: appPath)])
     }
     let sshCmd = sshShellCommand(host: host, port: port, user: user)
     if let err = launchShellCommand(appPath: appPath, command: sshCmd) {
@@ -1419,7 +1419,7 @@ enum TerminalLauncher {
     launchSessionId: String? = nil
   ) -> String? {
     if !FileManager.default.fileExists(atPath: appPath) {
-      return "终端应用不存在：\(appPath)"
+      return NativePresentation.tr("native.openSsh.text.item2", arguments: ["appPath": String(describing: appPath)])
     }
     let bundleId = Bundle(path: appPath)?.bundleIdentifier ?? ""
     let appFile = (appPath as NSString).lastPathComponent.lowercased()
@@ -1452,7 +1452,7 @@ enum TerminalLauncher {
           waitForExit: false
         )
       } else {
-        err = "无法写入启动脚本 ~/.credpivot/terminal_launch.sh"
+        err = NativePresentation.tr("native.launchShellCommand.text")
       }
     }
 
@@ -1552,10 +1552,10 @@ enum TerminalLauncher {
   ) -> String? {
     let cli = "\(appPath)/Contents/MacOS/Tabby"
     guard FileManager.default.fileExists(atPath: cli) else {
-      return "找不到 Tabby CLI：\(cli)"
+      return NativePresentation.tr("native.launchTabbyShellCommand.text", arguments: ["cli": String(describing: cli)])
     }
     guard let script = writeLaunchScript(shellCommand: command, sessionId: launchSessionId) else {
-      return "无法写入 ~/.credpivot/terminal_launch.sh"
+      return NativePresentation.tr("native.launchTabbyShellCommand.text.item2")
     }
     return runProcess(executable: cli, arguments: ["run", "/bin/zsh", script], waitForExit: false)
   }
@@ -1593,7 +1593,7 @@ enum TerminalLauncher {
       if waitForExit {
         proc.waitUntilExit()
         if proc.terminationStatus != 0 {
-          return "启动终端失败（退出码 \(proc.terminationStatus)）"
+          return NativePresentation.tr("terminal.errors.processExit", arguments: ["exitCode": String(describing: proc.terminationStatus)])
         }
       }
       return nil
@@ -1610,7 +1610,7 @@ enum TerminalLauncher {
       try proc.run()
       proc.waitUntilExit()
       if proc.terminationStatus != 0 {
-        return "无法启动终端（osascript 退出码 \(proc.terminationStatus)）"
+        return NativePresentation.tr("terminal.errors.appleScriptExit", arguments: ["exitCode": String(describing: proc.terminationStatus)])
       }
       return nil
     } catch {
@@ -1669,7 +1669,7 @@ enum SshAskpassLauncher {
       throw NSError(
         domain: "CredPivot",
         code: 1,
-        userInfo: [NSLocalizedDescriptionKey: "找不到 credpivot-askpass，请先 make macos-build"]
+        userInfo: [NSLocalizedDescriptionKey: NativePresentation.tr("native.materializeInstalledBinary.text")]
       )
     }
     try FileManager.default.createDirectory(at: credPivotDir, withIntermediateDirectories: true)
@@ -1726,7 +1726,7 @@ enum SshAskpassLauncher {
       throw NSError(
         domain: "CredPivot",
         code: 2,
-        userInfo: [NSLocalizedDescriptionKey: "内置 SSH expect 脚本缺失，请先 make macos-build"]
+        userInfo: [NSLocalizedDescriptionKey: NativePresentation.tr("native.materializeExpectScript.text")]
       )
     }
     let srcData = try Data(contentsOf: URL(fileURLWithPath: src))
@@ -1735,7 +1735,7 @@ enum SshAskpassLauncher {
       throw NSError(
         domain: "CredPivot",
         code: 3,
-        userInfo: [NSLocalizedDescriptionKey: "SSH expect 脚本版本过旧，请 make macos-sync-artifacts 后重开 App"]
+        userInfo: [NSLocalizedDescriptionKey: NativePresentation.tr("native.materializeExpectScript.text.item2")]
       )
     }
     try FileManager.default.createDirectory(at: credPivotDir, withIntermediateDirectories: true)
@@ -1764,10 +1764,10 @@ enum SshAskpassLauncher {
       return error.localizedDescription
     }
     if !FileManager.default.fileExists(atPath: "/usr/bin/expect") {
-      return "系统缺少 /usr/bin/expect，无法自动认证 SSH（含 MFA）"
+      return NativePresentation.tr("native.openInTerminal.text")
     }
     guard let appPath = TerminalLauncher.currentAppPath(), !appPath.isEmpty else {
-      return "未选择终端应用：请在「服务器」页配置终端"
+      return NativePresentation.tr("native.openInTerminal.text.item2")
     }
     var args = [
       expectPath,
@@ -1807,7 +1807,7 @@ final class CredPivotShortcuts {
   private let action: (String) -> Void
   private let keys: [String: UInt16] = ["a":0,"s":1,"d":2,"f":3,"h":4,"g":5,"z":6,"x":7,"c":8,"v":9,"b":11,"q":12,"w":13,"e":14,"r":15,"y":16,"t":17,"1":18,"2":19,"3":20,"4":21,"6":22,"5":23,"9":25,"7":26,"8":28,"0":29,"o":31,"u":32,"i":34,"p":35,"l":37,"j":38,"k":40,"n":45,"m":46,"space":49]
   private let modifiers: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
-  private let labels = ["search": "搜索凭据", "lock": "锁定保险库", "new": "新建记录"]
+  private let labels = ["search": "shortcuts.actions.search", "lock": "vault.actions.lock", "new": "credentials.actions.new"]
   private let reserved = ["command+c", "command+v", "command+x", "command+a", "command+z", "command+shift+z", "command+w", "command+q", "command+h", "command+m"]
 
   init(action: @escaping (String) -> Void) {
@@ -1856,13 +1856,13 @@ final class CredPivotShortcuts {
     recording = true
     defer { recording = false }
     let alert = NSAlert()
-    alert.messageText = NativePresentation.tr("设置快捷键 · {0}", NativePresentation.tr(labels[name] ?? name))
-    alert.informativeText = NativePresentation.tr("请直接按下组合键，包含 ⌘ 或 ⌃，搭配字母、数字或空格。按 Esc 取消。")
-    let preview = NSTextField(wrappingLabelWithString: NativePresentation.tr("等待按键…"))
+    alert.messageText = NativePresentation.tr("shortcuts.recorder.title", arguments: ["action": NativePresentation.tr(labels[name] ?? name)])
+    alert.informativeText = NativePresentation.tr("native.record.text.item2")
+    let preview = NSTextField(wrappingLabelWithString: NativePresentation.tr("native.record.text.item3"))
     preview.frame = NSRect(x: 0, y: 0, width: 380, height: 60)
     alert.accessoryView = preview
-    alert.addButton(withTitle: NativePresentation.tr("使用此组合"))
-    alert.addButton(withTitle: NativePresentation.tr("取消"))
+    alert.addButton(withTitle: NativePresentation.tr("native.record.text.item4"))
+    alert.addButton(withTitle: NativePresentation.tr("common.cancel"))
     alert.buttons.first?.isEnabled = false
     var chosen: String?
     let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -1879,17 +1879,17 @@ final class CredPivotShortcuts {
       alert.buttons.first?.isEnabled = false
       guard let key = self.keys.first(where: { $0.value == event.keyCode })?.key,
             flags.contains(.command) || flags.contains(.control) else {
-        preview.stringValue = NativePresentation.tr("请使用 ⌘ 或 ⌃ 搭配字母、数字或空格。")
+        preview.stringValue = NativePresentation.tr("native.record.text.item5")
         return nil
       }
       if self.reserved.contains(where: { self.parse($0).map { $0.0 == event.keyCode && $0.1 == flags } ?? false }) {
-        preview.stringValue = NativePresentation.tr("此组合保留给系统编辑或窗口操作，请换一个组合。")
+        preview.stringValue = NativePresentation.tr("native.record.text.item6")
         return nil
       }
       if let duplicate = bindings.first(where: { entry in
         entry.key != name && (self.parse(entry.value).map { $0.0 == event.keyCode && $0.1 == flags } ?? false)
       }) {
-        preview.stringValue = NativePresentation.tr("与「{0}」重复，请换一个组合。", NativePresentation.tr(self.labels[duplicate.key] ?? duplicate.key))
+        preview.stringValue = NativePresentation.tr("shortcuts.recorder.duplicate", arguments: ["action": NativePresentation.tr(self.labels[duplicate.key] ?? duplicate.key)])
         return nil
       }
       var parts: [String] = []
@@ -1913,9 +1913,30 @@ final class CredPivotShortcuts {
 
 // 与 Flutter 共用用户导入的 JSON 语言包；这里只处理 UI 文案，不读取保险库内容。
 enum NativePresentation {
-  private static var messages: [String: String] = [:]
+  private static let lock = NSLock()
+  private static let tokenPattern = try! NSRegularExpression(pattern: "\\{([a-zA-Z][a-zA-Z0-9_]*)\\}")
+  private static let reference: [String: [String: Any]] = {
+    // Flutter 已把同一份内置目录打包进 App.framework，无须复制或另存默认文案。
+    guard let root = Bundle.main.privateFrameworksURL,
+          let data = try? Data(contentsOf: root.appendingPathComponent("App.framework/Resources/flutter_assets/assets/languages/zh-CN.json")),
+          let pack = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          pack["format"] as? String == "credpivot-language", pack["version"] as? Int == 2,
+          let messages = pack["messages"] as? [String: [String: Any]] else { return [:] }
+    return messages
+  }()
+  private static var messages: [String: String] = reference.reduce(into: [:]) { result, entry in
+    result[entry.key] = entry.value["source"] as? String
+  }
+
+  private static func parameters(_ template: String) -> Set<String> {
+    let text = template as NSString
+    return Set(tokenPattern.matches(in: template, range: NSRange(location: 0, length: text.length)).map { text.substring(with: $0.range(at: 1)) })
+  }
+
   static func reload() {
-    messages = [:]
+    var updated: [String: String] = reference.reduce(into: [:]) { result, entry in result[entry.key] = entry.value["source"] as? String }
+    // 终端操作可能在后台线程返回错误文案，不能与主线程切换语言并发读写字典。
+    defer { lock.lock(); messages = updated; lock.unlock() }
     guard let locale = AppPreferences.settings()["language"] as? String, locale != "zh-CN",
           locale.range(of: "^[a-zA-Z0-9_-]{1,64}$", options: .regularExpression) != nil else { return }
     let path = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".credpivot/languages/\(locale).json")
@@ -1923,20 +1944,32 @@ enum NativePresentation {
     defer { try? handle.close() }
     guard let data = try? handle.read(upToCount: 4 * 1024 * 1024 + 1), data.count <= 4 * 1024 * 1024,
           let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          value["version"] as? Int == 1, value["locale"] as? String == locale,
-          let translated = value["messages"] as? [String: String], translated.count <= 10000,
-          translated.allSatisfy({ $0.key.count <= 4096 && $0.value.count <= 8192 }) else { return }
-    messages = translated
+          value["format"] as? String == "credpivot-language", value["version"] as? Int == 2,
+          value["locale"] as? String == locale,
+          let translated = value["messages"] as? [String: [String: Any]], translated.count <= 10000 else { return }
+    var candidate = updated
+    for (key, entry) in translated {
+      guard let source = reference[key]?["source"] as? String else { continue }
+      guard let translation = entry["translation"] as? String, translation.count <= 8192 else { return }
+      if translation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
+      guard parameters(source) == parameters(translation) else { return }
+      candidate[key] = translation
+    }
+    updated = candidate
   }
 
-  static func tr(_ source: String, _ arguments: String...) -> String {
-    let template = messages[source] ?? source
-    guard !arguments.isEmpty, let pattern = try? NSRegularExpression(pattern: "\\{([0-9]+)\\}") else { return template }
+  static func tr(_ key: String, arguments: [String: String] = [:]) -> String {
+    lock.lock()
+    let template = messages[key] ?? key
+    lock.unlock()
+    guard !arguments.isEmpty else { return template }
+    let text = template as NSString
     var result = template
-    for match in pattern.matches(in: template, range: NSRange(location: 0, length: (template as NSString).length)).reversed() {
-      guard let token = Range(match.range(at: 1), in: template), let index = Int(template[token]),
-            arguments.indices.contains(index), let range = Range(match.range, in: result) else { continue }
-      result.replaceSubrange(range, with: arguments[index])
+    // 按原始范围逆序替换，不递归展开参数中的花括号或用户数据。
+    for match in tokenPattern.matches(in: template, range: NSRange(location: 0, length: text.length)).reversed() {
+      let name = text.substring(with: match.range(at: 1))
+      guard let value = arguments[name], let range = Range(match.range, in: result) else { continue }
+      result.replaceSubrange(range, with: value)
     }
     return result
   }

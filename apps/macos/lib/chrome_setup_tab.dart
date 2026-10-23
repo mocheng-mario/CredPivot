@@ -45,7 +45,7 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
     } catch (e) {
       if (mounted)
         setState(() => _message =
-            '读取配置失败：${e is AgentException ? AgentBridge.diagnosticMessage(e) : '操作失败，请查看诊断日志'}');
+            tr('browser.errors.readConfiguration', args: {'error': e is AgentException ? AgentBridge.diagnosticMessage(e) : tr('diagnostics.labels.text')}));
     }
   }
 
@@ -57,7 +57,7 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
     } catch (e) {
       if (mounted)
         setState(() => _message =
-            '$label 失败: ${e is AgentException ? AgentBridge.diagnosticMessage(e) : '操作失败，请查看诊断日志'}');
+            tr('browser.status.operationFailed', args: {'label': label, 'error': e is AgentException ? AgentBridge.diagnosticMessage(e) : tr('diagnostics.labels.text')}));
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -66,10 +66,10 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
   Future<void> _installHost() async {
     final id = widget.extensionIdController.text.trim();
     if (id.isEmpty) {
-      setState(() => _message = '请先在设置页保存当前 Chrome 里的扩展 ID');
+      setState(() => _message = tr('browser.installHost.status'));
       return;
     }
-    await _run('安装 Host', () async {
+    await _run(tr('browser.installHost.text'), () async {
       final r = await AgentBridge.installChromeHost(id);
       if (!mounted) return;
       setState(() {
@@ -104,41 +104,41 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
         padding: const EdgeInsets.fromLTRB(24, 6, 24, 24),
         children: [
           AppPanel(
-            title: '让凭据随手可用',
-            subtitle: '通过 Chrome 扩展保存与填充。首次使用按以下步骤完成本机配置。',
+            title: tr('browser.build.title'),
+            subtitle: tr('browser.build.description'),
             icon: Icons.language_rounded,
-            trailing: AppStatusBadge(configured ? '已配置' : '待配置',
+            trailing: AppStatusBadge(configured ? tr('browser.build.text') : tr('browser.build.text.item2'),
                 color: configured ? AppColors.green : AppColors.muted),
             child: Column(children: [
               _StepTile(
                 step: 1,
-                title: '加载浏览器扩展',
+                title: tr('browser.build.title.item2'),
                 detail: extDirOk
-                    ? '打开扩展目录，在 Chrome 开启开发者模式，然后选择「加载已解压的扩展」。'
-                    : '未找到扩展目录，请先完成应用构建或同步扩展产物。',
+                    ? tr('browser.build.text.item3')
+                    : tr('browser.build.text.item4'),
                 ok: extDirOk,
               ),
               _StepTile(
                 step: 2,
-                title: '复制扩展 ID',
+                title: tr('browser.build.title.item3'),
                 detail: manifestId.isNotEmpty && !idMatch
-                    ? '当前 Host 绑定的 ID 与已保存的 ID 不一致，请更新配置。'
-                    : '在 Chrome 扩展卡片中复制 ID，到「设置」保存。重新加载后请核对 ID。',
+                    ? tr('browser.build.text.item5')
+                    : tr('browser.build.text.item6'),
                 ok: widget.extensionIdController.text.trim().isNotEmpty,
               ),
               _StepTile(
                 step: 3,
-                title: '完成本机连接配置',
+                title: tr('browser.build.title.item4'),
                 detail: configured
-                    ? 'Native Host 与清单已安装。请在 Chrome 中重新加载扩展。'
-                    : '保存扩展 ID，安装对应的 Native Host 配置。',
+                    ? tr('browser.build.text.item7')
+                    : tr('browser.build.text.item8'),
                 ok: configured,
               ),
             ]),
           ),
           const SizedBox(height: 16),
           AppPanel(
-            title: '扩展配置',
+            title: tr('browser.build.title.item5'),
             icon: Icons.extension_outlined,
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -147,51 +147,51 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
                     controller: widget.extensionIdController,
                     readOnly: true,
                     decoration: InputDecoration(
-                        labelText: tr('Chrome 扩展 ID'),
-                        hintText: tr('请在设置页配置')),
+                        labelText: tr('browser.build.text.item9'),
+                        hintText: tr('browser.build.text.item10')),
                   ),
                   const SizedBox(height: 14),
                   Wrap(spacing: 10, runSpacing: 10, children: [
                     OutlinedButton.icon(
                         onPressed: widget.onOpenSettings,
                         icon: const Icon(Icons.settings_outlined),
-                        label: const LText('前往设置')),
+                        label: const LText('common.openSettings')),
                     FilledButton.icon(
                         onPressed: busy ? null : _installHost,
                         icon: const Icon(Icons.link_rounded),
-                        label: LText(_working ? '处理中…' : '更新 Native Host')),
+                        label: LText(_working ? tr('common.processing') : tr('browser.build.text.item11'))),
                     OutlinedButton.icon(
-                      onPressed: () => _run('显示目录', () async {
+                      onPressed: () => _run(tr('browser.build.text.item12'), () async {
                         final r = await AgentBridge.revealChromeExtensionDir();
                         if (mounted)
                           setState(
                               () => _message = r['message']?.toString() ?? '');
                       }),
                       icon: const Icon(Icons.folder_open_rounded),
-                      label: const LText('显示扩展目录'),
+                      label: const LText('browser.build.text.item13'),
                     ),
                     OutlinedButton.icon(
-                      onPressed: () => _run('打开扩展页', () async {
+                      onPressed: () => _run(tr('browser.build.text.item14'), () async {
                         final r = await AgentBridge.openChromeExtensionsPage();
                         if (mounted)
                           setState(
                               () => _message = r['message']?.toString() ?? '');
                       }),
                       icon: const Icon(Icons.open_in_new_rounded),
-                      label: const LText('打开 Chrome 扩展页'),
+                      label: const LText('browser.build.text.item15'),
                     ),
                     TextButton.icon(
-                        onPressed: () => _run('刷新状态', _refresh),
+                        onPressed: () => _run(tr('browser.build.text.item16'), _refresh),
                         icon: const Icon(Icons.refresh_rounded),
-                        label: const LText('刷新')),
+                        label: const LText('common.refresh')),
                   ]),
                   if (_working)
                     const Padding(
                         padding: EdgeInsets.only(top: 14),
                         child: LinearProgressIndicator(minHeight: 2)),
                   if (_message.isNotEmpty) AppNotice(_message),
-                  const AppNotice(
-                      '更新 Host 后请完全退出并重新打开 Chrome。使用扩展前，请保持本应用已启动，并完成身份验证。'),
+                  AppNotice(
+                      tr('browser.build.text.item17')),
                 ]),
           ),
           const SizedBox(height: 16),
@@ -200,7 +200,7 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
             shape: const Border(),
             collapsedShape: const Border(),
             leading: const Icon(Icons.description_outlined),
-            title: const LText('配置详情'),
+            title: const LText('browser.build.text.item18'),
             childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             children: [
               Align(
@@ -208,14 +208,14 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
                   child: SelectableText(
                     [
                       if (_host['extension_dir_path'] != null)
-                        '扩展目录: ${_host['extension_dir_path']}',
-                      'Host 清单: ${manifestOk ? "已安装" : "未安装"}',
-                      'Native Host: ${hostBinOk ? "已就绪" : "缺失"}',
-                      'Host 信任配置: ${trustedHostOk ? "已设置" : "缺失，请更新 Native Host"}',
-                      'Host 版本: ${hostCurrent ? "与当前 App 一致" : "待更新"}',
-                      '清单路径: ${hostPathMatch ? "与安装位置一致" : "待修复"}',
-                      if (manifestId.isNotEmpty) '清单中的 ID: $manifestId',
-                      if (stored.isNotEmpty) '已保存的 ID: $stored',
+                        tr('browser.details.extensionDirectory', args: {'path': _host['extension_dir_path']}),
+                      tr('browser.details.hostManifest', args: {'path': manifestOk ? tr('browser.labels.text') : tr('browser.labels.text.item2')}),
+                      'Native Host: ${hostBinOk ? tr('browser.labels.text.item3') : tr('browser.labels.text.item4')}',
+                      tr('browser.details.hostTrust', args: {'path': trustedHostOk ? tr('browser.labels.text.item5') : tr('browser.labels.text.item6')}),
+                      tr('browser.details.hostVersion', args: {'version': hostCurrent ? tr('browser.labels.text.item7') : tr('browser.labels.text.item8')}),
+                      tr('browser.details.manifestPath', args: {'path': hostPathMatch ? tr('browser.labels.text.item9') : tr('browser.labels.text.item10')}),
+                      if (manifestId.isNotEmpty) tr('browser.details.manifestExtensionId', args: {'extensionId': manifestId}),
+                      if (stored.isNotEmpty) tr('browser.details.savedExtensionId', args: {'extensionId': stored}),
                     ].join('\n'),
                     style: const TextStyle(
                         fontSize: 12, fontFamily: 'monospace', height: 1.7),

@@ -321,7 +321,7 @@ class AppNotice extends StatelessWidget {
             const SizedBox(width: 8),
             IconButton(
                 onPressed: onDismiss,
-                tooltip: tr('关闭提示'),
+                tooltip: tr('common.dismiss'),
                 icon: const Icon(Icons.close_rounded, size: 16),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 24, minHeight: 24)),
@@ -334,7 +334,7 @@ String displayDateTime(dynamic milliseconds) {
   final value = milliseconds is num
       ? milliseconds.toInt()
       : int.tryParse('$milliseconds');
-  if (value == null || value <= 0) return '尚未验证';
+  if (value == null || value <= 0) return tr('ui.displayDateTime.text');
   final time = DateTime.fromMillisecondsSinceEpoch(value);
   String two(int n) => n.toString().padLeft(2, '0');
   return '${time.year}/${two(time.month)}/${two(time.day)} ${two(time.hour)}:${two(time.minute)}';

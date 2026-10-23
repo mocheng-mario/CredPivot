@@ -63,7 +63,7 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
     } catch (e) {
       if (mounted && generation == _generation)
         _error =
-            e is AgentException ? AgentBridge.friendlyMessage(e) : '读取通行密钥失败';
+            e is AgentException ? AgentBridge.friendlyMessage(e) : tr('passkey.refresh.text');
     } finally {
       if (mounted && generation == _generation) setState(() => _busy = false);
     }
@@ -75,12 +75,12 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
     setState(() => _busy = true);
     try {
       if (!await confirmCredentialDanger(context,
-          title: '删除通行密钥',
+          title: tr('passkey.delete.title'),
           message:
-              '确定删除「${selected['rp_id']} · ${selected['username']}」？此操作只移入本机回收站，不会撤销网站上的注册。请先确认网站还有其他登录方式。'))
+              tr('passkey.delete.confirmation', args: {'rpId': selected['rp_id'], 'username': selected['username']})))
         return;
       if (!mounted ||
-          !await requireTouchId(context, reason: '删除通行密钥', confirmed: true))
+          !await requireTouchId(context, reason: tr('passkey.delete.title'), confirmed: true))
         return;
       await AgentBridge.trashCredential(selected['item_id'] as String);
       if (mounted) {
@@ -90,7 +90,7 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
     } catch (e) {
       if (mounted)
         setState(() => _error =
-            e is AgentException ? AgentBridge.friendlyMessage(e) : '删除失败，请重试');
+            e is AgentException ? AgentBridge.friendlyMessage(e) : tr('passkey.delete.text'));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -108,29 +108,29 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         AppSectionHeader(
-            title: '通行密钥',
-            subtitle: '${visible.length} 条通行密钥 · Chrome 预览版',
+            title: tr('credentials.passkey.title'),
+            subtitle: tr('passkey.list.count', args: {'count': visible.length}),
             action: IconButton(
                 onPressed: _busy ? null : _refresh,
-                tooltip: tr('刷新列表'),
+                tooltip: tr('passkey.build.text'),
                 icon: const Icon(Icons.refresh_rounded))),
-        const AppNotice(
-            '先在 Chrome 插件中为网站启用通行密钥，再到网站的安全设置中新建。私钥不会展示或复制，随 CredPivot 加密备份迁移、恢复。'),
+        AppNotice(
+            tr('passkey.build.text.item2')),
         const SizedBox(height: 12),
         TextField(
             onChanged: (value) => setState(() => _query = value),
             decoration: InputDecoration(
-                hintText: tr('搜索网站或账号'),
+                hintText: tr('passkey.build.text.item3'),
                 prefixIcon: const Icon(Icons.search_rounded))),
         if (_error.isNotEmpty) AppNotice(_error),
         const SizedBox(height: 12),
         Expanded(
             child: CredentialWorkspace(
           list: visible.isEmpty
-              ? const AppEmptyState(
+              ? AppEmptyState(
                   icon: Icons.fingerprint_rounded,
-                  title: '暂无通行密钥',
-                  message: '在网站新建并选择保存到 CredPivot 后，将显示在这里。')
+                  title: tr('passkey.build.title'),
+                  message: tr('passkey.build.message'))
               : ListView(
                   children: visible
                       .map((row) => selectableCredentialTile(
@@ -151,22 +151,22 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                   title: selected['rp_id'].toString(),
                   icon: Icons.fingerprint_rounded,
                   fields: {
-                      '网站 RP ID': selected['rp_id'].toString(),
-                      '账号': selected['username'].toString(),
-                      '显示名称': selected['display_name'].toString(),
-                      '创建时间': vaultDate(selected['created_at_ms']),
-                      '最近使用': vaultDate(selected['last_used_at_ms']),
-                      '备份方式': '随 CredPivot 加密备份保存'
+                      tr('passkey.build.text.item4'): selected['rp_id'].toString(),
+                      tr('common.account'): selected['username'].toString(),
+                      tr('passkey.build.text.item5'): selected['display_name'].toString(),
+                      tr('passkey.build.text.item6'): vaultDate(selected['created_at_ms']),
+                      tr('passkey.build.text.item7'): vaultDate(selected['last_used_at_ms']),
+                      tr('passkey.build.text.item8'): tr('passkey.build.text.item9')
                     }),
           actions: selected == null
               ? null
               : CredentialActionSection(
-                  title: '危险操作',
+                  title: tr('server.build.title.item5'),
                   dangerous: true,
                   children: [
                       OutlinedButton(
                           onPressed: _busy ? null : _delete,
-                          child: const LText('删除通行密钥'))
+                          child: const LText('passkey.delete.title'))
                     ]),
         )),
       ]),

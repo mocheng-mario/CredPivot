@@ -24,7 +24,7 @@ Future<void> _showTextRevealDialog(
   required String body,
   bool allowCopy = true,
   bool touchIdToCopy = false,
-  String touchIdCopyReason = '复制敏感内容',
+  String touchIdCopyReason = 'credentials.showTextRevealDialog.text',
 }) async {
   await showDialog<void>(
     context: context,
@@ -41,13 +41,13 @@ Future<void> _showTextRevealDialog(
               await AgentBridge.copyConcealed(body);
               if (ctx.mounted) {
                 ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(content: LText('已复制，将按设置自动清除剪贴板')),
+                  const SnackBar(content: LText('credentials.showTextRevealDialog.text.item2')),
                 );
               }
             },
-            child: const LText('复制'),
+            child: const LText('common.copy'),
           ),
-        FilledButton(onPressed: () => Navigator.pop(ctx), child: const LText('关闭')),
+        FilledButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.close')),
       ],
     ),
   );
@@ -107,7 +107,7 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
         dialogRoute ??= ModalRoute.of<bool>(ctx);
         return StatefulBuilder(
         builder: (ctx, setLocal) => PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(ctx); }, child: AlertDialog(
-        title: LText(isEdit ? '编辑登录' : '添加登录'),
+        title: LText(isEdit ? tr('credentials.cancel.text') : tr('credentials.cancel.text.item2')),
         content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -115,14 +115,14 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
               TextField(
                 controller: nameCtl,
                 enabled: !validating,
-                decoration: InputDecoration(labelText: tr('名称'), hintText: tr('例如：公司 VPN 账号')),
+                decoration: InputDecoration(labelText: tr('common.name'), hintText: tr('credentials.cancel.text.item3')),
               ),
               DropdownButtonFormField<String?>(
                 isExpanded: true,
                 value: groupId,
-                decoration: InputDecoration(labelText: tr('分组')),
+                decoration: InputDecoration(labelText: tr('common.group')),
                 items: [
-                  const DropdownMenuItem(value: null, child: LText('（未分组）')),
+                  const DropdownMenuItem(value: null, child: LText('common.ungroupedOption')),
                   ...groups.map(
                     (g) => DropdownMenuItem(
                       value: g['id'] as String,
@@ -136,15 +136,15 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
                 ],
                 onChanged: validating ? null : (v) => setLocal(() => groupId = v),
               ),
-              TextField(enabled: !validating, controller: userCtl, decoration: InputDecoration(labelText: tr('用户名'))),
+              TextField(enabled: !validating, controller: userCtl, decoration: InputDecoration(labelText: tr('common.username'))),
               TextField(
                 controller: passCtl,
                 enabled: !validating,
                 obscureText: true,
                 decoration: InputDecoration(
-                  labelText: tr(isEdit ? '候选密码（留空则不修改）' : '密码'),
-                  helperText: isEdit ? tr('确认在网站应用后，从「候选与历史」启用') : null,
-                  suffixIcon: IconButton(tooltip: tr('生成密码'), icon: const Icon(Icons.auto_awesome), onPressed: validating ? null : () async {
+                  labelText: tr(isEdit ? tr('credentials.cancel.text.item4') : tr('common.password')),
+                  helperText: isEdit ? tr('credentials.cancel.text.item5') : null,
+                  suffixIcon: IconButton(tooltip: tr('credentials.cancel.text.item6'), icon: const Icon(Icons.auto_awesome), onPressed: validating ? null : () async {
                     final generated = await generatePasswordDialog(ctx);
                     if (ctx.mounted && !closing && generated != null) passCtl.text = generated;
                   }),
@@ -171,7 +171,7 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
           ),
         )),
         actions: [
-          TextButton(onPressed: validating || closing ? null : () => cancel(ctx), child: const LText('取消')),
+          TextButton(onPressed: validating || closing ? null : () => cancel(ctx), child: const LText('common.cancel')),
           FilledButton(onPressed: validating || closing ? null : () async {
             if (validating || closing) return;
             setLocal(() { validating = true; formError = ''; });
@@ -179,7 +179,7 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
               final validationError = await websiteRulesError(websiteRules);
               if (!ctx.mounted) return;
               if (validationError == null) {
-                if (isEdit && !await requireTouchId(ctx, reason: '保存登录凭据与 MFA 关联修改')) return;
+                if (isEdit && !await requireTouchId(ctx, reason: tr('credentials.cancel.reason'))) return;
                 final origin = websiteRules.first['uri'].toString().trim();
                 final user = userCtl.text.trim();
                 final displayName = nameCtl.text.trim();
@@ -218,11 +218,11 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
               }
               setLocal(() => formError = validationError);
             } catch (e) {
-              if (ctx.mounted && !closing) setLocal(() => formError = e is AgentException ? e.message : '保存失败，请重试');
+              if (ctx.mounted && !closing) setLocal(() => formError = e is AgentException ? e.message : tr('common.saveFailed'));
             } finally {
               if (ctx.mounted && !closing) setLocal(() => validating = false);
             }
-          }, child: LText(validating ? '保存中…' : '保存')),
+          }, child: LText(validating ? tr('common.saving') : tr('common.save'))),
         ],
       )),
         );
@@ -247,12 +247,12 @@ class CredentialsTab extends StatelessWidget {
     if (!unlocked) {
       return AppEmptyState(
         icon: Icons.lock_outline_rounded,
-        title: '解锁后查看凭据',
-        message: '登录密码、验证码、SSH 密钥与服务器配置都保存在保险库中。',
+        title: tr('credentials.build.title'),
+        message: tr('credentials.build.message'),
         action: FilledButton.icon(
             onPressed: onUnlock,
             icon: const Icon(Icons.lock_open_rounded),
-            label: const LText('前往解锁')),
+            label: const LText('common.unlockFirst')),
       );
     }
     return DefaultTabController(
@@ -270,12 +270,12 @@ class CredentialsTab extends StatelessWidget {
               tabAlignment: TabAlignment.start,
               splashBorderRadius: BorderRadius.all(Radius.circular(9)),
               tabs: [
-                Tab(child: LText('登录密码')),
+                Tab(child: LText('credentials.login.title')),
                 Tab(child: LText('MFA / TOTP')),
-                Tab(child: LText('SSH 密钥')),
-                Tab(child: LText('服务器')),
-                Tab(child: LText('通行密钥')),
-                Tab(child: LText('笔记 / 管理')),
+                Tab(child: LText('credentials.ssh.title')),
+                Tab(child: LText('credentials.server.title')),
+                Tab(child: LText('credentials.passkey.title')),
+                Tab(child: LText('credentials.tools.title')),
               ],
             ),
           ),
@@ -362,11 +362,11 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
   }
 
   Future<void> _copyPassword(String id) async {
-    if (!await requireTouchId(context, reason: '复制登录密码')) return;
+    if (!await requireTouchId(context, reason: tr('server.copyPassword.reason'))) return;
     final detail = await AgentBridge.getCredential(id);
     await AgentBridge.copyConcealed(detail['password'] as String? ?? '');
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: LText('密码已复制，将按设置自动清除剪贴板')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: LText('server.copyPassword.text.item2')));
     }
   }
 
@@ -380,26 +380,26 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         AppSectionHeader(
-          title: '登录密码',
-          subtitle: '${visibleItems.length} 条登录凭据',
+          title: tr('credentials.login.title'),
+          subtitle: tr('credentials.login.count', args: {'count': visibleItems.length}),
           action: FilledButton.icon(
               onPressed: _busy ? null : () => _addOrEdit(),
               icon: const Icon(Icons.add_rounded),
-              label: const LText('添加登录项')),
+              label: const LText('credentials.build.text')),
         ),
         Row(children: [
           Expanded(
               child: TextField(
             controller: _search,
             decoration: InputDecoration(
-                hintText: tr('搜索网站、名称或用户名，按回车确认'),
+                hintText: tr('credentials.build.text.item2'),
                 prefixIcon: Icon(Icons.search_rounded)),
             onSubmitted: (_) => _refresh(),
           )),
           const SizedBox(width: 8),
           IconButton(
               onPressed: _busy ? null : _refresh,
-              tooltip: tr('刷新列表'),
+              tooltip: tr('passkey.build.text'),
               icon: const Icon(Icons.refresh_rounded)),
         ]),
         if (_status.isNotEmpty) AppNotice(_status),
@@ -416,10 +416,10 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
         Expanded(
             child: CredentialWorkspace(
           list: visibleItems.isEmpty
-              ? const AppEmptyState(
+              ? AppEmptyState(
                   icon: Icons.key_outlined,
-                  title: '没有匹配的登录项',
-                  message: '添加新的登录项，或调整搜索条件与分组。')
+                  title: tr('credentials.build.title.item2'),
+                  message: tr('credentials.build.message.item2'))
               : ListView(
                   children: buildGroupedListTiles(
                   groups: _groups,
@@ -447,12 +447,12 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                           ? _selected!['display_name'].toString()
                           : (_selected!['title']?.toString() ??
                               _selected!['origin']?.toString() ??
-                              '登录项'),
+                              tr('credentials.build.text.item3')),
                   fields: {
-                    '网站': _selected!['origin']?.toString() ?? '',
-                    '用户名': _selected!['username']?.toString() ?? '',
-                    '密码': '••••••••',
-                    '密码启用时间': vaultDate(_selected!['password_active_since_ms'])
+                    tr('common.website'): _selected!['origin']?.toString() ?? '',
+                    tr('common.username'): _selected!['username']?.toString() ?? '',
+                    tr('common.password'): '••••••••',
+                    tr('credentials.build.text.item4'): vaultDate(_selected!['password_active_since_ms'])
                   },
                 ),
           actions: _selected == null
@@ -461,57 +461,57 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       CredentialActionSection(
-                        title: '常用操作',
+                        title: tr('credentials.build.title.item3'),
                         children: [
                           OutlinedButton(
                             onPressed: () {
                               final u = _selected!['username']?.toString() ?? '';
                               Clipboard.setData(ClipboardData(text: u));
                               ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: LText('用户名已复制')));
+                                  const SnackBar(content: LText('credentials.build.text.item5')));
                             },
-                            child: const LText('复制用户名'),
+                            child: const LText('credentials.build.text.item6'),
                           ),
                           OutlinedButton(
                             onPressed: () =>
                                 _copyPassword(_selected!['id'] as String),
-                            child: const LText('复制密码'),
+                            child: const LText('server.build.text.item11'),
                           ),
                         ],
                       ),
                       CredentialActionSection(
-                        title: '密码维护',
+                        title: tr('credentials.build.title.item4'),
                         children: [
-                          OutlinedButton(onPressed: () async { await showPasswordVersions(context, _selected!); if (mounted) await _refresh(); }, child: const LText('候选与历史')),
+                          OutlinedButton(onPressed: () async { await showPasswordVersions(context, _selected!); if (mounted) await _refresh(); }, child: const LText('credentials.build.text.item7')),
                         ],
                       ),
                       CredentialActionSection(
-                        title: '资料管理',
+                        title: tr('credentials.build.title.item5'),
                         children: [
                           OutlinedButton(
                             onPressed: () => _addOrEdit(existing: _selected),
-                            child: const LText('编辑'),
+                            child: const LText('common.edit'),
                           ),
-                          OutlinedButton(onPressed: () async { await editItemDetails(context, _selected!); if (mounted) await _refresh(); }, child: const LText('详细资料')),
+                          OutlinedButton(onPressed: () async { await editItemDetails(context, _selected!); if (mounted) await _refresh(); }, child: const LText('credentials.build.text.item8')),
                         ],
                       ),
                       CredentialActionSection(
-                        title: '危险操作',
+                        title: tr('server.build.title.item5'),
                         dangerous: true,
                         children: [
                           OutlinedButton(
                             onPressed: () async {
                               final title = _selected!['title']?.toString() ??
                                   _selected!['origin']?.toString() ??
-                                  '登录项';
+                                  tr('credentials.build.text.item3');
                               if (!await confirmCredentialDanger(
                                 context,
-                                title: '删除登录密码',
-                                message: '确定删除「$title」？可从「笔记 / 管理 → 回收站」恢复。',
+                                title: tr('credentials.build.title.item6'),
+                                message: tr('credentials.login.deleteConfirmation', args: {'title': title}),
                               )) {
                                 return;
                               }
-                              if (!await requireTouchId(context, reason: '删除登录密码', confirmed: true))
+                              if (!await requireTouchId(context, reason: tr('credentials.build.title.item6'), confirmed: true))
                                 return;
                               final itemId = _selected!['item_id'] as String?;
                               if (itemId == null) return;
@@ -519,7 +519,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                               _selected = null;
                               await _refresh();
                             },
-                            child: const LText('删除'),
+                            child: const LText('common.delete'),
                           ),
                         ],
                       ),
@@ -605,7 +605,7 @@ class _TotpPanelState extends State<_TotpPanel> {
   }
 
   Future<void> _showQrCode() async {
-    final reveal = await _revealAfterTouchId('生成 MFA 二维码');
+    final reveal = await _revealAfterTouchId(tr('credentials.showQrCode.text'));
     if (reveal == null || !mounted) return;
     final uri = reveal['otpauth_uri'] as String? ?? '';
     if (uri.isEmpty) return;
@@ -620,50 +620,50 @@ class _TotpPanelState extends State<_TotpPanel> {
             children: [
               QrImageView(data: uri, size: 220, backgroundColor: Colors.white),
               const SizedBox(height: 8),
-              LText('扫码后可在其他设备添加同一 MFA', style: Theme.of(ctx).textTheme.bodySmall),
+              LText('credentials.showQrCode.text.item2', style: Theme.of(ctx).textTheme.bodySmall),
             ],
           ),
         ),
         actions: [
-          FilledButton(onPressed: () => Navigator.pop(ctx), child: const LText('关闭')),
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.close')),
         ],
       ),
     );
   }
 
   Future<void> _showOtpauthUri() async {
-    final reveal = await _revealAfterTouchId('查看 MFA otpauth URI');
+    final reveal = await _revealAfterTouchId(tr('credentials.showOtpauthUri.text'));
     if (reveal == null || !mounted) return;
     await _showTextRevealDialog(
       context,
       title: 'otpauth URI',
       body: reveal['otpauth_uri'] as String? ?? '',
       touchIdToCopy: true,
-      touchIdCopyReason: '复制 MFA otpauth URI',
+      touchIdCopyReason: tr('credentials.showOtpauthUri.text.item2'),
     );
   }
 
   Future<void> _showSecret() async {
-    final reveal = await _revealAfterTouchId('查看 MFA 密钥');
+    final reveal = await _revealAfterTouchId(tr('credentials.showSecret.text'));
     if (reveal == null || !mounted) return;
     await _showTextRevealDialog(
       context,
-      title: 'Base32 密钥',
+      title: tr('credentials.showSecret.title'),
       body: reveal['secret_base32'] as String? ?? '',
       touchIdToCopy: true,
-      touchIdCopyReason: '复制 MFA 密钥',
+      touchIdCopyReason: tr('credentials.showSecret.text.item2'),
     );
   }
 
   Future<void> _deleteTotp(Map<String, dynamic> row) async {
     if (!await confirmCredentialDanger(
       context,
-      title: '删除 MFA / TOTP',
-      message: '确定删除「${row['issuer']} : ${row['account']}」？',
+      title: tr('credentials.deleteTotp.title'),
+      message: tr('mfa.delete.confirmation', args: {'issuer': row['issuer'], 'account': row['account']}),
     )) {
       return;
     }
-    if (!await requireTouchId(context, reason: '删除 MFA / TOTP', confirmed: true)) return;
+    if (!await requireTouchId(context, reason: tr('credentials.deleteTotp.title'), confirmed: true)) return;
     final itemId = row['item_id'] as String?;
     if (itemId == null) return;
     try {
@@ -690,12 +690,12 @@ class _TotpPanelState extends State<_TotpPanel> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           AppSectionHeader(
-            title: '动态验证码',
-            subtitle: '${visibleItems.length} 个验证器',
+            title: tr('credentials.build.title.item7'),
+            subtitle: tr('credentials.mfa.count', args: {'count': visibleItems.length}),
             action: FilledButton.icon(
                 onPressed: _addTotp,
                 icon: const Icon(Icons.add_rounded),
-                label: const LText('添加 TOTP')),
+                label: const LText('credentials.build.text.item9')),
           ),
           if (_status.isNotEmpty) AppNotice(_status),
           buildGroupFilterBar(
@@ -716,7 +716,7 @@ class _TotpPanelState extends State<_TotpPanel> {
                 padding: const EdgeInsets.all(12),
                 child: Row(
                   children: [
-                    LText('当前验证码：$_liveCode',
+                    LText('mfa.code.current', args: {'code': _liveCode},
                         style: Theme.of(context).textTheme.titleLarge),
                     const Spacer(),
                     IconButton(
@@ -725,7 +725,7 @@ class _TotpPanelState extends State<_TotpPanel> {
                         await AgentBridge.copyConcealed(_liveCode!);
                         if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: LText('验证码已复制，将按设置自动清除剪贴板')),
+                          const SnackBar(content: LText('credentials.build.text.item11')),
                         );
                       },
                     ),
@@ -736,10 +736,10 @@ class _TotpPanelState extends State<_TotpPanel> {
           Expanded(
               child: CredentialWorkspace(
             list: visibleItems.isEmpty
-                ? const AppEmptyState(
+                ? AppEmptyState(
                     icon: Icons.pin_outlined,
-                    title: '没有匹配的验证码',
-                    message: '添加 TOTP，或选择其他分组。')
+                    title: tr('credentials.build.title.item8'),
+                    message: tr('credentials.build.message.item4'))
                 : ListView(
                     children: buildGroupedListTiles(
                       groups: _groups,
@@ -751,7 +751,7 @@ class _TotpPanelState extends State<_TotpPanel> {
                           selected: selected,
                           icon: Icons.pin_outlined,
                           title: Text(row['issuer']?.toString() ?? 'TOTP'),
-                          subtitle: Text('${row['account'] ?? ''}${(row['pending_rule_count'] as num? ?? 0) > 0 ? ' · 网站范围待确认' : ''}'),
+                          subtitle: Text('${row['account'] ?? ''}${(row['pending_rule_count'] as num? ?? 0) > 0 ? tr('credentials.labels.text') : ''}'),
                           onTap: () => setState(() {
                             _selected = row;
                             _liveCode = null;
@@ -767,9 +767,9 @@ class _TotpPanelState extends State<_TotpPanel> {
                     title: '${_selected!['issuer']} : ${_selected!['account']}',
                     icon: Icons.pin_outlined,
                     fields: {
-                      '发行方': _selected!['issuer']?.toString() ?? '',
-                      '账户': _selected!['account']?.toString() ?? '',
-                      '验证方式': 'TOTP 动态验证码'
+                      tr('mfa.fields.issuer'): _selected!['issuer']?.toString() ?? '',
+                      tr('credentials.build.text.item12'): _selected!['account']?.toString() ?? '',
+                      tr('credentials.build.text.item13'): tr('credentials.build.text.item14')
                     },
                   ),
             actions: _selected == null
@@ -778,36 +778,36 @@ class _TotpPanelState extends State<_TotpPanel> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       CredentialActionSection(
-                        title: '验证码',
+                        title: tr('credentials.build.title.item9'),
                         children: [
                           FilledButton.tonal(
                             onPressed: () => _copyCode(_selected!['id'] as String),
-                            child: const LText('复制验证码'),
+                            child: const LText('credentials.build.text.item15'),
                           ),
                           OutlinedButton(
                             onPressed: () => _showCode(_selected!['id'] as String),
                             child: LText(_liveCodeForId == _selected!['id']
-                                ? '刷新显示'
-                                : '显示验证码'),
+                                ? tr('credentials.build.text.item16')
+                                : tr('credentials.build.text.item17')),
                           ),
                         ],
                       ),
                       CredentialActionSection(
-                        title: '密钥与迁移',
+                        title: tr('credentials.build.title.item10'),
                         children: [
                           OutlinedButton(
-                              onPressed: _showQrCode, child: const LText('二维码')),
+                              onPressed: _showQrCode, child: const LText('credentials.build.text.item18')),
                           OutlinedButton(
                               onPressed: _showOtpauthUri,
                               child: const LText('otpauth URI')),
                           OutlinedButton(
-                              onPressed: _showSecret, child: const LText('密钥')),
+                              onPressed: _showSecret, child: const LText('credentials.build.text.item19')),
                         ],
                       ),
                       CredentialActionSection(
-                        title: '资料管理',
+                        title: tr('credentials.build.title.item5'),
                         children: [
-                          OutlinedButton(onPressed: () async { await editTotp(context, _selected!); if (mounted) await _refresh(); }, child: const LText('编辑')),
+                          OutlinedButton(onPressed: () async { await editTotp(context, _selected!); if (mounted) await _refresh(); }, child: const LText('common.edit')),
                           OutlinedButton(
                             onPressed: () {
                               final itemId = _selected!['item_id'] as String?;
@@ -819,17 +819,17 @@ class _TotpPanelState extends State<_TotpPanel> {
                                 currentGroupId: _selected!['group_id'] as String?,
                               ).then((_) => _refresh());
                             },
-                            child: const LText('移到分组'),
+                            child: const LText('credentials.build.text.item20'),
                           ),
                         ],
                       ),
                       CredentialActionSection(
-                        title: '危险操作',
+                        title: tr('server.build.title.item5'),
                         dangerous: true,
                         children: [
                           OutlinedButton(
                             onPressed: () => _deleteTotp(_selected!),
-                            child: const LText('删除'),
+                            child: const LText('common.delete'),
                           ),
                         ],
                       ),
@@ -909,7 +909,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
   void _copyPublicKey(Map<String, dynamic> row) {
     final pub = row['public_openssh']?.toString() ?? '';
     Clipboard.setData(ClipboardData(text: pub));
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: LText('公钥已复制')));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: LText('credentials.copyPublicKey.text')));
   }
 
   Future<void> _delete(Map<String, dynamic> row) async {
@@ -919,19 +919,17 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
     setState(() => _deleting = true);
     try {
       if (!await confirmCredentialDanger(context,
-          title: '删除 SSH 密钥',
-          message: '删除「${row['label'] ?? 'SSH'}」？\n\n'
-              '删除默认密钥时会由剩余密钥接替；没有剩余时暂停 SSH 签名。'
-              '如需撤销服务器访问权限，还需移除服务器端公钥。')) return;
+          title: tr('credentials.delete.title'),
+          message: tr('ssh.delete.confirmation', args: {'label': row['label'] ?? 'SSH'}))) return;
       if (!mounted || !await requireTouchId(context,
-          reason: '删除 SSH 密钥', confirmed: true)) return;
+          reason: tr('credentials.delete.title'), confirmed: true)) return;
       await AgentBridge.trashCredential(itemId);
       await _refresh();
-      if (mounted) setState(() => _status = 'SSH 密钥已删除。历史备份中可能仍保留副本。');
+      if (mounted) setState(() => _status = tr('credentials.delete.text'));
     } on AgentException catch (e) {
       if (mounted) setState(() => _status = AgentBridge.friendlyMessage(e));
     } catch (_) {
-      if (mounted) setState(() => _status = '删除未完成，请刷新后确认当前状态');
+      if (mounted) setState(() => _status = tr('credentials.delete.text.item2'));
     } finally {
       if (mounted) setState(() => _deleting = false);
     }
@@ -951,14 +949,14 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           AppSectionHeader(
-            title: 'SSH 密钥',
-            subtitle: '${visibleItems.length} 对密钥',
+            title: tr('credentials.ssh.title'),
+            subtitle: tr('credentials.ssh.count', args: {'count': visibleItems.length}),
             action: FilledButton.icon(
                 onPressed: _generate,
                 icon: const Icon(Icons.add_rounded),
-                label: const LText('生成密钥')),
+                label: const LText('credentials.build.text.item21')),
           ),
-          TextButton.icon(onPressed: () async { await transferSshKey(context); if (mounted) await _refresh(); }, icon: const Icon(Icons.file_open_outlined), label: const LText('导入 OpenSSH 私钥')),
+          TextButton.icon(onPressed: () async { await transferSshKey(context); if (mounted) await _refresh(); }, icon: const Icon(Icons.file_open_outlined), label: const LText('credentials.build.text.item22')),
           if (_status.isNotEmpty) AppNotice(_status),
           if (_deleting) const LinearProgressIndicator(minHeight: 2),
           buildGroupFilterBar(
@@ -974,10 +972,10 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
           Expanded(
               child: CredentialWorkspace(
             list: visibleItems.isEmpty
-                ? const AppEmptyState(
+                ? AppEmptyState(
                     icon: Icons.terminal_rounded,
-                    title: '没有匹配的 SSH 密钥',
-                    message: '生成新的密钥，或选择其他分组。')
+                    title: tr('credentials.build.title.item11'),
+                    message: tr('credentials.build.message.item5'))
                 : ListView(
                     children: buildGroupedListTiles(
                       groups: _groups,
@@ -995,7 +993,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                             maxLines: 2,
                           ),
                           trailing: row['is_default'] == true
-                              ? const Chip(label: LText('默认'))
+                              ? const Chip(label: LText('credentials.build.text.item23'))
                               : null,
                           onTap: () => setState(() { _selected = row; }),
                         );
@@ -1008,12 +1006,12 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                     title: _selected!['label']?.toString() ?? 'SSH',
                     icon: Icons.terminal_rounded,
                     fields: {
-                      '公钥': _selected!['public_openssh']?.toString() ?? '',
-                      '默认密钥': _selected!['is_default'] == true ? '是' : '否',
-                      '存储方式': '私钥加密保存在保险库数据库中，由 SSH Agent 完成签名。',
-                      '数据库文件': _storagePath,
-                      'SSH Agent 连接': _agentSocket,
-                      '独立私钥文件': '不生成，也无需手动指定私钥文件。',
+                      tr('ssh.fields.publicKey'): _selected!['public_openssh']?.toString() ?? '',
+                      tr('credentials.build.text.item24'): _selected!['is_default'] == true ? tr('common.yes') : tr('common.no'),
+                      tr('vault.vaultOverview.text.item13'): tr('credentials.build.text.item25'),
+                      tr('credentials.build.text.item26'): _storagePath,
+                      tr('credentials.build.text.item27'): _agentSocket,
+                      tr('ssh.fields.privateKeyFile'): tr('ssh.storage.noPrivateKeyFile'),
                     },
                   ),
             actions: _selected == null
@@ -1022,28 +1020,28 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       CredentialActionSection(
-                        title: '密钥使用',
+                        title: tr('credentials.build.title.item12'),
                         children: [
                           FilledButton.tonal(
                             onPressed: () => _copyPublicKey(_selected!),
-                            child: const LText('复制公钥'),
+                            child: const LText('credentials.build.text.item28'),
                           ),
                           OutlinedButton(onPressed: () async {
-                            if (!await requireTouchId(context, reason: '切换 SSH 签名密钥')) return;
-                            try { await AgentBridge.request({'type':'ssh_select_key','key_id':_selected!['id']}); if (mounted) setState(() => _status='已切换当前 SSH 签名密钥（重启后使用默认密钥）'); } catch(e) { vaultMessage(context,e); }
-                          }, child: const LText('用于当前 SSH 签名')),
+                            if (!await requireTouchId(context, reason: tr('credentials.build.reason'))) return;
+                            try { await AgentBridge.request({'type':'ssh_select_key','key_id':_selected!['id']}); if (mounted) setState(() => _status=tr('credentials.build.text.item29')); } catch(e) { vaultMessage(context,e); }
+                          }, child: const LText('credentials.build.text.item30')),
                         ],
                       ),
                       CredentialActionSection(
-                        title: '密钥导出',
+                        title: tr('credentials.build.title.item13'),
                         children: [
-                          OutlinedButton(onPressed: () => transferSshKey(context, keyId: _selected!['id'].toString()), child: const LText('导出私钥')),
+                          OutlinedButton(onPressed: () => transferSshKey(context, keyId: _selected!['id'].toString()), child: const LText('credentials.build.text.item31')),
                         ],
                       ),
                       CredentialActionSection(
-                        title: '资料管理',
+                        title: tr('credentials.build.title.item5'),
                         children: [
-                          OutlinedButton(onPressed: () => editItemDetails(context, _selected!), child: const LText('详细资料')),
+                          OutlinedButton(onPressed: () => editItemDetails(context, _selected!), child: const LText('credentials.build.text.item8')),
                           OutlinedButton(
                             onPressed: () {
                               final itemId = _selected!['item_id'] as String?;
@@ -1055,18 +1053,18 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                                 currentGroupId: _selected!['group_id'] as String?,
                               ).then((_) => _refresh());
                             },
-                            child: const LText('移到分组'),
+                            child: const LText('credentials.build.text.item20'),
                           ),
                         ],
                       ),
                       CredentialActionSection(
-                        title: '危险操作',
+                        title: tr('server.build.title.item5'),
                         dangerous: true,
                         children: [
                           OutlinedButton.icon(
                             onPressed: () => _delete(_selected!),
                             icon: const Icon(Icons.delete_outline_rounded),
-                            label: const LText('删除'),
+                            label: const LText('common.delete'),
                           ),
                         ],
                       ),
@@ -1074,7 +1072,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                   ),
           )),
           LText(
-            '支持 Ed25519 OpenSSH 导入、导出和删除。可在「设置」中配置 SSH IdentityAgent。',
+            'credentials.build.text.item32',
             style: TextStyle(fontSize: 11, color: AppColors.muted),
           ),
         ],
@@ -1162,7 +1160,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
         .where((s) => s.isNotEmpty)
         .toList();
     if (name.isEmpty || codes.isEmpty) {
-      setState(() => _log = '请填写服务名和至少一条恢复码');
+      setState(() => _log = tr('credentials.addRecoveryCodes.text'));
       return;
     }
     try {
@@ -1170,7 +1168,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       _serviceName.clear();
       _codesText.clear();
       await _loadAll();
-      setState(() => _log = '已保存网站恢复码');
+      setState(() => _log = tr('credentials.addRecoveryCodes.text.item2'));
     } on AgentException catch (e) {
       setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
@@ -1183,18 +1181,18 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       password = await showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const LText('解锁旧恢复点'),
+          title: const LText('credentials.recoverPoint.text'),
           content: SizedBox(width: appEditDialogWidth(ctx), child: Column(
             mainAxisSize: MainAxisSize.min,
             children: appFormFields([
-              const LText('此恢复点来自安全重建前，需要输入创建时的主密码。恢复后请使用该密码解锁。'),
+              const LText('credentials.recoverPoint.text.item2'),
               TextField(controller: controller, obscureText: true, autofocus: true,
-                decoration: InputDecoration(labelText: tr('恢复点的主密码'))),
+                decoration: InputDecoration(labelText: tr('credentials.recoverPoint.text.item3'))),
             ]),
           )),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('取消')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const LText('继续')),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const LText('common.continue')),
           ],
         ),
       );
@@ -1203,26 +1201,26 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
     }
     final target = await AgentBridge.pickDirectory();
     if (target == null || !mounted) return;
-    if (!await requireTouchId(context, reason: '从恢复点恢复保险库')) return;
+    if (!await requireTouchId(context, reason: tr('credentials.recoverPoint.reason'))) return;
     final ts = point['created_at_ms'] as int? ?? 0;
     try {
       await AgentBridge.recoverRestorePoint(ts, target, password: password);
       await AgentBridge.lockVault();
       await AgentBridge.vaultOpenDir(target);
       widget.onVaultSwitched?.call();
-      setState(() => _log = '已恢复到：$target。工作库已切换，请重新解锁。');
+      setState(() => _log = tr('credentials.recoverPoint.text.item4', args: {'target': target}));
     } on AgentException catch (e) {
       setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
   }
 
   Future<void> _migrateVault() async {
-    if (!await requireTouchId(context, reason: '迁移保险库')) return;
+    if (!await requireTouchId(context, reason: tr('credentials.migrateVault.reason'))) return;
     final target = await AgentBridge.pickDirectory();
     if (target == null) return;
     try {
       await AgentBridge.migrateVault(target);
-      setState(() => _log = '已迁移工作库到：$target');
+      setState(() => _log = tr('credentials.migrateVault.text', args: {'target': target}));
       await _loadAll();
     } on AgentException catch (e) {
       setState(() => _log = AgentBridge.diagnosticMessage(e));
@@ -1230,12 +1228,12 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
   }
 
   Future<void> _securityRebuild() async {
-    if (!await requireTouchId(context, reason: '安全重建保险库')) return;
+    if (!await requireTouchId(context, reason: tr('credentials.securityRebuild.reason'))) return;
     try {
       final result = await AgentBridge.securityRebuild(_rebuildPassword.text, _recoveryKey.text.trim());
       _recoveryKey.text = result['new_recovery_key'] as String;
       final warning = result['warning'] as String?;
-      setState(() => _log = warning ?? '安全重建完成。请保存新的恢复密钥。');
+      setState(() => _log = warning ?? tr('credentials.securityRebuild.text'));
       if (warning == null) await _loadAll();
     } on AgentException catch (e) {
       setState(() => _log = AgentBridge.diagnosticMessage(e));
@@ -1247,7 +1245,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
     if (path == null) return;
     try {
       await AgentBridge.verifyOvb(path, _rebuildPassword.text);
-      setState(() => _log = 'OVB 验证通过');
+      setState(() => _log = tr('credentials.verifyOvb.text'));
       await _loadAll();
     } on AgentException catch (e) {
       setState(() => _log = AgentBridge.diagnosticMessage(e));
@@ -1274,7 +1272,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       await AgentBridge.lockVault();
       await AgentBridge.vaultOpenDir(target);
       widget.onVaultSwitched?.call();
-      setState(() => _log = 'OVB 已恢复到：$target。工作库已切换，请重新解锁。');
+      setState(() => _log = tr('credentials.recoverOvbToEmptyDir.text', args: {'target': target}));
     } on AgentException catch (e) {
       setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
@@ -1283,7 +1281,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
   Future<void> _verifyRecoveryKey() async {
     try {
       await AgentBridge.verifyRecoveryKey(_recoveryKey.text.trim());
-      setState(() => _log = '恢复密钥验证通过');
+      setState(() => _log = tr('credentials.verifyRecoveryKey.text'));
       await _loadAll();
     } on AgentException catch (e) {
       setState(() => _log = AgentBridge.diagnosticMessage(e));
@@ -1313,12 +1311,12 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
     if (!widget.unlocked) {
       return AppEmptyState(
         icon: Icons.verified_user_outlined,
-        title: '安全中心已锁定',
-        message: '解锁保险库后，查看网站恢复码、备份记录与恢复点。',
+        title: tr('credentials.build.title.item14'),
+        message: tr('credentials.build.message.item6'),
         action: FilledButton.icon(
             onPressed: widget.onUnlock,
             icon: const Icon(Icons.lock_open_rounded),
-            label: const LText('前往解锁')),
+            label: const LText('common.unlockFirst')),
       );
     }
     return ListView(
@@ -1328,35 +1326,35 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
         const CredentialSecurityReport(),
         const SizedBox(height: 16),
         AppPanel(
-          title: '备份状态',
-          subtitle: '记录最近一次成功验证的时间，建议定期检查备份。',
+          title: tr('credentials.build.title.item15'),
+          subtitle: tr('credentials.build.description.item4'),
           icon: Icons.cloud_done_outlined,
           trailing: IconButton(
               onPressed: _loadAll,
-              tooltip: tr('刷新安全状态'),
+              tooltip: tr('credentials.build.text.item33'),
               icon: const Icon(Icons.refresh_rounded)),
           child: Column(children: [
-            _backupRow('本地恢复点', 'local_restore_verified_ms'),
-            _backupRow('OVB 导出', 'ovb_export_verified_ms'),
-            _backupRow('OVB 解密验证', 'ovb_decrypt_verified_ms'),
-            _backupRow('恢复密钥验证', 'recovery_key_verified_ms'),
+            _backupRow(tr('credentials.build.text.item34'), 'local_restore_verified_ms'),
+            _backupRow(tr('credentials.build.text.item35'), 'ovb_export_verified_ms'),
+            _backupRow(tr('credentials.build.text.item36'), 'ovb_decrypt_verified_ms'),
+            _backupRow(tr('credentials.build.text.item37'), 'recovery_key_verified_ms'),
           ]),
         ),
         const SizedBox(height: 16),
         AppPanel(
-          title: '网站恢复码',
-          subtitle: '保存网站提供的一次性备用恢复码。点击服务名称查看。',
+          title: tr('credentials.recovery.websiteCodes'),
+          subtitle: tr('credentials.build.description.item5'),
           icon: Icons.verified_user_outlined,
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             if (_recoveryCodes.isEmpty)
-              const AppNotice('还没有保存恢复码。可在下方添加服务和恢复码。'),
+              AppNotice(tr('credentials.build.text.item38')),
             ..._recoveryCodes.map((r) => ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.verified_user_outlined,
                       color: AppColors.primary),
                   title: Text(r['service_name']?.toString() ?? ''),
-                  subtitle: LText('剩余 ${r['remaining_count'] ?? 0} / ${r['code_count'] ?? 0} 条恢复码'),
+                  subtitle: LText('recovery.codes.remaining', args: {'remaining': r['remaining_count'] ?? 0, 'total': r['code_count'] ?? 0}),
                   trailing: const Icon(Icons.chevron_right_rounded, size: 18),
                   onTap: () => _openRecoveryCode(r),
                 )),
@@ -1364,30 +1362,30 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
             TextField(
                 controller: _serviceName,
                 decoration: InputDecoration(
-                    labelText: tr('服务名称'), hintText: tr('例如 GitHub'))),
+                    labelText: tr('credentials.build.text.item40'), hintText: tr('credentials.build.text.item41'))),
             const SizedBox(height: 12),
             TextField(
                 controller: _codesText,
                 minLines: 2,
                 maxLines: 4,
                 decoration: InputDecoration(
-                    labelText: tr('恢复码'), hintText: tr('使用换行、空格或逗号分隔'))),
+                    labelText: tr('credentials.recovery.title'), hintText: tr('credentials.build.text.item42'))),
             const SizedBox(height: 14),
             Align(
                 alignment: Alignment.centerLeft,
                 child: FilledButton.icon(
                     onPressed: _addRecoveryCodes,
                     icon: const Icon(Icons.add_rounded),
-                    label: const LText('保存恢复码'))),
+                    label: const LText('credentials.build.text.item43'))),
           ]),
         ),
         const SizedBox(height: 16),
         AppPanel(
-          title: '本地恢复点',
-          subtitle: '选择恢复点后，将恢复到你指定的目录。',
+          title: tr('credentials.build.text.item34'),
+          subtitle: tr('credentials.build.description.item6'),
           icon: Icons.history_rounded,
           child: _restorePoints.isEmpty
-              ? const AppNotice('暂无可用的本地恢复点。')
+              ? AppNotice(tr('credentials.build.text.item44'))
               : Column(
                   children: _restorePoints
                       .map((point) => ListTile(
@@ -1397,24 +1395,24 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
                                 Text(displayDateTime(point['created_at_ms'])),
                             trailing: OutlinedButton(
                                 onPressed: () => _recoverPoint(point),
-                                child: const LText('恢复')),
+                                child: const LText('common.restore')),
                           ))
                       .toList()),
         ),
         const SizedBox(height: 16),
         AppPanel(
-          title: '导入与迁移',
-          subtitle: '从其他密码管理器导入，或更换当前工作目录。',
+          title: tr('credentials.build.title.item16'),
+          subtitle: tr('credentials.build.description.item7'),
           icon: Icons.drive_file_move_outlined,
           child: Wrap(spacing: 10, runSpacing: 10, children: [
             OutlinedButton.icon(
                 onPressed: _importBitwarden,
                 icon: const Icon(Icons.file_upload_outlined),
-                label: const LText('导入 Bitwarden')),
+                label: const LText('credentials.build.text.item45')),
             OutlinedButton.icon(
                 onPressed: _migrateVault,
                 icon: const Icon(Icons.folder_outlined),
-                label: const LText('迁移保险库目录')),
+                label: const LText('credentials.build.text.item46')),
           ]),
         ),
         const SizedBox(height: 16),
@@ -1424,26 +1422,26 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
           collapsedShape: const Border(),
           leading: Icon(Icons.settings_backup_restore_rounded,
               color: AppColors.primary),
-          title: const LText('从 OVB 备份恢复'),
-          subtitle: const LText('恢复后会切换工作库，并需要重新解锁'),
+          title: const LText('credentials.build.text.item47'),
+          subtitle: const LText('credentials.build.text.item48'),
           childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
           children: [
-            const AppNotice('填写备份主密码或恢复密钥，然后选择 OVB 文件及目标空目录。'),
+            AppNotice(tr('credentials.build.text.item49')),
             TextField(
                 controller: _rebuildPassword,
                 obscureText: true,
-                decoration: InputDecoration(labelText: tr('备份的主密码'))),
+                decoration: InputDecoration(labelText: tr('vault.vaultOverview.text.item26'))),
             const SizedBox(height: 12),
             TextField(
                 controller: _recoveryKey,
                 obscureText: true,
-                decoration: InputDecoration(labelText: tr('恢复密钥'))),
+                decoration: InputDecoration(labelText: tr('vault.fields.recoveryKey'))),
             const SizedBox(height: 14),
             Align(
                 alignment: Alignment.centerLeft,
                 child: OutlinedButton(
                     onPressed: _recoverOvbToEmptyDir,
-                    child: const LText('选择备份并恢复'))),
+                    child: const LText('credentials.build.text.item50'))),
           ],
         )),
       ],

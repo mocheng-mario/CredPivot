@@ -18,8 +18,9 @@ import 'settings_page.dart';
 import 'shortcuts_page.dart';
 import 'vault_tools.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await AppPresentation.instance.loadCatalog();
   runApp(const CredPivotApp());
 }
 
@@ -47,7 +48,7 @@ class VaultHomePage extends StatefulWidget {
 }
 
 class _VaultHomePageState extends State<VaultHomePage> {
-  String _log = '启动中…';
+  String _log = tr('vault.build.text');
   String _operationMessage = '';
   final _password = TextEditingController();
   final _passwordFocus = FocusNode();
@@ -169,12 +170,12 @@ class _VaultHomePageState extends State<VaultHomePage> {
       await action();
     } on AgentException catch (e) {
       final msg = AgentBridge.diagnosticMessage(e);
-      _appendLog('$label 失败: $msg');
+      _appendLog(tr('vault.errors.operationFailed', args: {'label': label, 'error': msg}));
       if (AgentBridge.isAgentNotStartedError(e)) {
         _showAgentNotStartedHint();
       }
     } catch (_) {
-      _appendLog('$label 失败，请查看「诊断」页的事件记录');
+      _appendLog(tr('vault.errors.operationFailedDiagnostic', args: {'label': label}));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -236,8 +237,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
     try {
       if (!await AgentBridge.ensureAgentReady()) {
         _appendLog(
-          '后台 Agent 未就绪。可点「重启 Agent」或「重新打开应用」。'
-          ' 若从旧构建启动，请先 make macos-build-debug 后重开。',
+          tr('vault.bootstrap.text'),
         );
         return;
       }
@@ -260,11 +260,11 @@ class _VaultHomePageState extends State<VaultHomePage> {
         }
       } catch (_) {
         // 浏览器集成不可用时仍须继续显示解锁页和执行启动验证。
-        _appendLog('浏览器连接初始化未完成，解锁后可在「浏览器连接」页修复。');
+        _appendLog(tr('vault.bootstrap.text.item2'));
       }
       await _refreshStatus();
     } catch (_) {
-      _appendLog('初始化失败，请查看「诊断」页的事件记录');
+      _appendLog(tr('vault.bootstrap.text.item3'));
     } finally {
       _bootstrapping = false;
       if (mounted) setState(() => _initializing = false);
@@ -290,26 +290,25 @@ class _VaultHomePageState extends State<VaultHomePage> {
     return showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const LText('后台未启动'),
+        title: const LText('vault.showAgentNotStartedHint.text'),
         content: const LText(
-          '凭据后台（Agent）未运行，无法创建/解锁保险库。\n\n'
-          '请先尝试「重启 Agent」；仍失败请「重新打开应用」或 Cmd+Q 完全退出后重开。',
+          'vault.showAgentNotStartedHint.text.item2',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('知道了')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('vault.showAgentNotStartedHint.text.item3')),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
               _restartAgent();
             },
-            child: const LText('重启 Agent'),
+            child: const LText('vault.showAgentNotStartedHint.text.item4'),
           ),
           FilledButton(
             onPressed: () {
               Navigator.pop(ctx);
               AgentBridge.relaunchApp();
             },
-            child: const LText('重新打开应用'),
+            child: const LText('vault.showAgentNotStartedHint.text.item5'),
           ),
         ],
       ),
@@ -317,14 +316,14 @@ class _VaultHomePageState extends State<VaultHomePage> {
   }
 
   Future<void> _restartAgent() async {
-    await _run('重启 Agent', () async {
+    await _run(tr('vault.showAgentNotStartedHint.text.item4'), () async {
       final ok = await AgentBridge.restartAgent();
       if (!ok) {
-        _appendLog('重启 Agent 失败，请重新打开应用');
+        _appendLog(tr('vault.restartAgent.text'));
         return;
       }
       await _refreshStatus();
-      _appendLog('Agent 已重启');
+      _appendLog(tr('agent.status.restarted'));
     });
   }
 
@@ -335,7 +334,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
   Future<bool> _guardAgent(String actionLabel) async {
     final ok = await AgentBridge.ensureAgentReady();
     if (!ok) {
-      _appendLog('$actionLabel 前检查：Agent 未就绪');
+      _appendLog(tr('vault.guardAgent.text', args: {'actionLabel': actionLabel}));
       await _showAgentNotStartedHint();
     }
     return ok;
@@ -344,30 +343,30 @@ class _VaultHomePageState extends State<VaultHomePage> {
   Future<void> _createVault() async {
     final pw = _password.text;
     if (pw.length < 8) {
-      _appendLog('主密码至少 8 位');
+      _appendLog(tr('vault.createVault.text'));
       return;
     }
-    if (!await _guardAgent('创建保险库')) return;
-    await _run('创建保险库', () async {
+    if (!await _guardAgent(tr('vault.createVault.text.item2'))) return;
+    await _run(tr('vault.createVault.text.item2'), () async {
       final recovery = await AgentBridge.vaultCreate(pw);
       await _refreshStatus();
       if (!mounted) return;
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const LText('请保存恢复密钥'),
+          title: const LText('vault.createVault.text.item3'),
           content: SelectableText(recovery),
           actions: [
             TextButton(
               onPressed: () async {
                 await AgentBridge.copyConcealed(recovery);
                 if (ctx.mounted) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: LText('已复制')));
+                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: LText('common.copied')));
                 }
               },
-              child: const LText('复制'),
+              child: const LText('common.copy'),
             ),
-            FilledButton(onPressed: () => Navigator.pop(ctx), child: const LText('已记录')),
+            FilledButton(onPressed: () => Navigator.pop(ctx), child: const LText('vault.createVault.text.item4')),
           ],
         ),
       );
@@ -377,18 +376,18 @@ class _VaultHomePageState extends State<VaultHomePage> {
   Future<void> _unlock() async {
     if (_busy) return;
     if (_password.text.isEmpty) {
-      setState(() => _unlockMessage = '请输入保险库主密码');
+      setState(() => _unlockMessage = tr('vault.unlock.text'));
       _passwordFocus.requestFocus();
       return;
     }
     setState(() => _unlockMessage = '');
-    if (!await _guardAgent('解锁')) return;
-    await _run('解锁', () async {
+    if (!await _guardAgent(tr('vault.actions.unlock'))) return;
+    await _run(tr('vault.actions.unlock'), () async {
       final ok = await AgentBridge.unlockWithPassword(_password.text);
       if (!mounted) return;
       if (!ok) {
         _password.clear();
-        setState(() => _unlockMessage = '主密码不正确，请重新输入');
+        setState(() => _unlockMessage = tr('vault.unlock.text.item2'));
         _passwordFocus.requestFocus();
         return;
       }
@@ -396,7 +395,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
       await _refreshStatus();
     });
     if (mounted && !_unlocked && _unlockMessage.isEmpty) {
-      setState(() => _unlockMessage = '解锁未完成，请重试');
+      setState(() => _unlockMessage = tr('vault.unlock.text.item3'));
     }
   }
 
@@ -410,7 +409,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
         if (!mounted) return;
         setState(() {
           _showMasterPassword = true;
-          _unlockMessage = '指纹解锁未完成，可以输入主密码或重试指纹';
+          _unlockMessage = tr('vault.unlockTouchId.text');
         });
         await _refreshStatus();
         return;
@@ -420,13 +419,13 @@ class _VaultHomePageState extends State<VaultHomePage> {
     if (mounted && !_unlocked && _unlockMessage.isEmpty) {
       setState(() {
         _showMasterPassword = true;
-        _unlockMessage = '解锁未完成，请输入主密码或重试';
+        _unlockMessage = tr('vault.unlockTouchId.text.item2');
       });
     }
   }
 
   Future<void> _lock() async {
-    await _run('锁定', () async {
+    await _run(tr('vault.lock.text'), () async {
       await AgentBridge.lockVault();
       clearSensitiveAuthGrace();
       await _refreshStatus();
@@ -435,28 +434,28 @@ class _VaultHomePageState extends State<VaultHomePage> {
 
   Future<void> _changePassword() async {
     if (_newPassword.text.length < 8) {
-      _appendLog('新密码至少 8 位');
+      _appendLog(tr('vault.changePassword.text'));
       return;
     }
-    if (!await requireTouchId(context, reason: '更改保险库主密码')) return;
-    await _run('改密', () async {
+    if (!await requireTouchId(context, reason: tr('vault.changePassword.reason'))) return;
+    await _run(tr('vault.changePassword.text.item2'), () async {
       await AgentBridge.vaultChangePassword(_password.text, _newPassword.text);
       _password.clear();
       _newPassword.clear();
       await _refreshStatus();
-      _appendLog('主密码已更新');
+      _appendLog(tr('vault.changePassword.text.item3'));
     });
   }
 
   Future<void> _exportOvb() async {
-    if (!await requireTouchId(context, reason: '导出保险库备份')) return;
+    if (!await requireTouchId(context, reason: tr('vault.exportOvb.reason'))) return;
     final path = await AgentBridge.pickSaveFile();
     if (path == null) return;
-    await _run('导出 OVB', () async {
+    await _run(tr('vault.exportOvb.text'), () async {
       await AgentBridge.vaultExportOvb(path, _password.text);
       _password.clear();
       await _refreshStatus();
-      _appendLog('已导出: $path');
+      _appendLog(tr('vault.exportOvb.text.item2', args: {'path': path}));
     });
   }
 
@@ -465,7 +464,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
     if (ovb == null) return;
     final target = await AgentBridge.pickDirectory();
     if (target == null) return;
-    await _run('恢复 OVB', () async {
+    await _run(tr('vault.recoverOvb.text'), () async {
       await AgentBridge.vaultRecoverOvb(
         ovbPath: ovb,
         targetDir: target,
@@ -476,14 +475,14 @@ class _VaultHomePageState extends State<VaultHomePage> {
       await AgentBridge.vaultOpenDir(target);
       _onVaultLockedExternally();
       await _refreshStatus();
-      _appendLog('已恢复到: $target。工作库已切换，请重新解锁。');
+      _appendLog(tr('vault.recoverOvb.text.item2', args: {'target': target}));
     });
   }
 
   Future<void> _openVaultDir() async {
     final dir = await AgentBridge.pickDirectory();
     if (dir == null) return;
-    await _run('打开目录', () async {
+    await _run(tr('vault.openVaultDir.text'), () async {
       await AgentBridge.lockVault();
       await AgentBridge.vaultOpenDir(dir);
       _onVaultLockedExternally();
@@ -514,7 +513,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final vaultLabel = !_vaultExists ? '未创建' : (_unlocked ? '已解锁' : '已锁定');
+    final vaultLabel = !_vaultExists ? tr('vault.build.text.item2') : (_unlocked ? tr('vault.status.unlockedShort') : tr('vault.status.lockedShort'));
     return AgentReadinessScope(
       builder: (context, agentReady) => Scaffold(
         // 首次创建/恢复保险库仍需可用；已有保险库锁定后只显示解锁入口。
@@ -534,7 +533,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
                 agentReady: agentReady,
                 unlocked: agentReady && _unlocked,
                 footer:
-                    '内存 ${formatResidentMemory(_memoryBytes)}\nBuild $kCredPivotBuildStamp',
+                    tr('vault.status.memoryBuildMultiline', args: {'memory': formatResidentMemory(_memoryBytes), 'build': kCredPivotBuildStamp}),
               ),
               Expanded(
                   child: Column(
@@ -557,10 +556,10 @@ class _VaultHomePageState extends State<VaultHomePage> {
                             ])),
                         const SizedBox(width: 12),
                         if (agentReady && _unlocked) ...[
-                          IconButton(tooltip: tr('搜索全部凭据'), onPressed: _busy ? null : () => _handleShortcut('search'), icon: const Icon(Icons.search_rounded)),
-                          IconButton(tooltip: tr('新建记录'), onPressed: _busy ? null : () => _handleShortcut('new'), icon: const Icon(Icons.add_rounded)),
+                          IconButton(tooltip: tr('vault.build.text.item4'), onPressed: _busy ? null : () => _handleShortcut('search'), icon: const Icon(Icons.search_rounded)),
+                          IconButton(tooltip: tr('credentials.actions.new'), onPressed: _busy ? null : () => _handleShortcut('new'), icon: const Icon(Icons.add_rounded)),
                         ],
-                        AppStatusBadge(agentReady ? vaultLabel : '未连接',
+                        AppStatusBadge(agentReady ? vaultLabel : tr('vault.build.text.item5'),
                             color: agentReady && _unlocked
                                 ? AppColors.green
                                 : AppColors.muted),
@@ -568,7 +567,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
                           const SizedBox(width: 8),
                           IconButton(
                               onPressed: _busy ? null : _lock,
-                              tooltip: tr('锁定保险库'),
+                              tooltip: tr('vault.actions.lock'),
                               icon: const Icon(Icons.lock_outline_rounded)),
                         ],
                       ]),
@@ -578,9 +577,9 @@ class _VaultHomePageState extends State<VaultHomePage> {
                     else
                       const SizedBox(height: 2),
                     if (_status['settings_valid'] == false)
-                      const Padding(
+                      Padding(
                         padding: EdgeInsets.symmetric(horizontal: 24),
-                        child: AppNotice('配置文件无效，当前使用保守设置。请前往「设置」修复或恢复默认。'),
+                        child: AppNotice(tr('vault.build.text.item6')),
                       ),
                     if (_operationMessage.isNotEmpty)
                       Padding(
@@ -628,18 +627,18 @@ class _VaultHomePageState extends State<VaultHomePage> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 460),
           child: AppPanel(
-            title: '正在等待本机后台',
-            subtitle: '确认保险库状态后才能继续使用。',
+            title: tr('vault.connectionUnavailable.title'),
+            subtitle: tr('vault.connectionUnavailable.description'),
             icon: Icons.lock_outline_rounded,
             child: Wrap(spacing: 10, runSpacing: 10, children: [
               FilledButton(onPressed: _busy ? null : _bootstrap,
-                  child: const LText('重新连接')),
+                  child: const LText('vault.connectionUnavailable.text')),
               OutlinedButton(onPressed: _busy ? null : () async {
                 await _restartAgent();
                 if (mounted) await _bootstrap();
-              }, child: const LText('重启后台')),
+              }, child: const LText('vault.connectionUnavailable.text.item2')),
               TextButton(onPressed: _busy ? null : _relaunchApp,
-                  child: const LText('重新打开应用')),
+                  child: const LText('vault.showAgentNotStartedHint.text.item5')),
             ]),
           ),
         ),
@@ -660,12 +659,12 @@ class _VaultHomePageState extends State<VaultHomePage> {
                 Icon(Icons.lock_outline_rounded,
                     size: 44, color: AppColors.primary),
                 const SizedBox(height: 18),
-                LText('CredPivot 已锁定', textAlign: TextAlign.center,
+                LText('vault.lockedView.text', textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 8),
                 LText(_status['master_password_required'] == true
-                    ? '首次解锁或已达到验证期限，请输入保险库主密码。'
-                    : '完成身份验证后，才能访问凭据、设置和其他功能。',
+                    ? tr('vault.lockedView.text.item2')
+                    : tr('vault.lockedView.text.item3'),
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 24),
@@ -684,29 +683,29 @@ class _VaultHomePageState extends State<VaultHomePage> {
                     autocorrect: false,
                     enableSuggestions: false,
                     decoration: InputDecoration(
-                        labelText: tr('保险库主密码'),
-                        hintText: tr('不是 Mac 登录密码'),
+                        labelText: tr('vault.fields.masterPasswordLabel'),
+                        hintText: tr('vault.lockedView.text.item4'),
                         prefixIcon: Icon(Icons.key_outlined)),
                     onSubmitted: (_) { if (!_busy) _unlock(); },
                   ),
                   const SizedBox(height: 14),
                   FilledButton.icon(onPressed: _busy ? null : _unlock,
                       icon: const Icon(Icons.lock_open_rounded),
-                      label: const LText('解锁')),
+                      label: const LText('vault.actions.unlock')),
                   if (canUseBiometrics)
                     TextButton.icon(onPressed: _busy ? null : _unlockTouchId,
                         icon: const Icon(Icons.fingerprint_rounded),
-                        label: const LText('重试指纹验证')),
+                        label: const LText('vault.lockedView.text.item5')),
                 ] else ...[
                   FilledButton.icon(onPressed: _busy ? null : _unlockTouchId,
                       icon: const Icon(Icons.fingerprint_rounded),
-                      label: const LText('指纹解锁')),
+                      label: const LText('vault.actions.unlockBiometric')),
                   TextButton(onPressed: _busy ? null : () {
                     setState(() => _showMasterPassword = true);
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (mounted && !_unlocked) _passwordFocus.requestFocus();
                     });
-                  }, child: const LText('使用主密码')),
+                  }, child: const LText('vault.actions.useMasterPassword')),
                 ],
               ]),
             ),
@@ -790,18 +789,18 @@ class _VaultHomePageState extends State<VaultHomePage> {
                             children: [
                           LText(
                               _unlocked
-                                  ? '一切就绪，安心使用'
-                                  : (_vaultExists ? '欢迎回来' : '你的安全空间，从这里开始'),
+                                  ? tr('vault.vaultOverview.text')
+                                  : (_vaultExists ? tr('vault.vaultOverview.text.item2') : tr('vault.vaultOverview.text.item3')),
                               style: Theme.of(context).textTheme.titleLarge),
                           const SizedBox(height: 7),
                           LText(
                               _unlocked
-                                  ? '保险库已解锁，可以管理凭据或使用浏览器填充。'
+                                  ? tr('vault.vaultOverview.text.item4')
                                   : (_vaultExists
                                       ? (_status['master_password_required'] == true
-                                          ? '首次使用或达到设置中的验证期限，请输入主密码。'
-                                          : '优先使用指纹解锁，也可以输入主密码。')
-                                      : '设置至少 8 位的主密码，并妥善保管创建后的恢复密钥。'),
+                                          ? tr('vault.vaultOverview.text.item5')
+                                          : tr('vault.vaultOverview.text.item6'))
+                                      : tr('vault.vaultOverview.text.item7')),
                               style: Theme.of(context).textTheme.bodySmall),
                         ])),
                   ]),
@@ -813,7 +812,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
                       controller: _password,
                       obscureText: true,
                       decoration: InputDecoration(
-                          labelText: tr('主密码'),
+                          labelText: tr('vault.fields.masterPassword'),
                           prefixIcon: Icon(Icons.key_outlined)),
                       onSubmitted: (_) {
                         if (!_busy) {
@@ -834,32 +833,32 @@ class _VaultHomePageState extends State<VaultHomePage> {
                           icon: Icon(_vaultExists
                               ? Icons.lock_open_rounded
                               : Icons.add_rounded),
-                          label: LText(!_vaultExists ? '创建保险库' :
+                          label: LText(!_vaultExists ? tr('vault.createVault.text.item2') :
                               (_status['local_unlock_configured'] == true && _status['master_password_required'] == false
-                                  ? '指纹解锁' : '主密码解锁'))),
+                                  ? tr('vault.actions.unlockBiometric') : tr('vault.vaultOverview.text.item8')))),
                       if (_vaultExists && _status['local_unlock_configured'] == true &&
                           _status['master_password_required'] == false)
                         OutlinedButton.icon(
                             onPressed: _unlock,
                             icon: const Icon(Icons.key_outlined),
-                            label: const LText('使用主密码')),
+                            label: const LText('vault.actions.useMasterPassword')),
                       TextButton(
                           onPressed: _openVaultDir,
-                          child: const LText('打开已有保险库')),
+                          child: const LText('vault.vaultOverview.text.item9')),
                     ]),
                   ] else ...[
                     Wrap(spacing: 10, runSpacing: 10, children: [
                       FilledButton.icon(
                           onPressed: () => _selectPage(1),
                           icon: const Icon(Icons.key_outlined),
-                          label: const LText('管理凭据')),
+                          label: const LText('vault.vaultOverview.text.item10')),
                       OutlinedButton.icon(
                           onPressed: () => _selectPage(2),
                           icon: const Icon(Icons.language_rounded),
-                          label: const LText('连接浏览器')),
+                          label: const LText('vault.vaultOverview.text.item11')),
                       TextButton(
                           onPressed: () => _selectPage(3),
-                          child: const LText('备份与恢复')),
+                          child: const LText('vault.vaultOverview.text.item12')),
                     ]),
                   ],
                 ]),
@@ -868,12 +867,12 @@ class _VaultHomePageState extends State<VaultHomePage> {
           LayoutBuilder(builder: (context, constraints) {
             final cards = [
               _overviewMetric(
-                  Icons.dns_outlined, '存储方式', '本机加密', '数据保存在当前保险库目录'),
+                  Icons.dns_outlined, tr('vault.vaultOverview.text.item13'), tr('vault.vaultOverview.text.item14'), tr('vault.vaultOverview.text.item15')),
               _overviewMetric(
                   Icons.timer_outlined,
-                  '自动锁定',
-                  '${((_status['idle_timeout_sec'] as num?)?.toInt() ?? 300) ~/ 60} 分钟',
-                  '空闲后自动锁定保险库'),
+                  tr('vault.vaultOverview.text.item16'),
+                  tr('vault.status.idleMinutes', args: {'minutes': ((_status['idle_timeout_sec'] as num?)?.toInt() ?? 300) ~/ 60}),
+                  tr('vault.vaultOverview.text.item18')),
             ];
             if (constraints.maxWidth < 520)
               return Column(
@@ -887,31 +886,31 @@ class _VaultHomePageState extends State<VaultHomePage> {
           const SizedBox(height: 16),
           if (_unlocked) ...[
             AppPanel(
-              title: '主密码与导出',
-              subtitle: '导出需要再次输入当前主密码；更改主密码时同时填写新密码。',
+              title: tr('vault.vaultOverview.title'),
+              subtitle: tr('vault.vaultOverview.description'),
               icon: Icons.password_rounded,
               child: Column(children: [
                 TextField(
                     controller: _password,
                     obscureText: true,
-                    decoration: InputDecoration(labelText: tr('当前主密码'))),
+                    decoration: InputDecoration(labelText: tr('vault.vaultOverview.text.item19'))),
                 const SizedBox(height: 12),
                 TextField(
                     controller: _newPassword,
                     obscureText: true,
                     decoration:
-                        InputDecoration(labelText: tr('新主密码（至少 8 位）'))),
+                        InputDecoration(labelText: tr('vault.vaultOverview.text.item20'))),
                 const SizedBox(height: 14),
                 Align(
                     alignment: Alignment.centerLeft,
                     child: Wrap(spacing: 10, runSpacing: 10, children: [
                       OutlinedButton(
                           onPressed: _changePassword,
-                          child: const LText('更改主密码')),
+                          child: const LText('vault.vaultOverview.text.item21')),
                       OutlinedButton.icon(
                           onPressed: _exportOvb,
                           icon: const Icon(Icons.file_download_outlined),
-                          label: const LText('导出 OVB 备份')),
+                          label: const LText('vault.vaultOverview.text.item22')),
                     ])),
               ]),
             ),
@@ -923,30 +922,30 @@ class _VaultHomePageState extends State<VaultHomePage> {
             collapsedShape: const Border(),
             leading:
                 Icon(Icons.restore_rounded, color: AppColors.primary),
-            title: const LText('从备份恢复'),
-            subtitle: const LText('使用主密码或恢复密钥打开 OVB'),
+            title: const LText('vault.vaultOverview.text.item23'),
+            subtitle: const LText('vault.vaultOverview.text.item24'),
             childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             children: [
-              if (_unlocked) const AppNotice('恢复会切换当前保险库，请先保存正在编辑的内容。'),
+              if (_unlocked) AppNotice(tr('vault.vaultOverview.text.item25')),
               TextField(
                   controller: _recoveryPassword,
                   obscureText: true,
-                  decoration: InputDecoration(labelText: tr('备份的主密码'))),
+                  decoration: InputDecoration(labelText: tr('vault.vaultOverview.text.item26'))),
               const SizedBox(height: 12),
               TextField(
                   controller: _recoveryKey,
                   obscureText: true,
-                  decoration: InputDecoration(labelText: tr('恢复密钥'))),
+                  decoration: InputDecoration(labelText: tr('vault.fields.recoveryKey'))),
               const SizedBox(height: 14),
               Align(
                   alignment: Alignment.centerLeft,
                   child: Wrap(spacing: 10, runSpacing: 10, children: [
                     OutlinedButton(
                         onPressed: () => _recoverOvb(useRecovery: false),
-                        child: const LText('使用主密码恢复')),
+                        child: const LText('vault.vaultOverview.text.item27')),
                     OutlinedButton(
                         onPressed: () => _recoverOvb(useRecovery: true),
-                        child: const LText('使用恢复密钥恢复')),
+                        child: const LText('vault.vaultOverview.text.item28')),
                   ])),
             ],
           )),
@@ -956,9 +955,9 @@ class _VaultHomePageState extends State<VaultHomePage> {
             shape: const Border(),
             collapsedShape: const Border(),
             leading: const Icon(Icons.info_outline_rounded),
-            title: const LText('运行信息'),
+            title: const LText('vault.vaultOverview.text.item29'),
             subtitle: LText(
-                '内存 ${formatResidentMemory(_memoryBytes)} · Build $kCredPivotBuildStamp'),
+                'vault.status.memoryBuild', args: {'memory': formatResidentMemory(_memoryBytes), 'build': kCredPivotBuildStamp}),
             childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             children: [
               Align(

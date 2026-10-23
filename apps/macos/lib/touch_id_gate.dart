@@ -18,6 +18,7 @@ Future<bool> requireTouchId(
   bool confirmed = false,
 }) async {
   if (!context.mounted || _confirmingSensitiveOperation) return false;
+  final localizedReason = tr(reason);
   final generation = _sensitiveAuthGeneration;
   _confirmingSensitiveOperation = true;
   try {
@@ -28,11 +29,11 @@ Future<bool> requireTouchId(
         builder: (ctx) {
           confirmationRoute ??= ModalRoute.of<bool>(ctx);
           return AlertDialog(
-          title: const LText('确认敏感操作'),
-          content: LText('是否继续$reason？'),
+          title: const LText('auth.confirm.title'),
+          content: LText('auth.confirm.body', args: {'reason': localizedReason}),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('继续')),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('common.cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('common.continue')),
           ],
           );
         },
@@ -42,10 +43,10 @@ Future<bool> requireTouchId(
       if (accepted != true) return false;
     }
     if (!context.mounted || generation != _sensitiveAuthGeneration) return false;
-    final ok = await AgentBridge.authenticateTouchId(tr(reason));
+    final ok = await AgentBridge.authenticateTouchId(localizedReason);
     if (!context.mounted || generation != _sensitiveAuthGeneration) return false;
     if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: LText('身份验证未通过，请重试或使用主密码')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: LText('auth.errors.notVerified')));
     }
     return ok;
   } finally {

@@ -15,7 +15,7 @@ class ShortcutsPage extends StatefulWidget {
 }
 
 class _ShortcutsPageState extends State<ShortcutsPage> {
-  static const _labels = {'search': '搜索凭据', 'lock': '锁定保险库', 'new': '新建记录'};
+  static const _labels = {'search': 'shortcuts.actions.search', 'lock': 'vault.actions.lock', 'new': 'credentials.actions.new'};
   Map<String, String> _saved = {}, _bindings = {}, _defaults = {};
   String _message = '', _warning = '', _backupPath = '';
   bool _loading = false, _saving = false, _recording = false;
@@ -29,7 +29,7 @@ class _ShortcutsPageState extends State<ShortcutsPage> {
   };
 
   String _display(String value) {
-    if (value.isEmpty) return tr('已停用');
+    if (value.isEmpty) return tr('common.disabled');
     final parts = value.split('+');
     return '${parts.contains('control') ? '⌃' : ''}'
         '${parts.contains('option') ? '⌥' : ''}'
@@ -44,7 +44,7 @@ class _ShortcutsPageState extends State<ShortcutsPage> {
       if (entry.value.isEmpty) continue;
       final normalized = _normalized(entry.value);
       final other = seen[normalized];
-      if (other != null) return '「${_labels[entry.key]}」与「${_labels[other]}」的快捷键重复';
+      if (other != null) return tr('shortcuts.errors.duplicate', args: {'action': tr(_labels[entry.key]!), 'otherAction': tr(_labels[other]!)});
       seen[normalized] = entry.key;
     }
     return null;
@@ -71,7 +71,7 @@ class _ShortcutsPageState extends State<ShortcutsPage> {
         _warning = result['warning']?.toString() ?? '';
       });
     } catch (_) {
-      if (mounted) setState(() => _message = '快捷键配置读取失败，请重试');
+      if (mounted) setState(() => _message = tr('shortcuts.load.status'));
     } finally { if (mounted) setState(() => _loading = false); }
   }
 
@@ -91,10 +91,10 @@ class _ShortcutsPageState extends State<ShortcutsPage> {
       final error = _validation(next);
       setState(() {
         if (error == null) _bindings = next;
-        _message = error ?? '已设置，点击「保存快捷键」后生效';
+        _message = error ?? tr('shortcuts.record.text');
       });
     } catch (_) {
-      if (mounted) setState(() => _message = '快捷键录入未完成，请重试');
+      if (mounted) setState(() => _message = tr('shortcuts.record.status'));
     } finally { if (mounted) setState(() => _recording = false); }
   }
 
@@ -107,10 +107,10 @@ class _ShortcutsPageState extends State<ShortcutsPage> {
       setState(() {
         _bindings = Map<String, String>.from(_defaults);
         _backupPath = path ?? '';
-        _message = '已载入默认快捷键，点击「保存快捷键」后生效';
+        _message = tr('shortcuts.restoreDefaults.status');
       });
     } catch (_) {
-      if (mounted) setState(() => _message = '配置备份失败，未恢复默认值');
+      if (mounted) setState(() => _message = tr('shortcuts.restoreDefaults.status.item2'));
     } finally { if (mounted) setState(() => _loading = false); }
   }
 
@@ -125,14 +125,14 @@ class _ShortcutsPageState extends State<ShortcutsPage> {
       final current = Map<String, dynamic>.from(result['settings'] as Map);
       final latest = _read(current);
       if (_labels.keys.any((key) => latest[key] != _saved[key])) {
-        setState(() => _message = '快捷键已在其他位置更新，请重新加载后再保存');
+        setState(() => _message = tr('shortcuts.save.status'));
         return;
       }
       if ((result['warning']?.toString() ?? '').isNotEmpty) {
-        setState(() => _message = '配置文件无效，请先在「设置」修复配置');
+        setState(() => _message = tr('shortcuts.save.status.item2'));
         return;
       }
-      if (result['vault_exists'] == true && !await requireTouchId(context, reason: '保存快捷键配置')) return;
+      if (result['vault_exists'] == true && !await requireTouchId(context, reason: tr('shortcuts.save.reason'))) return;
       if (!mounted) return;
       // 合并最新配置，只写入本页字段，避免覆盖其他设置页已经保存的修改。
       for (final entry in _bindings.entries) { current['shortcut_${entry.key}'] = entry.value; }
@@ -140,12 +140,12 @@ class _ShortcutsPageState extends State<ShortcutsPage> {
       if (!mounted) return;
       setState(() {
         _saved = Map<String, String>.from(_bindings);
-        _message = '快捷键已保存并生效';
+        _message = tr('shortcuts.save.status.item3');
       });
     } on AgentException catch (e) {
       if (mounted) setState(() => _message = AgentBridge.friendlyMessage(e));
     } catch (_) {
-      if (mounted) setState(() => _message = '保存未完成，修改已保留，请重新加载确认当前状态');
+      if (mounted) setState(() => _message = tr('shortcuts.save.status.item4'));
     } finally { if (mounted) setState(() => _saving = false); }
   }
 
@@ -153,26 +153,26 @@ class _ShortcutsPageState extends State<ShortcutsPage> {
   Widget build(BuildContext context) {
     if (_saved.isEmpty) return Center(child: _loading ? const CircularProgressIndicator() :
       Column(mainAxisSize: MainAxisSize.min, children: [
-        LText(_message.isEmpty ? '快捷键尚未加载' : _message),
-        TextButton(onPressed: _load, child: const LText('重试')),
+        LText(_message.isEmpty ? tr('shortcuts.build.text') : _message),
+        TextButton(onPressed: _load, child: const LText('common.retry')),
       ]));
     return AbsorbPointer(absorbing: _busy, child: ListView(
       padding: const EdgeInsets.fromLTRB(24, 6, 24, 24),
       children: [
-        AppSectionHeader(title: '快捷键管理', subtitle: '仅在 CredPivot 前台生效，点击组合键即可重新录入',
+        AppSectionHeader(title: tr('shortcuts.build.title'), subtitle: tr('shortcuts.build.description'),
           action: Wrap(spacing: 8, runSpacing: 8, children: [
-            TextButton(onPressed: _reload, child: const LText('重新加载')),
-            TextButton(onPressed: _restoreDefaults, child: const LText('恢复默认')),
+            TextButton(onPressed: _reload, child: const LText('common.reload')),
+            TextButton(onPressed: _restoreDefaults, child: const LText('common.restoreDefaults')),
             FilledButton.icon(onPressed: _dirty && _warning.isEmpty ? _save : null,
-              icon: const Icon(Icons.check_rounded), label: LText(_saving ? '保存中…' : '保存快捷键')),
+              icon: const Icon(Icons.check_rounded), label: LText(_saving ? tr('common.saving') : tr('shortcuts.build.text.item2'))),
           ])),
         if (_busy) const LinearProgressIndicator(),
         if (_warning.isNotEmpty) AppNotice(_warning),
         if (_message.isNotEmpty) AppNotice(_message, onDismiss: () => setState(() => _message = '')),
-        if (_backupPath.isNotEmpty) AppPanel(title: '恢复默认前的配置备份', child: SelectableText(_backupPath)),
+        if (_backupPath.isNotEmpty) AppPanel(title: tr('settings.build.title'), child: SelectableText(_backupPath)),
         const SizedBox(height: 16),
-        AppPanel(icon: Icons.keyboard_outlined, title: _dirty ? '有未保存的修改' : '应用快捷键',
-          subtitle: '录入时会检查重复组合；系统复制、粘贴和窗口快捷键保持原有行为。',
+        AppPanel(icon: Icons.keyboard_outlined, title: _dirty ? tr('settings.build.text.item3') : tr('shortcuts.build.text.item3'),
+          subtitle: tr('shortcuts.build.description.item2'),
           child: Column(children: [
             for (final entry in _labels.entries) ...[
               if (entry.key != _labels.keys.first) const Divider(height: 32),
@@ -181,13 +181,13 @@ class _ShortcutsPageState extends State<ShortcutsPage> {
                 OutlinedButton.icon(onPressed: () => _record(entry.key), icon: const Icon(Icons.keyboard, size: 18),
                   label: Text(_display(_bindings[entry.key] ?? ''), style: const TextStyle(fontSize: 16))),
                 const SizedBox(width: 8),
-                IconButton(tooltip: tr('停用此快捷键'), onPressed: (_bindings[entry.key] ?? '').isEmpty ? null :
+                IconButton(tooltip: tr('shortcuts.build.text.item4'), onPressed: (_bindings[entry.key] ?? '').isEmpty ? null :
                   () => setState(() => _bindings[entry.key] = ''), icon: const Icon(Icons.close_rounded)),
               ]),
             ],
           ])),
         const SizedBox(height: 16),
-        const AppNotice('⌘W 关闭主窗口并保持后台运行。关闭窗口不会退出 App，也不会替代保险库的空闲锁定。'),
+        AppNotice(tr('shortcuts.build.text.item5')),
       ],
     ));
   }

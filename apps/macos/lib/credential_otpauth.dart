@@ -1,3 +1,5 @@
+import 'app_presentation.dart';
+
 /// 解析 otpauth URI（支持路径中含空格、中文 issuer）。
 class OtpauthParseResult {
   OtpauthParseResult({
@@ -55,9 +57,9 @@ OtpauthParseResult? parseOtpauthUri(String raw) {
 
 String? validateTotpSecretInput(String secret) {
   final s = secret.trim();
-  if (s.isEmpty) return '请填写 TOTP 密钥';
+  if (s.isEmpty) return tr('mfaUri.validateTotpSecretInput.text');
   if (s.contains('{') || s.contains('}')) {
-    return '密钥无效：请填写真实 Base32 密钥，不要使用模板占位符（如 {secret}）';
+    return tr('mfaUri.validateTotpSecretInput.text.item2');
   }
   return null;
 }

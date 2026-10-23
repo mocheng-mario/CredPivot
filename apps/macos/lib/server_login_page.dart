@@ -75,7 +75,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
         return row[field]?.toString();
       }
     }
-    return '（已删除）';
+    return tr('server.linkLabel.text');
   }
 
   String? _linkedLoginDisplayName(String? loginId) {
@@ -85,7 +85,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
         return _loginPickerLabel(row);
       }
     }
-    return '（已删除）';
+    return tr('server.linkLabel.text');
   }
 
   String? _loginLinkedTotpId(String? loginId) {
@@ -126,12 +126,12 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     if (row == null) return;
     if (!await confirmCredentialDanger(
       context,
-      title: '删除服务器配置',
-      message: '确定删除「${row['label']}」？此操作不可撤销。',
+      title: tr('server.deleteSelected.title'),
+      message: tr('server.delete.confirmation', args: {'label': row['label']}),
     )) {
       return;
     }
-    if (!await requireTouchId(context, reason: '删除服务器配置', confirmed: true)) return;
+    if (!await requireTouchId(context, reason: tr('server.deleteSelected.title'), confirmed: true)) return;
     final itemId = row['item_id'] as String?;
     if (itemId == null) return;
     try {
@@ -178,24 +178,24 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     if (row == null) return;
     final host = row['host']?.toString().trim() ?? '';
     if (host.isEmpty) {
-      setState(() => _status = '主机地址为空');
+      setState(() => _status = tr('server.openSshAuto.text'));
       return;
     }
     final loginId = dropdownValueIfPresent(row['linked_login_id'] as String?, _logins);
     if (loginId == null || loginId.isEmpty) {
-      setState(() => _status = '一键连接需要有效关联登录密码（若已删除请重新编辑服务器）');
+      setState(() => _status = tr('server.openSshAuto.text.item2'));
       return;
     }
     final username = await _resolveSshUsername(row);
     if (username == null || username.isEmpty) {
-      setState(() => _status = '请关联登录凭据，或在编辑里填写「手动 SSH 用户名」');
+      setState(() => _status = tr('server.openSshAuto.text.item3'));
       return;
     }
     if (!await ensureTerminalConfigured(context)) {
-      setState(() => _status = '请先选择终端应用（终端设置）');
+      setState(() => _status = tr('server.openSshAuto.text.item4'));
       return;
     }
-    if (!await requireTouchId(context, reason: '一键 SSH 自动认证')) return;
+    if (!await requireTouchId(context, reason: tr('server.openSshAuto.reason'))) return;
     final totpId = _resolveTotpIdForServer(row);
     final sshErr = await _activateLinkedSshKey(row);
     if (sshErr != null) {
@@ -229,7 +229,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: LText('已在终端中启动 SSH 自动认证')),
+        const SnackBar(content: LText('server.openSshAuto.text.item5')),
       );
     }
   }
@@ -239,16 +239,16 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     if (row == null) return;
     final host = row['host']?.toString().trim() ?? '';
     if (host.isEmpty) {
-      setState(() => _status = '主机地址为空');
+      setState(() => _status = tr('server.openSshAuto.text'));
       return;
     }
     final username = await _resolveSshUsername(row);
     if (username == null || username.isEmpty) {
-      setState(() => _status = '请关联登录凭据，或在编辑里填写「手动 SSH 用户名」');
+      setState(() => _status = tr('server.openSshAuto.text.item3'));
       return;
     }
     if (!await ensureTerminalConfigured(context)) {
-      setState(() => _status = '请先选择终端应用（终端设置）');
+      setState(() => _status = tr('server.openSshAuto.text.item4'));
       return;
     }
     final sshErr = await _activateLinkedSshKey(row);
@@ -265,7 +265,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     if (mounted) {
       final term = await loadTerminalApplication();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: LText('已在 ${terminalDisplayName(term)} 中打开 SSH')),
+        SnackBar(content: LText('server.status.sshOpened', args: {'terminal': terminalDisplayName(term)})),
       );
     }
   }
@@ -273,15 +273,15 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
   Future<void> _copyPassword() async {
     final loginId = dropdownValueIfPresent(_selected?['linked_login_id'] as String?, _logins);
     if (loginId == null || loginId.isEmpty) {
-      setState(() => _status = '请先关联有效登录密码');
+      setState(() => _status = tr('server.copyPassword.text'));
       return;
     }
-    if (!await requireTouchId(context, reason: '复制登录密码')) return;
+    if (!await requireTouchId(context, reason: tr('server.copyPassword.reason'))) return;
     final detail = await AgentBridge.getCredential(loginId);
     await AgentBridge.copyConcealed(detail['password'] as String? ?? '');
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: LText('密码已复制，将按设置自动清除剪贴板')),
+        const SnackBar(content: LText('server.copyPassword.text.item2')),
       );
     }
   }
@@ -291,16 +291,16 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     if (row == null) return;
     final totpId = _resolveTotpIdForServer(row);
     if (totpId == null || totpId.isEmpty) {
-      setState(() => _status = '请在登录密码或本服务器上关联 MFA');
+      setState(() => _status = tr('server.copyMfa.text'));
       return;
     }
-    if (!await requireTouchId(context, reason: '复制服务器 MFA 验证码')) return;
+    if (!await requireTouchId(context, reason: tr('server.copyMfa.reason'))) return;
     try {
       final code = await AgentBridge.totpCode(totpId);
       await AgentBridge.copyConcealed(code);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: LText('验证码 $code 已复制')),
+          SnackBar(content: LText('server.copyMfa.text.item2', args: {'code': code})),
         );
       }
     } on AgentException catch (e) {
@@ -313,14 +313,14 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     final port = _selected?['port'] ?? 22;
     final user = _selected == null ? null : await _resolveSshUsername(_selected!);
     if (user == null || user.isEmpty) {
-      setState(() => _status = '无法生成 SSH 命令：缺少用户名');
+      setState(() => _status = tr('server.copySshHint.text'));
       return;
     }
     final u = user;
     final line = port == 22 ? 'ssh $u@$host' : 'ssh -p $port $u@$host';
     await Clipboard.setData(ClipboardData(text: line));
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: LText('已复制：$line')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: LText('server.copySshHint.text.item2', args: {'line': line})));
     }
   }
 
@@ -330,27 +330,27 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         AppSectionHeader(
-          title: '服务器',
-          subtitle: '${_items.length} 个连接配置',
+          title: tr('credentials.server.title'),
+          subtitle: tr('server.list.count', args: {'count': _items.length}),
           action: Wrap(spacing: 8, runSpacing: 8, children: [
             OutlinedButton.icon(
                 onPressed: () => showTerminalPickerDialog(context),
                 icon: const Icon(Icons.terminal_rounded),
-                label: const LText('终端设置')),
+                label: const LText('server.build.text')),
             FilledButton.icon(
                 onPressed: () => _addOrEdit(),
                 icon: const Icon(Icons.add_rounded),
-                label: const LText('添加服务器')),
+                label: const LText('server.build.text.item2')),
           ]),
         ),
         if (_status.isNotEmpty) AppNotice(_status),
         Expanded(
             child: CredentialWorkspace(
           list: _items.isEmpty
-              ? const AppEmptyState(
+              ? AppEmptyState(
                   icon: Icons.dns_outlined,
-                  title: '连接你的服务器',
-                  message: '添加主机与端口，关联登录账户、MFA 和 SSH 密钥。')
+                  title: tr('server.build.title'),
+                  message: tr('server.build.message'))
               : ListView.builder(
                   itemCount: _items.length,
                   itemBuilder: (_, i) {
@@ -368,11 +368,11 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                         row['manual_username']?.toString().trim() ?? '';
                     final sub = [
                       '${row['host']}:${row['port']}',
-                      if (loginLbl != null) '登录: $loginLbl',
+                      if (loginLbl != null) tr('server.links.login', args: {'login': loginLbl}),
                       if (loginLbl == null && manualUser.isNotEmpty)
-                        '用户: $manualUser',
+                        tr('server.links.user', args: {'username': manualUser}),
                       if (totpLbl != null)
-                        inheritedTotp ? 'MFA: $totpLbl（继承登录）' : 'MFA: $totpLbl',
+                        inheritedTotp ? tr('server.links.inheritedMfa', args: {'mfa': totpLbl}) : 'MFA: $totpLbl',
                     ].join(' · ');
                     return selectableCredentialTile(
                       context: context,
@@ -391,20 +391,20 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
               : CredentialDetails(
                   title: _selected!['label']?.toString() ??
                       _selected!['host']?.toString() ??
-                      '服务器',
+                      tr('credentials.server.title'),
                   icon: Icons.dns_outlined,
                   fields: {
-                    '主机': _selected!['host']?.toString() ?? '',
-                    '端口': _selected!['port']?.toString() ?? '',
-                    '登录账户': _linkedLoginDisplayName(
+                    tr('server.fields.host'): _selected!['host']?.toString() ?? '',
+                    tr('server.fields.port'): _selected!['port']?.toString() ?? '',
+                    tr('server.fields.account'): _linkedLoginDisplayName(
                             _selected!['linked_login_id'] as String?) ??
                         _selected!['manual_username']?.toString() ??
                         '',
                     'MFA': _resolveTotpIdForServer(_selected!) == null
-                        ? '未关联'
+                        ? tr('common.notLinked')
                         : (_totpInheritedFromLogin(_selected!)
-                            ? '继承登录项'
-                            : '已关联验证器'),
+                            ? tr('server.build.text.item6')
+                            : tr('server.build.text.item7')),
                   },
                 ),
           actions: _selected == null
@@ -413,46 +413,46 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       CredentialActionSection(
-                        title: '连接服务器',
+                        title: tr('server.build.title.item2'),
                         children: [
                           FilledButton.icon(
                             onPressed: _openSshAuto,
                             icon: const Icon(Icons.bolt),
-                            label: const LText('一键连接'),
+                            label: const LText('server.build.text.item8'),
                           ),
                           OutlinedButton.icon(
                             onPressed: _openInTerminal,
                             icon: const Icon(Icons.terminal),
-                            label: const LText('仅打开 SSH'),
+                            label: const LText('server.build.text.item9'),
                           ),
                         ],
                       ),
                       CredentialActionSection(
-                        title: '复制信息',
+                        title: tr('server.build.title.item3'),
                         children: [
                           OutlinedButton(
                               onPressed: _copySshHint,
-                              child: const LText('复制 SSH 命令')),
+                              child: const LText('server.build.text.item10')),
                           OutlinedButton(
-                              onPressed: _copyPassword, child: const LText('复制密码')),
+                              onPressed: _copyPassword, child: const LText('server.build.text.item11')),
                           FilledButton.tonal(
-                              onPressed: _copyMfa, child: const LText('复制 MFA')),
+                              onPressed: _copyMfa, child: const LText('server.build.text.item12')),
                         ],
                       ),
                       CredentialActionSection(
-                        title: '配置管理',
+                        title: tr('server.build.title.item4'),
                         children: [
                           OutlinedButton(
                               onPressed: () => _addOrEdit(existing: _selected),
-                              child: const LText('编辑')),
+                              child: const LText('common.edit')),
                         ],
                       ),
                       CredentialActionSection(
-                        title: '危险操作',
+                        title: tr('server.build.title.item5'),
                         dangerous: true,
                         children: [
                           OutlinedButton(
-                              onPressed: _deleteSelected, child: const LText('删除')),
+                              onPressed: _deleteSelected, child: const LText('common.delete')),
                         ],
                       ),
                     ],
@@ -520,12 +520,12 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
       final noLinkedLogin = linkedLogin == null || linkedLogin!.isEmpty;
       if (hostCtl.text.trim().isEmpty || port == null || port < 1 || port > 65535 ||
           (noLinkedLogin && manualUserCtl.text.trim().isEmpty)) {
-        setLocal(() => formError = '请填写主机、有效端口（1～65535）和登录用户名');
+        setLocal(() => formError = tr('server.save.text'));
         return;
       }
       setLocal(() { saving = true; formError = ''; });
       try {
-        if (isEdit && !await requireTouchId(ctx, reason: '保存服务器配置')) return;
+        if (isEdit && !await requireTouchId(ctx, reason: tr('server.save.reason'))) return;
         if (!ctx.mounted || closing) return;
         if (isEdit) {
           await AgentBridge.updateServerProfile(
@@ -547,10 +547,10 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
           closing = true;
           Navigator.pop(ctx, true);
           if (hadStaleLink && context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: LText('已清除失效的关联凭据。')));
+            const SnackBar(content: LText('server.save.text.item2')));
         }
       } catch (e) {
-        if (ctx.mounted && !closing) setLocal(() => formError = e is AgentException ? AgentBridge.friendlyMessage(e) : '保存失败，请重试');
+        if (ctx.mounted && !closing) setLocal(() => formError = e is AgentException ? AgentBridge.friendlyMessage(e) : tr('common.saveFailed'));
       } finally {
         if (ctx.mounted && !closing) setLocal(() => saving = false);
       }
@@ -562,28 +562,28 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
         dialogRoute = ModalRoute.of<bool>(ctx);
         return PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(ctx); }, child: StatefulBuilder(
         builder: (ctx, setLocal) => AlertDialog(
-          title: LText(isEdit ? '编辑服务器' : '添加服务器 / 堡垒机'),
+          title: LText(isEdit ? tr('server.save.text.item3') : tr('server.save.text.item4')),
           content: SizedBox(width: appEditDialogWidth(ctx), child: AbsorbPointer(absorbing: saving, child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: appFormFields([
-                TextField(controller: labelCtl, decoration: InputDecoration(labelText: tr('名称'))),
+                TextField(controller: labelCtl, decoration: InputDecoration(labelText: tr('common.name'))),
                 TextField(
                   controller: hostCtl,
-                  decoration: InputDecoration(labelText: tr('主机 / 堡垒机地址')),
+                  decoration: InputDecoration(labelText: tr('server.save.text.item5')),
                 ),
                 TextField(
                   controller: portCtl,
-                  decoration: InputDecoration(labelText: tr('端口')),
+                  decoration: InputDecoration(labelText: tr('server.fields.port')),
                   keyboardType: TextInputType.number,
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String?>(
                   isExpanded: true,
                   value: linkedLogin,
-                  decoration: InputDecoration(labelText: tr('关联登录密码')),
+                  decoration: InputDecoration(labelText: tr('server.save.text.item6')),
                   items: [
-                    const DropdownMenuItem(value: null, child: LText('（不关联，使用下方手动用户名）')),
+                    const DropdownMenuItem(value: null, child: LText('server.save.text.item7')),
                     ...logins.map(
                       (c) => DropdownMenuItem(
                         value: c['id'] as String,
@@ -614,21 +614,21 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
                   controller: manualUserCtl,
                   enabled: linkedLogin == null || (linkedLogin?.isEmpty ?? true),
                   decoration: InputDecoration(
-                    labelText: tr('手动 SSH 用户名'),
+                    labelText: tr('server.save.text.item8'),
                     hintText: linkedLogin == null || (linkedLogin?.isEmpty ?? true)
-                        ? '未关联登录时必填'
-                        : '已关联登录，用户名取自凭据',
+                        ? tr('server.save.text.item9')
+                        : tr('server.save.text.item10'),
                   ),
                 ),
                 DropdownButtonFormField<String?>(
                   isExpanded: true,
                   value: linkedTotp,
                   decoration: InputDecoration(
-                    labelText: tr('关联 MFA / TOTP'),
-                    helperText: tr('留空则一键连接使用「关联登录」上的 MFA；此处若选择则覆盖登录'),
+                    labelText: tr('server.save.text.item11'),
+                    helperText: tr('server.save.text.item12'),
                   ),
                   items: [
-                    const DropdownMenuItem(value: null, child: LText('（不关联）')),
+                    const DropdownMenuItem(value: null, child: LText('server.save.text.item13')),
                     ...totps.map(
                       (t) => DropdownMenuItem(
                         value: t['id'] as String,
@@ -645,9 +645,9 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
                 DropdownButtonFormField<String?>(
                   isExpanded: true,
                   value: linkedSsh,
-                  decoration: InputDecoration(labelText: tr('关联 SSH 密钥')),
+                  decoration: InputDecoration(labelText: tr('server.save.text.item14')),
                   items: [
-                    const DropdownMenuItem(value: null, child: LText('（不关联）')),
+                    const DropdownMenuItem(value: null, child: LText('server.save.text.item13')),
                     ...sshKeys.map(
                       (s) => DropdownMenuItem(
                         value: s['id'] as String,
@@ -666,8 +666,8 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
             ),
           ))),
           actions: [
-            TextButton(onPressed: saving ? null : () => cancel(ctx), child: const LText('取消')),
-            FilledButton(onPressed: saving ? null : () => save(ctx, setLocal), child: LText(saving ? '保存中…' : '保存')),
+            TextButton(onPressed: saving ? null : () => cancel(ctx), child: const LText('common.cancel')),
+            FilledButton(onPressed: saving ? null : () => save(ctx, setLocal), child: LText(saving ? tr('common.saving') : tr('common.save'))),
           ],
         ),
       ));

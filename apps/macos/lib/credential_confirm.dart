@@ -6,7 +6,7 @@ Future<bool> confirmCredentialDanger(
   BuildContext context, {
   required String title,
   required String message,
-  String confirmLabel = '确认删除',
+  String confirmLabel = 'common.confirmDelete',
 }) async {
   final result = await showDialog<bool>(
     context: context,
@@ -14,7 +14,7 @@ Future<bool> confirmCredentialDanger(
       title: LText(title),
       content: LText(message),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('取消')),
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('common.cancel')),
         FilledButton(
           style: FilledButton.styleFrom(
             backgroundColor: Theme.of(ctx).colorScheme.error,
@@ -31,11 +31,11 @@ Future<bool> confirmCredentialDanger(
 
 Future<bool> confirmDiscardChanges(BuildContext context) async =>
     await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
-      title: const LText('放弃未保存的修改？'),
-      content: const LText('当前修改尚未保存，返回编辑可继续保留草稿。'),
+      title: const LText('confirmation.confirmDiscardChanges.text'),
+      content: const LText('confirmation.confirmDiscardChanges.text.item2'),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('返回编辑')),
-        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('放弃修改')),
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('confirmation.confirmDiscardChanges.text.item3')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('confirmation.confirmDiscardChanges.text.item4')),
       ],
     )) == true;
 
