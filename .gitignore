@@ -46,3 +46,6 @@ apps/macos/macos/Runner/credpivot-chrome-extension
 
 # make macos-write-build-stamp 生成，勿手改入库
 apps/macos/lib/build_stamp.dart
+
+# temp
+/temp

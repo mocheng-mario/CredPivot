@@ -540,7 +540,8 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
 }
 
 class VaultToolsPanel extends StatefulWidget {
-  const VaultToolsPanel({super.key});
+  const VaultToolsPanel({super.key, this.trashOnly = false});
+  final bool trashOnly;
   @override
   State<VaultToolsPanel> createState() => _VaultToolsPanelState();
 }
@@ -548,9 +549,10 @@ class VaultToolsPanel extends StatefulWidget {
 class _VaultToolsPanelState extends State<VaultToolsPanel> {
   String mode = 'items', query = '', message = '';
   int _loadGeneration = 0;
-  bool busy = false, favorites = false;
+  bool busy = false, favorites = false, _changingTrash = false;
+  bool get _working => busy || _changingTrash;
   List<Map<String, dynamic>> items = [];
-  void _onVaultChanged() { if (mounted) load(); }
+  void _onVaultChanged() { if (mounted && !_changingTrash) load(); }
 
   @override
   void dispose() {
@@ -561,6 +563,7 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
   @override
   void initState() {
     super.initState();
+    if (widget.trashOnly) mode = 'trash';
     AgentBridge.vaultChanges.addListener(_onVaultChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) load();
@@ -599,13 +602,21 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
   }
 
   Future<void> trashChange(Map<String, dynamic> row, bool purge) async {
-    if (!await confirmVaultAction(
-        context,
-        purge ? tr('vaultTools.trashChange.text') : tr('vaultTools.trashChange.text.item2'),
-        purge
-            ? tr('vaultTools.trashChange.text.item3')
-            : tr('vaultTools.trashChange.text.item4'))) return;
+    if (_working) return;
+    setState(() => _changingTrash = true);
     try {
+      final identifier = [row['title'], row['account']]
+          .where((value) => value is String && value.trim().isNotEmpty)
+          .join(' · ');
+      final confirmed = purge
+          ? await confirmCredentialDanger(context,
+              title: tr('vaultTools.trashChange.text'),
+              message: '${tr('vaultTools.trashChange.text.item3')}\n\n$identifier',
+              confirmLabel: 'common.permanentlyDelete')
+          : await confirmVaultAction(context,
+              tr('vaultTools.trashChange.text.item2'),
+              '${tr('vaultTools.trashChange.text.item4')}\n\n$identifier');
+      if (!confirmed || !mounted) return;
       await vaultAction(
           context,
           {
@@ -614,40 +625,58 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
             'expected_revision': row['current_revision']
           },
           confirmed: true);
+      // 恢复/删除会影响其他凭据的关联信息，通知已打开的列表一起刷新。
+      AgentBridge.notifyVaultChanged();
+      if (!mounted) return;
       await load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: LText(
+            purge ? 'credentials.trash.purged' : 'credentials.trash.restored')));
+      }
     } catch (e) {
       vaultMessage(context, e);
+    } finally {
+      if (mounted) setState(() => _changingTrash = false);
     }
   }
+
+  String trashKind(dynamic kind) => tr(const {
+    'login': 'credentials.login.title',
+    'totp': 'MFA / TOTP',
+    'ssh_key': 'credentials.ssh.title',
+    'server_login': 'credentials.server.title',
+    'passkey': 'credentials.passkey.title',
+    'secure_note': 'credentials.notes.title',
+    'recovery_codes': 'credentials.recovery.title',
+  }[kind] ?? 'credentials.trash.other');
 
   @override
   Widget build(BuildContext context) => Padding(
       padding: const EdgeInsets.all(24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         AppSectionHeader(
-          title: tr('credentials.tools.title'),
-          subtitle: tr('vaultTools.build.description'),
+          title: tr(widget.trashOnly ? 'credentials.trash.title' : 'credentials.tools.title'),
+          subtitle: tr(widget.trashOnly ? 'credentials.trash.description' : 'vaultTools.build.description'),
           action: Wrap(spacing: 8, runSpacing: 8, children: [
             OutlinedButton.icon(
-                onPressed: busy ? null : load,
+                onPressed: _working ? null : load,
                 icon: const Icon(Icons.refresh),
                 label: const LText('common.loadRefresh')),
-            FilledButton.icon(
-                onPressed: busy ? null : note,
+            if (!widget.trashOnly) FilledButton.icon(
+                onPressed: _working ? null : note,
                 icon: const Icon(Icons.note_add_outlined),
                 label: const LText('vaultTools.build.text.item31')),
           ]),
         ),
-        Wrap(spacing: 8, runSpacing: 8, children: [
+        if (!widget.trashOnly) Wrap(spacing: 8, runSpacing: 8, children: [
           for (final entry in {
             'items': tr('vaultTools.build.text.item32'),
             'security': tr('vaultTools.build.text.item33'),
-            'trash': tr('vaultTools.build.text.item34')
           }.entries)
             ChoiceChip(
                 label: LText(entry.value),
                 selected: mode == entry.key,
-                onSelected: busy
+                onSelected: _working
                     ? null
                     : (_) {
                         setState(() => mode = entry.key);
@@ -671,20 +700,23 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
           ]),
         if (message.isNotEmpty)
           Padding(padding: const EdgeInsets.all(12), child: Text(message)),
-        if (busy) const LinearProgressIndicator(),
+        if (_working) const LinearProgressIndicator(),
         Expanded(
             child: ListView(children: [
-          if (items.isEmpty && !busy)
-            const Padding(
+          if (items.isEmpty && !_working)
+            Padding(
                 padding: EdgeInsets.all(24),
-                child: LText('vaultTools.build.text.item37')),
+                child: LText(widget.trashOnly ? 'credentials.trash.empty' : 'vaultTools.build.text.item37')),
           for (final row in items.where(
               (r) => mode != 'items' || !favorites || r['favorite'] == true))
             Card(
                 child: ListTile(
                     title: Text(row['title']?.toString() ?? ''),
                     subtitle: LText(mode == 'trash'
-                        ? tr('trash.item.deletedAt', args: {'kind': row['kind'], 'date': vaultDate(row['trashed_at_ms'])})
+                        ? [
+                            if ((row['account']?.toString() ?? '').isNotEmpty) row['account'],
+                            tr('trash.item.deletedAt', args: {'kind': trashKind(row['kind']), 'date': vaultDate(row['trashed_at_ms'])})
+                          ].join('\n')
                         : mode == 'security'
                             ? (row['reasons'] as List)
                                 .map((r) =>
@@ -711,11 +743,12 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
                         ? Wrap(children: [
                             TextButton(
                                 onPressed:
-                                    busy ? null : () => trashChange(row, false),
+                                    _working ? null : () => trashChange(row, false),
                                 child: const LText('common.restore')),
                             TextButton(
                                 onPressed:
-                                    busy ? null : () => trashChange(row, true),
+                                    _working ? null : () => trashChange(row, true),
+                                style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
                                 child: const LText('common.permanentlyDelete'))
                           ])
                         : mode == 'security'

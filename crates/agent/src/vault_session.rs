@@ -46,6 +46,7 @@ impl std::fmt::Debug for LocalUnlockMaterial {
 /// 进程内 Vault 会话：M1 控制面 + M2 SQLCipher 业务库。
 #[derive(Debug)]
 pub struct VaultSession {
+    pub(crate) sync_plan: Option<credpivot_core::sync::Plan>,
     pub vault_dir: PathBuf,
     pub vmk: Option<Zeroizing<[u8; VMK_LEN]>>,
     pub db: Option<VaultDatabase>,
@@ -91,6 +92,7 @@ impl VaultSession {
     pub fn new_at(vault_dir: PathBuf) -> Self {
         let settings = credpivot_core::effective_app_settings();
         Self {
+            sync_plan: None,
             vault_dir,
             vmk: None,
             db: None,
@@ -124,6 +126,7 @@ impl VaultSession {
     }
 
     fn abort_partial_unlock(&mut self) {
+        self.sync_plan = None;
         self.passkey_requests.clear();
         self.ssh_authorization.clear();
         self.ssh_signing_key_id = None;
@@ -145,7 +148,7 @@ impl VaultSession {
         Ok(())
     }
 
-    fn sync_ssh_from_db(&mut self) -> Result<()> {
+    pub(crate) fn sync_ssh_from_db(&mut self) -> Result<()> {
         let db = self
             .db
             .as_ref()
@@ -226,6 +229,7 @@ impl VaultSession {
     }
 
     pub fn lock(&mut self) {
+        self.sync_plan = None;
         self.passkey_requests.clear();
         if self.unlocked {
             if self.try_restore_point_if_due().is_err() {
@@ -340,7 +344,7 @@ impl VaultSession {
             || now.saturating_sub(policy.last_unlock_ms) >= self.settings.master_password_idle_hours * 3_600_000
     }
 
-    fn record_master_verification(&mut self) -> Result<()> {
+    pub(crate) fn record_master_verification(&mut self) -> Result<()> {
         let now = authentication_time_ms();
         self.local_unlock_policy = LocalUnlockPolicy {
             binding: self.local_unlock_binding()?, last_master_ms: now, last_unlock_ms: now,

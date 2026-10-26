@@ -254,6 +254,8 @@ fn agent_to_extension(resp: AgentResponse, request_id: Option<Value>) -> Value {
             protocol_version,
             code,
             message,
+            // 记录标识等 App 专用错误详情不转发给浏览器扩展。
+            ..
         } => json!({
             "ok": false,
             "protocol_version": protocol_version,
@@ -275,6 +277,7 @@ fn error_envelope(code: &str, message: &str, request_id: Option<Value>) -> Value
             protocol_version: PROTOCOL_VERSION,
             code: code.to_string(),
             message: message.to_string(),
+            details: None,
         },
         request_id,
     )

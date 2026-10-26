@@ -38,6 +38,7 @@ pub struct AppSettings {
     pub launch_at_login: Option<bool>,
     pub chrome_extension_id: Option<String>,
     pub vault_directory: Option<String>,
+    pub webdav: Option<crate::sync::WebDavSettings>,
 }
 
 impl Default for AppSettings {
@@ -68,6 +69,7 @@ impl Default for AppSettings {
             launch_at_login: None,
             chrome_extension_id: None,
             vault_directory: None,
+            webdav: None,
         }
     }
 }
@@ -92,6 +94,7 @@ impl AppSettings {
             && matches!(self.theme.as_str(), "system" | "light" | "dark")
             && !self.language.is_empty() && self.language.len() <= 64
             && self.language.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+            && self.webdav.as_ref().is_none_or(|s| s.valid())
             && self.version == 1
             && (60..=1800).contains(&self.vault_idle_seconds)
             && self.vault_idle_seconds % 60 == 0

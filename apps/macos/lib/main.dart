@@ -17,10 +17,26 @@ import 'agent_readiness.dart';
 import 'settings_page.dart';
 import 'shortcuts_page.dart';
 import 'vault_tools.dart';
+import 'webdav_sync.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await AppPresentation.instance.loadCatalog();
+  try {
+    await AppPresentation.instance.loadCatalog();
+  } catch (_) {
+    // 此时语言目录本身不可用，不能依赖翻译接口；也不能让首帧之前的异常只留下黑屏。
+    runApp(const MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: SelectableText('语言资源加载失败，请重新构建或安装 CredPivot。'),
+          ),
+        ),
+      ),
+    ));
+    return;
+  }
   runApp(const CredPivotApp());
 }
 
@@ -82,6 +98,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
   @override
   void initState() {
     super.initState();
+    WebDavSync.instance.start();
+    WebDavSync.instance.onFailure = _showSyncFailure;
     AppPresentation.instance.addListener(_onPresentationChanged);
     installVaultLockCoordinator(_onVaultLockedExternally);
     AgentBridge.onShortcut = _handleShortcut;
@@ -95,6 +113,21 @@ class _VaultHomePageState extends State<VaultHomePage> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _showSyncFailure(String message) async {
+    if (!mounted || !WebDavSync.instance.unlocked) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const LText('sync.errors.dialogTitle'),
+        content: SizedBox(width: appEditDialogWidth(ctx),
+            child: SingleChildScrollView(child: SelectableText(message))),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx),
+            child: const LText('sync.errors.acknowledge'))],
+      ),
+    );
+  }
+
   Future<void> _pollVaultLockGeneration() async {
     if (_vaultLockPolling || _initializing || !mounted) return;
     _vaultLockPolling = true;
@@ -105,6 +138,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
       final payload = AgentBridge.payloadOf(raw);
       final gen = (payload['vault_lock_generation'] as num?)?.toInt() ?? 0;
       final agentUnlocked = payload['unlocked'] == true;
+      WebDavSync.instance.setUnlocked(agentUnlocked);
       final revision = payload['data_revision']?.toString();
       if (agentUnlocked && _lastDataRevision != null && revision != _lastDataRevision) AgentBridge.notifyVaultChanged();
       _lastDataRevision = revision;
@@ -116,6 +150,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
       } else if (agentUnlocked && _lastVaultLockGen != 0 && gen != _lastVaultLockGen) {
         notifyVaultLocked();
       } else if (_status['master_password_required'] != payload['master_password_required'] ||
+          _status['vault_path'] != payload['vault_path'] ||
           _vaultExists != (payload['vault_exists'] == true)) {
         await _refreshStatus();
       }
@@ -129,6 +164,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
   }
 
   void _onVaultLockedExternally() {
+    WebDavSync.instance.setUnlocked(false);
     _statusRequestGeneration++;
     clearSensitiveAuthGrace();
     _password.clear();
@@ -148,6 +184,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
 
   @override
   void dispose() {
+    WebDavSync.instance.onFailure = null;
+    WebDavSync.instance.stop();
     AgentBridge.onShortcut = null;
     AppPresentation.instance.removeListener(_onPresentationChanged);
     _vaultLockPoll?.cancel();
@@ -228,6 +266,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
         'agent': payload,
       });
     });
+    WebDavSync.instance.setUnlocked(payload['unlocked'] == true);
   }
 
   Future<void> _bootstrap() async {
@@ -742,6 +781,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
             onOpenSettings: () => _selectPage(5));
       case 6:
         return ShortcutsPage(active: _pageIndex == 6, busy: _busy);
+      case 7:
+        return const WebDavSyncPage();
       case 5:
         return SettingsPage(
             active: _pageIndex == 5,
@@ -751,6 +792,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
             onOpenVault: _openVaultDir,
             onSaved: () async {
               await AppPresentation.instance.load();
+              await WebDavSync.instance.refresh();
               _chromeExtensionId.text = await AgentBridge.getChromeExtensionId();
               await _refreshStatus();
             });

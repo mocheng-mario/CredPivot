@@ -20,6 +20,9 @@ pub enum AgentError {
     Protocol(String),
     #[error("vault error: {0}")]
     Vault(String),
+    // 记录标识只通过 App 的结构化错误上下文返回，不拼入日志文案。
+    #[error("sync record validation failed: {message}")]
+    SyncRecord { message: String, record: serde_json::Value },
 }
 
 impl From<std::io::Error> for AgentError {

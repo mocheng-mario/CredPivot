@@ -2,7 +2,7 @@ use crate::error::{CoreError, Result};
 use rusqlite::Connection;
 
 /// SQLCipher `user_version`：与迁移脚本同步递增。
-pub const SCHEMA_USER_VERSION: i32 = 12;
+pub const SCHEMA_USER_VERSION: i32 = 13;
 
 const MIGRATION_V1: &str = "
 CREATE TABLE IF NOT EXISTS vault_meta (
@@ -292,6 +292,42 @@ UPDATE import_mappings SET source_namespace='bitwarden:personal' WHERE source_na
  created_at_ms INTEGER NOT NULL
 );
 CREATE INDEX idx_passkey_rp_id ON passkey_credentials(rp_id);")?;
+        crate::mark_restore_dirty(c)?;
+        Ok(())
+    })?;
+    apply_migration_step(conn, 13, |c| {
+        ensure_column(c, "credential_groups", "updated_at_ms", "INTEGER NOT NULL DEFAULT 0")?;
+        c.execute_batch("UPDATE credential_groups SET updated_at_ms=created_at_ms WHERE updated_at_ms=0;
+CREATE TABLE sync_state (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
+CREATE TABLE sync_tombstones (record_key TEXT PRIMARY KEY NOT NULL, deleted_at_ms INTEGER NOT NULL);
+CREATE TRIGGER sync_item_deleted AFTER DELETE ON items
+WHEN NOT EXISTS (SELECT 1 FROM sync_state WHERE key='applying')
+BEGIN
+ INSERT OR REPLACE INTO sync_tombstones VALUES ('item:' || OLD.id, CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER sync_group_deleted AFTER DELETE ON credential_groups
+WHEN NOT EXISTS (SELECT 1 FROM sync_state WHERE key='applying')
+BEGIN
+ INSERT OR REPLACE INTO sync_tombstones VALUES ('group:' || OLD.id, CAST((julianday('now')-2440587.5)*86400000 AS INTEGER));
+END;
+CREATE TRIGGER sync_group_changed AFTER UPDATE OF name,scope,sort_order ON credential_groups
+WHEN NOT EXISTS (SELECT 1 FROM sync_state WHERE key='applying')
+BEGIN
+ UPDATE credential_groups SET updated_at_ms=CAST((julianday('now')-2440587.5)*86400000 AS INTEGER) WHERE id=NEW.id;
+END;")?;
+        // 历史/候选密码及恢复码的变更也属于其所属记录，不能漏掉修改时间。
+        for (table, parent) in [
+            ("password_history", "SELECT item_id FROM login_credentials WHERE id={row}.credential_id"),
+            ("password_candidates", "SELECT item_id FROM login_credentials WHERE id={row}.credential_id"),
+            ("recovery_code_entries", "SELECT item_id FROM recovery_code_items WHERE id={row}.recovery_id"),
+        ] {
+            for (event, row) in [("INSERT", "NEW"), ("UPDATE", "NEW"), ("DELETE", "OLD")] {
+                let parent = parent.replace("{row}", row);
+                c.execute_batch(&format!("CREATE TRIGGER sync_{table}_{event} AFTER {event} ON {table}
+WHEN NOT EXISTS (SELECT 1 FROM sync_state WHERE key='applying')
+BEGIN UPDATE items SET updated_at_ms=CAST((julianday('now')-2440587.5)*86400000 AS INTEGER) WHERE id IN ({parent}); END;"))?;
+            }
+        }
         crate::mark_restore_dirty(c)?;
         Ok(())
     })?;

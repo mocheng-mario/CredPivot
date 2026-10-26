@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_ui.dart';
 
-const appPageTitles = ['navigation.vault.title', 'navigation.credentials.title', 'navigation.browser.title', 'navigation.security.title', 'navigation.diagnostics.title', 'navigation.settings.title', 'navigation.shortcuts.title'];
+const appPageTitles = ['navigation.vault.title', 'navigation.credentials.title', 'navigation.browser.title', 'navigation.security.title', 'navigation.diagnostics.title', 'navigation.settings.title', 'navigation.shortcuts.title', 'navigation.sync.title'];
 const appPageDescriptions = [
   'navigation.vault.description',
   'navigation.credentials.description',
@@ -11,6 +11,7 @@ const appPageDescriptions = [
   'navigation.diagnostics.description',
   'navigation.settings.description',
   'navigation.shortcuts.description',
+  'navigation.sync.description',
 ];
 
 class AppSidebar extends StatelessWidget {
@@ -79,6 +80,7 @@ class AppSidebar extends StatelessWidget {
             _item(context, 0, Icons.grid_view_rounded),
             _item(context, 1, Icons.key_outlined),
             _item(context, 2, Icons.language_rounded),
+            _item(context, 7, Icons.cloud_sync_outlined),
             const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 12),
                 child: Divider(height: 30)),

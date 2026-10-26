@@ -256,7 +256,7 @@ class CredentialsTab extends StatelessWidget {
       );
     }
     return DefaultTabController(
-      length: 6,
+      length: 7,
       child: Column(
         children: [
           Container(
@@ -276,6 +276,7 @@ class CredentialsTab extends StatelessWidget {
                 Tab(child: LText('credentials.server.title')),
                 Tab(child: LText('credentials.passkey.title')),
                 Tab(child: LText('credentials.tools.title')),
+                Tab(child: LText('credentials.trash.title')),
               ],
             ),
           ),
@@ -288,6 +289,7 @@ class CredentialsTab extends StatelessWidget {
                 const ServerLoginPanel(),
                 const PasskeysPanel(),
                 const VaultToolsPanel(),
+                const VaultToolsPanel(trashOnly: true),
               ],
             ),
           ),

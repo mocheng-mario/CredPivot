@@ -31,7 +31,11 @@ impl LogLevel {
 }
 
 pub fn log_file_path() -> PathBuf {
-    runtime_dir().join("logs").join("agent.log")
+    daily_log_path(chrono::Local::now().date_naive())
+}
+
+fn daily_log_path(date: chrono::NaiveDate) -> PathBuf {
+    runtime_dir().join("logs").join(format!("agent-{date}.log"))
 }
 
 /// 各进程读取统一配置，使已运行的 Native Host / askpass 也沿用新级别。
@@ -113,10 +117,9 @@ fn lock_log_directory() -> std::io::Result<File> {
     Ok(file)
 }
 
-fn open_current_log(rotate: bool) -> std::io::Result<File> {
+fn open_log(path: &Path, rotate: bool) -> std::io::Result<File> {
     let settings = credpivot_core::effective_app_settings();
-    let path = log_file_path();
-    let mut file = private_file(&path)?;
+    let mut file = private_file(path)?;
     let mut header = vec![0; LOG_HEADER.len()];
     let valid_header = match file.read_exact(&mut header) {
         Ok(()) => header.as_slice() == LOG_HEADER,
@@ -136,7 +139,7 @@ fn open_current_log(rotate: bool) -> std::io::Result<File> {
         file.seek(SeekFrom::Start(0))?;
         file.write_all(LOG_HEADER)?;
     }
-    // 降低保留数量后清理多余轮转文件，不影响当前日志。
+    // 大小限制和分卷保留数量只作用于当天文件；不自动删除其他日期的日志。
     for index in (settings.log_backup_count + 1)..=10 {
         match fs::remove_file(path.with_extension(format!("log.{index}"))) {
             Ok(()) => {}
@@ -152,8 +155,8 @@ fn open_current_log(rotate: bool) -> std::io::Result<File> {
                 Err(e) => return Err(e),
             }
         }
-        fs::rename(&path, path.with_extension("log.1"))?;
-        file = private_file(&path)?;
+        fs::rename(path, path.with_extension("log.1"))?;
+        file = private_file(path)?;
         file.write_all(LOG_HEADER)?;
     }
     Ok(file)
@@ -162,9 +165,12 @@ fn open_current_log(rotate: bool) -> std::io::Result<File> {
 fn write_line(level: LogLevel, target: &str, event: &str) -> std::io::Result<()> {
     let _guard = LOG_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
     let _file_lock = lock_log_directory()?;
-    let mut file = open_current_log(true)?;
+    // 文件日期和事件时间取自同一时刻，避免跨午夜时记录落入错误日期。
+    let now = chrono::Local::now();
+    let path = daily_log_path(now.date_naive());
+    let mut file = open_log(&path, true)?;
     file.seek(SeekFrom::End(0))?;
-    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+    let ts = now.format("%Y-%m-%d %H:%M:%S%.3f");
     writeln!(
         file,
         "{ts}\t{}\t{target}\t{event}",
@@ -172,12 +178,77 @@ fn write_line(level: LogLevel, target: &str, event: &str) -> std::io::Result<()>
     )
 }
 
-/// 只读取最后约 512KB，避免日志变大时整文件载入内存。
+/// 只读取当天最后约 512KB，并按新到旧返回，避免日志变大时整文件载入内存。
 pub fn tail_lines(max_lines: usize) -> String {
+    read_log(None, max_lines).map(|(_, text, _)| text)
+        .unwrap_or_else(|_| "ERROR diagnostics log unavailable".into())
+}
+
+/// 只接受本应用固定的日志命名，不能把客户端提供的路径直接拼进读取操作。
+fn log_file_key(name: &str) -> Option<(&str, u8)> {
+    let (stem, suffix) = name.split_once(".log")?;
+    let date = if stem == "agent" { "" } else {
+        let date = stem.strip_prefix("agent-")?;
+        if date.len() != 10 || chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_err() { return None; }
+        date
+    };
+    let part = if suffix.is_empty() { 0 } else {
+        let value = suffix.strip_prefix('.')?;
+        let part: u8 = value.parse().ok()?;
+        if !(1..=10).contains(&part) || value != part.to_string() { return None; }
+        part
+    };
+    Some((date, part))
+}
+
+/// 路径、文件列表和内容在同一个锁内取样，避免分卷或跨午夜时展示不一致。
+pub(crate) fn read_log(selected: Option<&str>, max_lines: usize) -> std::io::Result<(PathBuf, String, Vec<String>)> {
     let _guard = LOG_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    let _file_lock = lock_log_directory()?;
+    let current = log_file_path();
+    let directory = current.parent().ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))?;
+    let mut files = Vec::new();
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() { continue; }
+        let Ok(name) = entry.file_name().into_string() else { continue; };
+        if log_file_key(&name).is_some() { files.push(name); }
+    }
+    // 当天还没有符合记录级别的事件时，也允许选择当天空日志。
+    let today = current.file_name().and_then(|v| v.to_str()).unwrap_or_default().to_string();
+    if !files.contains(&today) { files.push(today); }
+    files.sort_by(|a, b| {
+        let (ad, ap) = log_file_key(a).unwrap_or_default();
+        let (bd, bp) = log_file_key(b).unwrap_or_default();
+        bd.cmp(ad).then_with(|| ap.cmp(&bp))
+    });
+    let path = match selected {
+        Some(name) if log_file_key(name).is_some() && files.iter().any(|f| f == name) => directory.join(name),
+        Some(_) => return Err(std::io::Error::from(std::io::ErrorKind::NotFound)),
+        None => current.clone(),
+    };
     let read = || -> std::io::Result<String> {
-        let _file_lock = lock_log_directory()?;
-        let mut file = open_current_log(false)?;
+        // 历史日志只读，不能因选中旧文件就清理分卷、创建缺失文件或重写文件头。
+        match fs::symlink_metadata(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && path == current => return Ok(String::new()),
+            Err(e) => return Err(e),
+            Ok(metadata) if !metadata.is_file() => return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput)),
+            Ok(_) => {}
+        }
+        let mut options = OpenOptions::new();
+        options.read(true);
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut file = options.open(&path)?;
+        let mut header = vec![0; LOG_HEADER.len()];
+        file.read_exact(&mut header)?;
+        if header.as_slice() != LOG_HEADER {
+            // 旧的不安全日志格式不能展示；保留文件但不返回可能包含隐私的正文。
+            return Err(std::io::Error::from(std::io::ErrorKind::InvalidData));
+        }
         let start = file.metadata()?.len().saturating_sub(MAX_TAIL_BYTES);
         file.seek(SeekFrom::Start(start))?;
         let mut data = Vec::new();
@@ -189,7 +260,8 @@ pub fn tail_lines(max_lines: usize) -> String {
             lines.next();
         }
         let lines: Vec<_> = lines.filter(|line| !line.starts_with('#')).collect();
-        Ok(lines[lines.len().saturating_sub(max_lines.min(2000))..].join("\n"))
+        Ok(lines.into_iter().rev().take(max_lines.min(2000)).collect::<Vec<_>>().join("\n"))
     };
-    read().unwrap_or_else(|_| "ERROR diagnostics log unavailable".into())
+    let text = read()?;
+    Ok((path, text, files))
 }

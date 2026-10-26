@@ -42,6 +42,7 @@ class AgentBridge {
       throw AgentException(
         code,
         decoded['message'] as String? ?? 'unknown',
+        decoded['details'] is Map ? Map<String, dynamic>.from(decoded['details'] as Map) : null,
       );
     }
     return decoded;
@@ -320,10 +321,11 @@ class AgentBridge {
     });
   }
 
-  static Future<Map<String, dynamic>> fetchDiagnosticLog({int maxLines = 400}) async {
+  static Future<Map<String, dynamic>> fetchDiagnosticLog({int maxLines = 400, String? file}) async {
     final resp = await request({
       'type': 'diagnostic_log_tail',
       'max_lines': maxLines,
+      if (file != null) 'file': file,
     });
     return payloadOf(resp);
   }
@@ -712,9 +714,10 @@ class AgentBridge {
 }
 
 class AgentException implements Exception {
-  AgentException(this.code, this.message);
+  AgentException(this.code, this.message, [this.details]);
   final String code;
   final String message;
+  final Map<String, dynamic>? details;
   @override
   String toString() => '$code: $message';
 }

@@ -39,7 +39,13 @@ class AppPresentation extends ChangeNotifier with WidgetsBindingObserver {
         jsonDecode(await rootBundle.loadString('assets/languages/zh-CN.json'))
             as Map);
     _catalog = Map<String, dynamic>.from(data['messages'] as Map);
-    _packs['zh-CN'] = _validate(data);
+    try {
+      _packs['zh-CN'] = _validate(data);
+    } catch (_) {
+      // 校验失败不能留下“已加载”的半成品状态，让后续调用跳过校验。
+      _catalog = {};
+      rethrow;
+    }
   }
 
   Future<void> load() async {

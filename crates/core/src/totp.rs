@@ -155,7 +155,7 @@ pub fn parse_totp_input(input: &str) -> Result<ParsedTotpInput> {
         parsed.secret_base32 = input.into();
     }
     validate_base32_secret(&parsed.secret_base32)?;
-    parsed.secret_base32 = normalize_base32(&parsed.secret_base32);
+    parsed.secret_base32 = normalize_base32(&parsed.secret_base32)?;
     validate_totp_stored_params(&TotpStoredParams {
         secret_base32: parsed.secret_base32.clone(), algorithm: algorithm_from_name(&parsed.algorithm)?,
         digits: parsed.digits, period: parsed.period,
@@ -212,9 +212,7 @@ pub fn totp_code_from_params(params: &TotpStoredParams) -> Result<String> {
 }
 pub(crate) fn totp_code_at(params: &TotpStoredParams, unix_seconds: u64) -> Result<String> {
     validate_totp_stored_params(params)?;
-    let secret = Secret::Encoded(params.secret_base32.clone())
-        .to_bytes()
-        .map_err(|e| CoreError::format(e.to_string()))?;
+    let secret = decode_base32_secret(&params.secret_base32)?;
     let totp = TOTP::new_unchecked(
         params.algorithm,
         params.digits,
@@ -244,7 +242,11 @@ pub fn algorithm_from_name(name: &str) -> Result<Algorithm> {
     }
 }
 
-fn validate_base32_secret(raw: &str) -> Result<()> {
+pub(crate) fn validate_base32_secret(raw: &str) -> Result<()> {
+    decode_base32_secret(raw).map(|_| ())
+}
+
+fn decode_base32_secret(raw: &str) -> Result<Vec<u8>> {
     let t = raw.trim();
     if t.is_empty() {
         return Err(CoreError::format("TOTP 密钥为空"));
@@ -254,20 +256,25 @@ fn validate_base32_secret(raw: &str) -> Result<()> {
             "密钥无效：请填写真实 Base32 密钥，不要使用模板占位符（如 {secret}）",
         ));
     }
-    let secret = Secret::Encoded(normalize_base32(t)).to_bytes()
+    let secret = Secret::Encoded(normalize_base32(t)?).to_bytes()
         .map_err(|_| CoreError::format("TOTP 密钥不是有效的 Base32"))?;
     if secret.is_empty() { return Err(CoreError::format("TOTP 密钥为空")); }
-    Ok(())
+    Ok(secret)
 }
 
-fn normalize_base32(s: &str) -> String {
-    let mut t = s
+fn normalize_base32(s: &str) -> Result<String> {
+    let t = s
         .trim()
         .replace([' ', '-', '\n', '\r'], "")
         .to_uppercase();
-    let pad = (8 - t.len() % 8) % 8;
-    t.push_str(&"=".repeat(pad));
-    t
+    let unpadded = t.trim_end_matches('=');
+    let padding = t.len() - unpadded.len();
+    // totp-rs 使用无填充 Base32。不能给合法种子补 '=' 后再交给它解码。
+    // 兼容正确的尾部填充，但内部 '=' 和错误的填充数量仍应被拒绝。
+    if padding > 0 && (t.len() % 8 != 0 || !matches!(padding, 1 | 3 | 4 | 6)) {
+        return Err(CoreError::format("TOTP 密钥不是有效的 Base32"));
+    }
+    Ok(unpadded.to_string())
 }
 
 #[cfg(test)]

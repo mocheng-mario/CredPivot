@@ -162,6 +162,8 @@ pub fn recover_restore_point_to_dir(
         let cfg = read_vault_json(target_dir)?;
         cfg.verify_mac(&*vmk)?;
         local_db::verify_database(target_dir, &*vmk)?;
+        let restored = local_db::open_database(target_dir, vmk)?;
+        crate::sync::disconnect(&restored)?;
         Ok(())
     })();
     if outcome.is_err() {

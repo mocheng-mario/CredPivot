@@ -147,6 +147,8 @@ pub fn export_database_bytes(vault_dir: &Path, vmk: &[u8; 32]) -> Result<Vec<u8>
     // 删除后重写副本，避免本机使用痕迹残留在导出数据库的空闲页中。
     dest.execute_batch("PRAGMA secure_delete=ON;")?;
     dest.execute("DELETE FROM local_usage", [])?;
+    // 同步绑定、共同基线和临时远端解密材料属于本机状态；恢复副本须明确重新接入。
+    dest.execute("DELETE FROM sync_state", [])?;
     dest.execute_batch("VACUUM; PRAGMA wal_checkpoint(TRUNCATE);")?;
     drop(dest);
     let bytes = fs::read(tmp.path()).map_err(|e| CoreError::io(e.to_string()))?;

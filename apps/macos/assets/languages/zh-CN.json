@@ -2582,8 +2582,8 @@
       ]
     },
     "diagnostics.build.description": {
-      "source": "本地记录 · 用于排查 Agent 与浏览器连接问题",
-      "translation": "本地记录 · 用于排查 Agent 与浏览器连接问题",
+      "source": "按日期切换日志 · 最新在上 · 支持历史分卷",
+      "translation": "按日期切换日志 · 最新在上 · 支持历史分卷",
       "description": "diagnostics: build; description.",
       "placeholders": {},
       "locations": [
@@ -5402,8 +5402,8 @@
       ]
     },
     "settings.build.text.item35": {
-      "source": "1～100 MB。达到上限后轮转；日志脱敏始终开启。",
-      "translation": "1～100 MB。达到上限后轮转；日志脱敏始终开启。",
+      "source": "日志按本机日期分文件；单日文件达到 1～100 MB 上限后分卷。日志脱敏始终开启。",
+      "translation": "日志按本机日期分文件；单日文件达到 1～100 MB 上限后分卷。日志脱敏始终开启。",
       "description": "settings: build; text.",
       "placeholders": {},
       "locations": [
@@ -5411,8 +5411,8 @@
       ]
     },
     "settings.build.text.item36": {
-      "source": "旧日志保留数量",
-      "translation": "旧日志保留数量",
+      "source": "单日日志分卷保留数量",
+      "translation": "单日日志分卷保留数量",
       "description": "settings: build; text.",
       "placeholders": {},
       "locations": [
@@ -5420,8 +5420,8 @@
       ]
     },
     "settings.build.text.item37": {
-      "source": "1～10 份，不含当前日志。减少后会清理多余的旧日志。",
-      "translation": "1～10 份，不含当前日志。减少后会清理多余的旧日志。",
+      "source": "1～10 份，不含当天主日志。减少后清理当天多余分卷；其他日期文件保留。",
+      "translation": "1～10 份，不含当天主日志。减少后清理当天多余分卷；其他日期文件保留。",
       "description": "settings: build; text.",
       "placeholders": {},
       "locations": [
@@ -5874,8 +5874,8 @@
       ]
     },
     "settings.save.text.item2": {
-      "source": "修改将应用于本机；减少日志保留数量会清理多余的旧日志。",
-      "translation": "修改将应用于本机；减少日志保留数量会清理多余的旧日志。",
+      "source": "修改将应用于本机；减少日志分卷保留数量会清理当天多余分卷，其他日期文件保留。",
+      "translation": "修改将应用于本机；减少日志分卷保留数量会清理当天多余分卷，其他日期文件保留。",
       "description": "settings: save; text.",
       "placeholders": {},
       "locations": [
@@ -7278,8 +7278,8 @@
       ]
     },
     "vaultTools.build.description": {
-      "source": "查看安全笔记、凭据报告与回收站",
-      "translation": "查看安全笔记、凭据报告与回收站",
+      "source": "查看安全笔记与凭据报告",
+      "translation": "查看安全笔记与凭据报告",
       "description": "vaultTools: build; description.",
       "placeholders": {},
       "locations": [
@@ -8866,6 +8866,2867 @@
       "placeholders": {},
       "locations": [
         "website_rules_editor.dart"
+      ]
+    },
+    "navigation.sync.title": {
+      "source": "同步",
+      "translation": "同步",
+      "description": "WebDAV 同步：同步",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "navigation.sync.description": {
+      "source": "通过 WebDAV 同步加密保险库，查看同步状态与冲突。",
+      "translation": "通过 WebDAV 同步加密保险库，查看同步状态与冲突。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.title": {
+      "source": "WebDAV 同步",
+      "translation": "WebDAV 同步",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.description": {
+      "source": "端到端加密 · 本地保存不受网络影响 · 锁定时暂停同步",
+      "translation": "端到端加密 · 本地保存不受网络影响 · 锁定时暂停同步",
+      "description": "WebDAV 同步：端到端加密 · 本地保存不受网络影响 · 锁定时暂停同步",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.configure.title": {
+      "source": "配置同步服务",
+      "translation": "配置同步服务",
+      "description": "同步服务配置",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.configure.help": {
+      "source": "提供方用于选择连接模板与兼容策略，地址和目录均可修改。请使用提供方的 WebDAV 应用密码；密码仅保存到本机钥匙串。保存前会检查读写权限及并发保护，失败时保留原配置。",
+      "translation": "提供方用于选择连接模板与兼容策略，地址和目录均可修改。请使用提供方的 WebDAV 应用密码；密码仅保存到本机钥匙串。保存前会检查读写权限及并发保护，失败时保留原配置。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.configure.root": {
+      "source": "同步目录 URL（HTTPS）",
+      "translation": "同步目录 URL（HTTPS）",
+      "description": "WebDAV 同步：同步目录 URL（HTTPS）",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.configure.username": {
+      "source": "WebDAV 账号",
+      "translation": "WebDAV 账号",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.configure.password": {
+      "source": "WebDAV 密码 / 应用密码",
+      "translation": "WebDAV 密码 / 应用密码",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.configure.passwordHelp": {
+      "source": "连接未变更时留空保留原密码；新建或更换连接时需要输入。",
+      "translation": "连接未变更时留空保留原密码；新建或更换连接时需要输入。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.configure.interval": {
+      "source": "自动检查间隔",
+      "translation": "自动检查间隔",
+      "description": "WebDAV 同步：自动检查间隔",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.configure.minutes": {
+      "source": "{minutes} 分钟",
+      "translation": "{minutes} 分钟",
+      "description": "WebDAV 同步：{minutes} 分钟",
+      "placeholders": {
+        "minutes": "运行时参数"
+      },
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.configure.automatic": {
+      "source": "启用自动同步",
+      "translation": "启用自动同步",
+      "description": "WebDAV 同步：启用自动同步",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.configure.save": {
+      "source": "保存并检查连接",
+      "translation": "保存并检查连接",
+      "description": "WebDAV 同步：保存并检查连接",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.auth.configure": {
+      "source": "修改同步连接或自动同步设置",
+      "translation": "修改同步连接或自动同步设置",
+      "description": "WebDAV 同步：修改同步连接或自动同步设置",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.auth.apply": {
+      "source": "应用当前预览。替换或合并前会生成本地备份，远端旧快照也会保留；更换远端保险库身份时，其他设备需要重新接入。",
+      "translation": "应用当前预览。替换或合并前会生成本地备份，远端旧快照也会保留；更换远端保险库身份时，其他设备需要重新接入。",
+      "description": "WebDAV 同步：应用当前预览。替换或合并前会生成本地备份，远端旧快照也会保留；更换远端保险库身份时，其他设备需要重新接入。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.auth.disconnect": {
+      "source": "解除本机同步绑定并删除已保存的应用密码；本地数据和远端文件保留",
+      "translation": "解除本机同步绑定并删除已保存的应用密码；本地数据和远端文件保留",
+      "description": "WebDAV 同步：解除本机同步绑定并删除已保存的应用密码；本地数据和远端文件保留",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.initial.title": {
+      "source": "首次接入 / 重新接入",
+      "translation": "首次接入 / 重新接入",
+      "description": "WebDAV 同步：首次接入 / 重新接入",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.initial.help": {
+      "source": "此选择仅用于本次接入。之后进行双向同步，冲突时由你选择保留版本。覆盖选项不会默认选中。",
+      "translation": "此选择仅用于本次接入。之后进行双向同步，冲突时由你选择保留版本。覆盖选项不会默认选中。",
+      "description": "WebDAV 同步：此选择仅用于本次接入。之后进行双向同步，冲突时由你选择保留版本。覆盖选项不会默认选中。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.strategy.remote": {
+      "source": "完全以远端为主",
+      "translation": "完全以远端为主",
+      "description": "WebDAV 同步：完全以远端为主",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.strategy.remoteHelp": {
+      "source": "先备份本地，再采用远端数据及其主密码、恢复密钥。",
+      "translation": "先备份本地，再采用远端数据及其主密码、恢复密钥。",
+      "description": "WebDAV 同步：先备份本地，再采用远端数据及其主密码、恢复密钥。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.strategy.local": {
+      "source": "完全以本地为主",
+      "translation": "完全以本地为主",
+      "description": "WebDAV 同步：完全以本地为主",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.strategy.localHelp": {
+      "source": "保留远端旧快照，再发布本地数据；原来连接该目录的设备需要重新接入。",
+      "translation": "保留远端旧快照，再发布本地数据；原来连接该目录的设备需要重新接入。",
+      "description": "WebDAV 同步：保留远端旧快照，再发布本地数据；原来连接该目录的设备需要重新接入。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.strategy.merge": {
+      "source": "两端合并",
+      "translation": "两端合并",
+      "description": "WebDAV 同步：两端合并",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.strategy.mergeHelp": {
+      "source": "独立记录合并，同一记录有分歧则逐条选择；合并结果沿用本地主密码与恢复密钥，其他设备需要重新接入。",
+      "translation": "独立记录合并，同一记录有分歧则逐条选择；合并结果沿用本地主密码与恢复密钥，其他设备需要重新接入。",
+      "description": "WebDAV 同步：独立记录合并，同一记录有分歧则逐条选择；合并结果沿用本地主密码与恢复密钥，其他设备需要重新接入。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.initial.remotePassword": {
+      "source": "远端保险库主密码（需要时填写）",
+      "translation": "远端保险库主密码（需要时填写）",
+      "description": "WebDAV 同步：远端保险库主密码（需要时填写）",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.initial.remotePasswordHelp": {
+      "source": "远端使用不同密钥、或选择采用远端安全配置时需要验证。不会保存此主密码。",
+      "translation": "远端使用不同密钥、或选择采用远端安全配置时需要验证。不会保存此主密码。",
+      "description": "WebDAV 同步：远端使用不同密钥、或选择采用远端安全配置时需要验证。不会保存此主密码。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.initial.preview": {
+      "source": "检查并预览",
+      "translation": "检查并预览",
+      "description": "WebDAV 同步：检查并预览",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.status.automatic": {
+      "source": "已连接 · 自动同步已开启",
+      "translation": "已连接 · 自动同步已开启",
+      "description": "WebDAV 同步：已连接 · 自动同步已开启",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.status.paused": {
+      "source": "已连接 · 自动同步已暂停",
+      "translation": "已连接 · 自动同步已暂停",
+      "description": "WebDAV 同步：已连接 · 自动同步已暂停",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.status.notConnected": {
+      "source": "尚未完成接入",
+      "translation": "尚未完成接入",
+      "description": "WebDAV 同步：尚未完成接入",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.status.lastSuccess": {
+      "source": "最后成功同步：{time}",
+      "translation": "最后成功同步：{time}",
+      "description": "WebDAV 同步：最后成功同步",
+      "placeholders": {
+        "time": "运行时参数"
+      },
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.status.pending": {
+      "source": "本地已保存，仍有待发布的版本。网络恢复后将继续检查和发布。",
+      "translation": "本地已保存，仍有待发布的版本。网络恢复后将继续检查和发布。",
+      "description": "WebDAV 同步：本地已保存，仍有待发布的版本。网络恢复后将继续检查和发布。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.actions.now": {
+      "source": "手动同步",
+      "translation": "手动同步",
+      "description": "WebDAV 同步：立即同步",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.actions.configure": {
+      "source": "连接配置",
+      "translation": "连接配置",
+      "description": "WebDAV 同步：连接配置",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.actions.reconnect": {
+      "source": "重新接入",
+      "translation": "重新接入",
+      "description": "WebDAV 同步：重新接入",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.actions.initial": {
+      "source": "选择接入策略",
+      "translation": "选择接入策略",
+      "description": "WebDAV 同步：选择接入策略",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.actions.pause": {
+      "source": "暂停自动同步",
+      "translation": "暂停自动同步",
+      "description": "WebDAV 同步：暂停自动同步",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.actions.resume": {
+      "source": "恢复自动同步",
+      "translation": "恢复自动同步",
+      "description": "WebDAV 同步：恢复自动同步",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.actions.disconnect": {
+      "source": "解除绑定",
+      "translation": "解除绑定",
+      "description": "WebDAV 同步：解除绑定",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.actions.apply": {
+      "source": "确认应用并同步",
+      "translation": "确认应用并同步",
+      "description": "WebDAV 同步：确认应用并同步",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.actions.cancelPreview": {
+      "source": "取消预览",
+      "translation": "取消预览",
+      "description": "WebDAV 同步：取消预览",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.time.unknown": {
+      "source": "暂无记录",
+      "translation": "暂无记录",
+      "description": "WebDAV 同步：暂无记录",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.preview.title": {
+      "source": "同步预览",
+      "translation": "同步预览",
+      "description": "WebDAV 同步：同步预览",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.preview.help": {
+      "source": "时间用于辅助判断，不决定覆盖顺序。冲突版本保留在各自快照中，密码和密钥不在这里展示；已使用的恢复码不会自动恢复为可用。",
+      "translation": "时间用于辅助判断，不决定覆盖顺序。冲突版本保留在各自快照中，密码和密钥不在这里展示；已使用的恢复码不会自动恢复为可用。",
+      "description": "WebDAV 同步界面",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.preview.counts": {
+      "source": "本地 {local} 条 · 远端 {remote} 条 · 预计结果 {result} 条（包含分组与回收站）",
+      "translation": "本地 {local} 条 · 远端 {remote} 条 · 预计结果 {result} 条（包含分组与回收站）",
+      "description": "WebDAV 同步：本地 {local} 条 · 远端 {remote} 条 · 预计结果 {result} 条（包含分组与回收站）",
+      "placeholders": {
+        "local": "运行时参数",
+        "remote": "运行时参数",
+        "result": "运行时参数"
+      },
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.preview.remoteEmpty": {
+      "source": "远端尚无当前同步入口，本次将建立同步空间。",
+      "translation": "远端尚无当前同步入口，本次将建立同步空间。",
+      "description": "WebDAV 同步：远端尚无当前同步入口，本次将建立同步空间。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.side.local": {
+      "source": "保留本地版本",
+      "translation": "保留本地版本",
+      "description": "WebDAV 同步：保留本地版本",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.side.remote": {
+      "source": "保留远端版本",
+      "translation": "保留远端版本",
+      "description": "WebDAV 同步：保留远端版本",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.conflict.deleted": {
+      "source": "此端已永久删除",
+      "translation": "此端已永久删除",
+      "description": "WebDAV 同步：此端已永久删除",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.conflict.untitled": {
+      "source": "未命名记录",
+      "translation": "未命名记录",
+      "description": "WebDAV 同步：未命名记录",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.conflict.created": {
+      "source": "创建时间：{time}",
+      "translation": "创建时间：{time}",
+      "description": "WebDAV 同步：创建时间",
+      "placeholders": {
+        "time": "运行时参数"
+      },
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.conflict.modified": {
+      "source": "最后修改：{time}",
+      "translation": "最后修改：{time}",
+      "description": "WebDAV 同步：最后修改",
+      "placeholders": {
+        "time": "运行时参数"
+      },
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.conflict.fields": {
+      "source": "存在差异：{fields}",
+      "translation": "存在差异：{fields}",
+      "description": "WebDAV 同步：存在差异",
+      "placeholders": {
+        "fields": "运行时参数"
+      },
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.conflict.timeDifference": {
+      "source": "修改时间相差 {days} 天 {hours} 小时 {minutes} 分 {seconds} 秒；来自设备时钟，仅供参考。",
+      "translation": "修改时间相差 {days} 天 {hours} 小时 {minutes} 分 {seconds} 秒；来自设备时钟，仅供参考。",
+      "description": "WebDAV 同步：修改时间相差 {days} 天 {hours} 小时 {minutes} 分 {seconds} 秒；来自设备时钟，仅供参考。",
+      "placeholders": {
+        "days": "运行时参数",
+        "hours": "运行时参数",
+        "minutes": "运行时参数",
+        "seconds": "运行时参数"
+      },
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.backup.title": {
+      "source": "本次保留的备份",
+      "translation": "本次保留的备份",
+      "description": "WebDAV 同步：本次保留的备份",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.backup.local": {
+      "source": "本地加密备份路径",
+      "translation": "本地加密备份路径",
+      "description": "WebDAV 同步：本地加密备份路径",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.backup.remote": {
+      "source": "远端原始加密快照路径（相对于同步目录）",
+      "translation": "远端原始加密快照路径（相对于同步目录）",
+      "description": "WebDAV 同步：远端原始加密快照路径（相对于同步目录）",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.deletion": {
+      "source": "删除状态",
+      "translation": "删除状态",
+      "description": "WebDAV 同步：删除状态",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.password": {
+      "source": "密码或密码启用信息",
+      "translation": "密码或密码启用信息",
+      "description": "WebDAV 同步：密码或密码启用信息",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.username": {
+      "source": "账号",
+      "translation": "账号",
+      "description": "WebDAV 同步：账号",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.websites": {
+      "source": "网站匹配规则",
+      "translation": "网站匹配规则",
+      "description": "WebDAV 同步：网站匹配规则",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.details": {
+      "source": "资料、网站规则或关联信息",
+      "translation": "资料、网站规则或关联信息",
+      "description": "WebDAV 同步：资料、网站规则或关联信息",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.title": {
+      "source": "名称",
+      "translation": "名称",
+      "description": "WebDAV 同步：名称",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.group": {
+      "source": "分组",
+      "translation": "分组",
+      "description": "WebDAV 同步：分组",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.trash": {
+      "source": "回收站状态",
+      "translation": "回收站状态",
+      "description": "WebDAV 同步：回收站状态",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.mfa": {
+      "source": "MFA 配置或关联",
+      "translation": "MFA 配置或关联",
+      "description": "WebDAV 同步：MFA 配置或关联",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.history": {
+      "source": "密码历史或候选密码",
+      "translation": "密码历史或候选密码",
+      "description": "WebDAV 同步：密码历史或候选密码",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.recoveryCodes": {
+      "source": "恢复码或使用状态",
+      "translation": "恢复码或使用状态",
+      "description": "WebDAV 同步：恢复码或使用状态",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.ssh": {
+      "source": "SSH 密钥",
+      "translation": "SSH 密钥",
+      "description": "WebDAV 同步：SSH 密钥",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.passkey": {
+      "source": "通行密钥",
+      "translation": "通行密钥",
+      "description": "WebDAV 同步：通行密钥",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.server": {
+      "source": "服务器连接配置",
+      "translation": "服务器连接配置",
+      "description": "WebDAV 同步：服务器连接配置",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.fields.other": {
+      "source": "其他资料",
+      "translation": "其他资料",
+      "description": "WebDAV 同步：其他资料",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.responseTooLarge": {
+      "source": "同步数据超出大小或数量限制（单个快照上限 64 MiB），本地数据仍然保留。",
+      "translation": "同步数据超出大小或数量限制（单个快照上限 64 MiB），本地数据仍然保留。",
+      "description": "WebDAV 同步状态或错误提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.network": {
+      "source": "网络请求未完成，请检查连接后重试。若发布已成功，下次检查会自动确认状态。",
+      "translation": "网络请求未完成，请检查连接后重试。若发布已成功，下次检查会自动确认状态。",
+      "description": "WebDAV 同步：网络请求未完成，请检查连接后重试。若发布已成功，下次检查会自动确认状态。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.configuration": {
+      "source": "同步配置缺失或格式无效，请重新配置 WebDAV。",
+      "translation": "同步配置缺失或格式无效，请重新配置 WebDAV。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.authentication": {
+      "source": "请重新完成身份验证后再操作。",
+      "translation": "请重新完成身份验证后再操作。",
+      "description": "WebDAV 同步：请重新完成身份验证后再操作。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.passwordMissing": {
+      "source": "没有可读取的应用密码，请在连接配置中重新填写。",
+      "translation": "没有可读取的应用密码，请在连接配置中重新填写。",
+      "description": "WebDAV 同步：没有可读取的应用密码，请在连接配置中重新填写。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.keychain": {
+      "source": "无法保存到本机钥匙串，未继续接入。",
+      "translation": "无法保存到本机钥匙串，未继续接入。",
+      "description": "WebDAV 同步：无法保存到本机钥匙串，未继续接入。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.locked": {
+      "source": "保险库已锁定，同步已停止。",
+      "translation": "保险库已锁定，同步已停止。",
+      "description": "WebDAV 同步：保险库已锁定，同步已停止。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.unauthorized": {
+      "source": "坚果云认证失败，请检查账号及应用密码。",
+      "translation": "坚果云认证失败，请检查账号及应用密码。",
+      "description": "WebDAV 同步：坚果云认证失败，请检查账号及应用密码。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.forbidden": {
+      "source": "坚果云拒绝访问，请检查目录权限。",
+      "translation": "坚果云拒绝访问，请检查目录权限。",
+      "description": "WebDAV 同步：坚果云拒绝访问，请检查目录权限。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.rateLimited": {
+      "source": "坚果云请求受到限流，自动同步将退避重试。",
+      "translation": "坚果云请求受到限流，自动同步将退避重试。",
+      "description": "WebDAV 同步：坚果云请求受到限流，自动同步将退避重试。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.server": {
+      "source": "坚果云服务暂时不可用，稍后重试。",
+      "translation": "坚果云服务暂时不可用，稍后重试。",
+      "description": "WebDAV 同步：坚果云服务暂时不可用，稍后重试。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.redirect": {
+      "source": "服务器返回了重定向。为保护应用密码，请填写最终的 HTTPS WebDAV 地址。",
+      "translation": "服务器返回了重定向。为保护应用密码，请填写最终的 HTTPS WebDAV 地址。",
+      "description": "WebDAV 同步：服务器返回了重定向。为保护应用密码，请填写最终的 HTTPS WebDAV 地址。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.conditionalWrite": {
+      "source": "服务器未通过条件写入检查，已停止接入，避免并发覆盖。",
+      "translation": "服务器未通过条件写入检查，已停止接入，避免并发覆盖。",
+      "description": "WebDAV 同步：服务器未通过条件写入检查，已停止接入，避免并发覆盖。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.directory": {
+      "source": "无法访问或创建同步目录。请检查服务器 WebDAV 入口、父目录和目录权限。",
+      "translation": "无法访问或创建同步目录。请检查服务器 WebDAV 入口、父目录和目录权限。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.format": {
+      "source": "远端文件损坏、格式无效或版本不兼容，未采用其中的数据。",
+      "translation": "远端文件损坏、格式无效或版本不兼容，未采用其中的数据。",
+      "description": "WebDAV 同步：远端文件损坏、格式无效或版本不兼容，未采用其中的数据。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.integrity": {
+      "source": "快照完整性校验失败，未发布或应用数据。",
+      "translation": "快照完整性校验失败，未发布或应用数据。",
+      "description": "WebDAV 同步：快照完整性校验失败，未发布或应用数据。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.upload": {
+      "source": "上传未确认成功，本地数据和旧远端快照已保留。",
+      "translation": "上传未确认成功，本地数据和旧远端快照已保留。",
+      "description": "WebDAV 同步：上传未确认成功，本地数据和旧远端快照已保留。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.backup": {
+      "source": "备份未创建成功或未通过验证，已停止替换。",
+      "translation": "备份未创建成功或未通过验证，已停止替换。",
+      "description": "WebDAV 同步：备份未创建成功或未通过验证，已停止替换。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.remoteChanged": {
+      "source": "远端在同步期间发生变化，本次未覆盖。请重新检查同步。",
+      "translation": "远端在同步期间发生变化，本次未覆盖。请重新检查同步。",
+      "description": "WebDAV 同步：远端在同步期间发生变化，本次未覆盖。请重新检查同步。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.busy": {
+      "source": "同步正在进行，请稍后重试。",
+      "translation": "同步正在进行，请稍后重试。",
+      "description": "WebDAV 同步：同步正在进行，请稍后重试。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.operation": {
+      "source": "同步操作未完成，未确认成功的版本不会标记为已同步。请重新检查；已有备份会保留。",
+      "translation": "同步操作未完成，未确认成功的版本不会标记为已同步。请重新检查；已有备份会保留。",
+      "description": "WebDAV 同步：同步操作未完成，未确认成功的版本不会标记为已同步。请重新检查；已有备份会保留。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.remotePassword": {
+      "source": "请填写或核对远端保险库的主密码后重新检查。",
+      "translation": "请填写或核对远端保险库的主密码后重新检查。",
+      "description": "WebDAV 同步：请填写或核对远端保险库的主密码后重新检查。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.initialRequired": {
+      "source": "请先选择首次接入策略。",
+      "translation": "请先选择首次接入策略。",
+      "description": "WebDAV 同步：请先选择首次接入策略。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.localControlChanged": {
+      "source": "本地主密码或安全配置已变化，请重新接入同步。",
+      "translation": "本地主密码或安全配置已变化，请重新接入同步。",
+      "description": "WebDAV 同步：本地主密码或安全配置已变化，请重新接入同步。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.remoteControlChanged": {
+      "source": "远端主密码或安全配置已变化，请重新接入同步。",
+      "translation": "远端主密码或安全配置已变化，请重新接入同步。",
+      "description": "WebDAV 同步：远端主密码或安全配置已变化，请重新接入同步。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.remoteMissing": {
+      "source": "远端当前版本已消失，自动同步已停止，请重新接入。",
+      "translation": "远端当前版本已消失，自动同步已停止，请重新接入。",
+      "description": "WebDAV 同步：远端当前版本已消失，自动同步已停止，请重新接入。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.generationChanged": {
+      "source": "远端同步空间已被替换，自动同步已停止，请重新接入。",
+      "translation": "远端同步空间已被替换，自动同步已停止，请重新接入。",
+      "description": "WebDAV 同步：远端同步空间已被替换，自动同步已停止，请重新接入。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.remoteEmpty": {
+      "source": "远端没有保险库，不能选择完全以远端为主。",
+      "translation": "远端没有保险库，不能选择完全以远端为主。",
+      "description": "WebDAV 同步：远端没有保险库，不能选择完全以远端为主。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.unresolved": {
+      "source": "请先为每条冲突记录选择要保留的版本。",
+      "translation": "请先为每条冲突记录选择要保留的版本。",
+      "description": "WebDAV 同步：请先为每条冲突记录选择要保留的版本。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.relatedGroup": {
+      "source": "分组删除与记录修改存在关联冲突，请调整保留版本。",
+      "translation": "分组删除与记录修改存在关联冲突，请调整保留版本。",
+      "description": "WebDAV 同步：分组删除与记录修改存在关联冲突，请调整保留版本。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.relatedCredential": {
+      "source": "关联记录删除与修改存在冲突，请调整保留版本。",
+      "translation": "关联记录删除与修改存在冲突，请调整保留版本。",
+      "description": "WebDAV 同步：关联记录删除与修改存在冲突，请调整保留版本。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.relatedMfa": {
+      "source": "MFA 关联存在冲突，请调整保留版本。",
+      "translation": "MFA 关联存在冲突，请调整保留版本。",
+      "description": "WebDAV 同步：MFA 关联存在冲突，请调整保留版本。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.previewExpired": {
+      "source": "同步预览已过期，请重新检查。",
+      "translation": "同步预览已过期，请重新检查。",
+      "description": "WebDAV 同步：同步预览已过期，请重新检查。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.localChanged": {
+      "source": "预览后本地记录已变化，请重新检查同步。",
+      "translation": "预览后本地记录已变化，请重新检查同步。",
+      "description": "WebDAV 同步：预览后本地记录已变化，请重新检查同步。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.switchVault": {
+      "source": "新保险库已保留，但切换工作目录失败，请重新检查。",
+      "translation": "新保险库已保留，但切换工作目录失败，请重新检查。",
+      "description": "WebDAV 同步：新保险库已保留，但切换工作目录失败，请重新检查。",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift",
+        "sync.rs"
+      ]
+    },
+    "sync.preview.duplicates": {
+      "source": "检测到 {count} 组可能重复的登录记录。它们的记录 ID 不同，将分别保留；后续重新导入相同来源时，优先识别本地已有记录。",
+      "translation": "检测到 {count} 组可能重复的登录记录。它们的记录 ID 不同，将分别保留；后续重新导入相同来源时，优先识别本地已有记录。",
+      "description": "WebDAV 同步界面",
+      "placeholders": {
+        "count": "运行时参数"
+      },
+      "locations": [
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.preview.differences": {
+      "source": "本地独有 {local} 条 · 远端独有 {remote} 条 · 需要选择 {conflicts} 条",
+      "translation": "本地独有 {local} 条 · 远端独有 {remote} 条 · 需要选择 {conflicts} 条",
+      "description": "WebDAV 同步界面",
+      "placeholders": {
+        "conflicts": "运行时参数",
+        "local": "运行时参数",
+        "remote": "运行时参数"
+      },
+      "locations": [
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.configure.seconds": {
+      "source": "{seconds} 秒",
+      "translation": "{seconds} 秒",
+      "description": "WebDAV 同步界面",
+      "placeholders": {
+        "seconds": "运行时参数"
+      },
+      "locations": [
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.status.joinHelp": {
+      "source": "首次同步、恢复备份或迁移后，需要选择接入策略。点击“手动同步”生成预览，确认后才应用并同步。",
+      "translation": "首次同步、恢复备份或迁移后，需要选择接入策略。点击“手动同步”生成预览，确认后才应用并同步。",
+      "description": "WebDAV 同步状态或错误提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.knownOldVersion": {
+      "source": "检测到远端返回本机已经接收过的旧版本，已停止自动合并。请先核查远端历史；如需恢复旧版本，请通过手动重新接入预览并确认。",
+      "translation": "检测到远端返回本机已经接收过的旧版本，已停止自动合并。请先核查远端历史；如需恢复旧版本，请通过手动重新接入预览并确认。",
+      "description": "阻止已经接收过的远端旧版本自动回放",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.configure.provider": {
+      "source": "服务提供方",
+      "translation": "服务提供方",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.providers.custom": {
+      "source": "通用 WebDAV / 自建服务",
+      "translation": "通用 WebDAV / 自建服务",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.providers.nutstore": {
+      "source": "坚果云",
+      "translation": "坚果云",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.providers.nextcloud": {
+      "source": "Nextcloud",
+      "translation": "Nextcloud",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.providers.owncloud": {
+      "source": "ownCloud",
+      "translation": "ownCloud",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.configure.server": {
+      "source": "服务器地址（HTTPS）",
+      "translation": "服务器地址（HTTPS）",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.configure.serverHelp": {
+      "source": "填写服务提供方的完整 WebDAV 入口，含必要的服务路径；该入口须已存在。",
+      "translation": "填写服务提供方的完整 WebDAV 入口，含必要的服务路径；该入口须已存在。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.configure.port": {
+      "source": "端口（可选）",
+      "translation": "端口（可选）",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.configure.portHelp": {
+      "source": "留空使用 URL 中的端口，未指定时为 443。也可直接在 URL 中填写端口，两处填写时须一致。",
+      "translation": "留空使用 URL 中的端口，未指定时为 443。也可直接在 URL 中填写端口，两处填写时须一致。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.configure.directory": {
+      "source": "同步目录",
+      "translation": "同步目录",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.configure.directoryHelp": {
+      "source": "相对于服务器地址，例如 CredPivot 或 backups/CredPivot；留空或 / 使用服务器目录。支持中文、空格，会逐级创建子目录。",
+      "translation": "相对于服务器地址，例如 CredPivot 或 backups/CredPivot；留空或 / 使用服务器目录。支持中文、空格，会逐级创建子目录。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.configure.resolvedUrl": {
+      "source": "最终同步地址",
+      "translation": "最终同步地址",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.address": {
+      "source": "请输入有效的 HTTPS WebDAV 地址，不得包含账号、密码、查询参数、片段或上级目录跳转。",
+      "translation": "请输入有效的 HTTPS WebDAV 地址，不得包含账号、密码、查询参数、片段或上级目录跳转。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.port": {
+      "source": "端口必须为 1–65535 的整数，或留空。",
+      "translation": "端口必须为 1–65535 的整数，或留空。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.portConflict": {
+      "source": "端口与服务器 URL 中的端口不同，请统一两处设置或清空端口输入框。",
+      "translation": "端口与服务器 URL 中的端口不同，请统一两处设置或清空端口输入框。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.username": {
+      "source": "请输入 WebDAV 账号；账号不能包含冒号或控制字符，最长 1024 字节。",
+      "translation": "请输入 WebDAV 账号；账号不能包含冒号或控制字符，最长 1024 字节。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.interval": {
+      "source": "检查间隔必须在 60–3600 秒之间。",
+      "translation": "检查间隔必须在 60–3600 秒之间。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.directoryPath": {
+      "source": "目录不能包含 .、..、反斜杠或控制字符，最长 2048 字节。",
+      "translation": "目录不能包含 .、..、反斜杠或控制字符，最长 2048 字节。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.settingsRead": {
+      "source": "无法读取应用配置，或配置文件已有错误。请先在设置页检查配置文件；原同步配置未替换。",
+      "translation": "无法读取应用配置，或配置文件已有错误。请先在设置页检查配置文件；原同步配置未替换。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.settingsInvalid": {
+      "source": "应用配置校验失败，可能包含其他无效设置。请在设置页检查配置；原同步配置未替换。",
+      "translation": "应用配置校验失败，可能包含其他无效设置。请在设置页检查配置；原同步配置未替换。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.settingsWrite": {
+      "source": "应用配置未能保存，请检查后台 Agent 版本与配置目录的写入权限；原同步配置未替换。",
+      "translation": "应用配置未能保存，请检查后台 Agent 版本与配置目录的写入权限；原同步配置未替换。",
+      "description": "WebDAV 同步配置或状态提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.requestPath": {
+      "source": "同步请求路径未通过安全检查，请检查服务器地址和目录；未发送此请求。",
+      "translation": "同步请求路径未通过安全检查，请检查服务器地址和目录；未发送此请求。",
+      "description": "WebDAV 同步错误提示",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.probeCleanup": {
+      "source": "连接检查文件未能删除，请检查删除权限后重新保存配置。",
+      "translation": "连接检查文件未能删除，请检查删除权限后重新保存配置。",
+      "description": "WebDAV 同步错误提示",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.providers.s3": {
+      "source": "S3 / S3 兼容存储（未实现）",
+      "translation": "S3 / S3 兼容存储（未实现）",
+      "description": "S3 同步计划入口及未实现提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.providers.s3Unavailable": {
+      "source": "尚未实现。S3 / S3 兼容存储已列为下一项同步能力，目前暂不支持配置或保存。",
+      "translation": "尚未实现。S3 / S3 兼容存储已列为下一项同步能力，目前暂不支持配置或保存。",
+      "description": "S3 同步计划入口及未实现提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.cleanup.policy": {
+      "source": "本地同步备份全部保留；远端历史入口及其快照保留最近 30 天，当前版本始终保留；无引用快照及连接检查临时文件保留 7 天后清理。清理在成功同步后分批进行。",
+      "translation": "本地同步备份全部保留；远端历史入口及其快照保留最近 30 天，当前版本始终保留；无引用快照及连接检查临时文件保留 7 天后清理。清理在成功同步后分批进行。",
+      "description": "WebDAV 历史保留和安全清理提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.cleanup.deferred": {
+      "source": "同步已完成。远端历史清理正在分批处理，将在后续成功同步时继续。",
+      "translation": "同步已完成。远端历史清理正在分批处理，将在后续成功同步时继续。",
+      "description": "WebDAV 历史保留和安全清理提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.cleanup.incomplete": {
+      "source": "同步已完成。远端目录列表、修改时间或历史入口无法完整确认，已跳过本轮清理；请检查远端目录和读取权限。",
+      "translation": "同步已完成。远端目录列表、修改时间或历史入口无法完整确认，已跳过本轮清理；请检查远端目录和读取权限。",
+      "description": "WebDAV 历史保留和安全清理提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.cleanup.changed": {
+      "source": "同步已完成。清理期间远端或本地同步状态发生变化，已停止清理，将在后续成功同步时重新检查。",
+      "translation": "同步已完成。清理期间远端或本地同步状态发生变化，已停止清理，将在后续成功同步时重新检查。",
+      "description": "WebDAV 历史保留和安全清理提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.cleanup.deleteUnsupported": {
+      "source": "同步已完成。服务器未通过条件删除检查，暂不自动清理历史文件；请检查 WebDAV 的删除权限与条件请求支持。",
+      "translation": "同步已完成。服务器未通过条件删除检查，暂不自动清理历史文件；请检查 WebDAV 的删除权限与条件请求支持。",
+      "description": "WebDAV 历史保留和安全清理提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.cleanup.failed": {
+      "source": "同步已完成，但远端历史清理未完成，将在后续成功同步时重试。请检查网络连接及远端删除权限。",
+      "translation": "同步已完成，但远端历史清理未完成，将在后续成功同步时重试。请检查网络连接及远端删除权限。",
+      "description": "WebDAV 历史保留和安全清理提示",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.etagMissing": {
+      "source": "服务器未返回 ETag 版本号，无法安全更新同步入口。",
+      "translation": "服务器未返回 ETag 版本号，无法安全更新同步入口。",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.etagWeak": {
+      "source": "服务器仅返回弱 ETag，无法安全更新同步入口。",
+      "translation": "服务器仅返回弱 ETag，无法安全更新同步入口。",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.etagFormat": {
+      "source": "服务器返回的 ETag 格式无效，无法安全更新同步入口。",
+      "translation": "服务器返回的 ETag 格式无效，无法安全更新同步入口。",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.probeCreate": {
+      "source": "服务器无法写入同步探测文件。",
+      "translation": "服务器无法写入同步探测文件。",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.probeCreateCondition": {
+      "source": "服务器的首次创建条件返回结果与文件内容不一致，已停止接入。",
+      "translation": "服务器的首次创建条件返回结果与文件内容不一致，已停止接入。",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.probeReadback": {
+      "source": "写入后的探测内容或版本号不一致，已停止接入。",
+      "translation": "写入后的探测内容或版本号不一致，已停止接入。",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.probeMatchWrong": {
+      "source": "服务器没有可靠拒绝错误版本的 If-Match 写入，已停止接入，避免覆盖其他设备的数据。",
+      "translation": "服务器没有可靠拒绝错误版本的 If-Match 写入，已停止接入，避免覆盖其他设备的数据。",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.probeMatchUpdate": {
+      "source": "服务器拒绝使用当前版本的 If-Match 更新，已停止接入。",
+      "translation": "服务器拒绝使用当前版本的 If-Match 更新，已停止接入。",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.probeMatchStale": {
+      "source": "服务器没有可靠拒绝旧版本的 If-Match 写入，已停止接入，避免并发覆盖。",
+      "translation": "服务器没有可靠拒绝旧版本的 If-Match 写入，已停止接入，避免并发覆盖。",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.probeMatchConcurrent": {
+      "source": "服务器未通过同版本并发写入检查，已停止接入，避免并发覆盖。",
+      "translation": "服务器未通过同版本并发写入检查，已停止接入，避免并发覆盖。",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.probeInitialGate": {
+      "source": "服务器不支持独占创建初始化目录，无法安全建立首次同步入口。",
+      "translation": "服务器不支持独占创建初始化目录，无法安全建立首次同步入口。",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.initializationBusy": {
+      "source": "无法取得同步初始化保护。请稍后重试；若持续失败且远端没有 head.json，请确认其他设备没有正在初始化，再手动删除同步目录内的 .credpivot-initializing 空目录后重试。",
+      "translation": "无法取得同步初始化保护。请稍后重试；若持续失败且远端没有 head.json，请确认其他设备没有正在初始化，再手动删除同步目录内的 .credpivot-initializing 空目录后重试。",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.stageDetail": {
+      "source": "{message}（检查阶段：{stage}）",
+      "translation": "{message}（检查阶段：{stage}）",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {
+        "message": {
+          "description": "Value for message. Keep {message} unchanged."
+        },
+        "stage": {
+          "description": "Value for stage. Keep {stage} unchanged."
+        }
+      },
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.httpDetail": {
+      "source": "{message}（HTTP {status}）",
+      "translation": "{message}（HTTP {status}）",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {
+        "message": {
+          "description": "Value for message. Keep {message} unchanged."
+        },
+        "status": {
+          "description": "Value for status. Keep {status} unchanged."
+        }
+      },
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.create": {
+      "source": "写入探测文件",
+      "translation": "写入探测文件",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.createCondition": {
+      "source": "仅创建条件 If-None-Match",
+      "translation": "仅创建条件 If-None-Match",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.readback": {
+      "source": "读取内容与版本号",
+      "translation": "读取内容与版本号",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.matchWrong": {
+      "source": "拒绝错误版本 If-Match",
+      "translation": "拒绝错误版本 If-Match",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.matchUpdate": {
+      "source": "使用当前版本更新",
+      "translation": "使用当前版本更新",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.matchStale": {
+      "source": "拒绝旧版本 If-Match",
+      "translation": "拒绝旧版本 If-Match",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.matchConcurrent": {
+      "source": "同版本并发更新",
+      "translation": "同版本并发更新",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.cleanup": {
+      "source": "清理探测文件",
+      "translation": "清理探测文件",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.initialGate": {
+      "source": "独占初始化保护",
+      "translation": "独占初始化保护",
+      "description": "WebDAV compatibility and safe-write diagnostics.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.auth.test": {
+      "source": "测试 WebDAV 连接与同步能力",
+      "translation": "测试 WebDAV 连接与同步能力",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.test.action": {
+      "source": "测试连接",
+      "translation": "测试连接",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.test.stop": {
+      "source": "停止测试",
+      "translation": "停止测试",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.test.cancelled": {
+      "source": "已取消测试",
+      "translation": "已取消测试",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.test.help": {
+      "source": "测试会创建目标目录及随机临时文件，检查读写、删除和并发保护。不会保存配置，也不会上传保险库内容；正常结束会清理临时探针；断网或取消时会尽量清理。",
+      "translation": "测试会创建目标目录及随机临时文件，检查读写、删除和并发保护。不会保存配置，也不会上传保险库内容；正常结束会清理临时探针；断网或取消时会尽量清理。",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.test.running": {
+      "source": "正在检查连接与同步能力，请稍候…",
+      "translation": "正在检查连接与同步能力，请稍候…",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.test.success": {
+      "source": "测试通过，可以用于 CredPivot 同步；配置尚未保存。",
+      "translation": "测试通过，可以用于 CredPivot 同步；配置尚未保存。",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.test.failed": {
+      "source": "测试未通过，请查看已完成项目与失败原因。",
+      "translation": "测试未通过，请查看已完成项目与失败原因。",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.test.fallback": {
+      "source": "此项不能作为保护，将检查替代方式",
+      "translation": "此项不能作为保护，将检查替代方式",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.test.initialMode": {
+      "source": "首次发布保护：{mode}",
+      "translation": "首次发布保护：{mode}",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {
+        "mode": {
+          "description": "Value for mode. Keep {mode} unchanged."
+        }
+      },
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.test.mode.conditional": {
+      "source": "仅在入口不存在时创建（If-None-Match）",
+      "translation": "仅在入口不存在时创建（If-None-Match）",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.test.mode.directory": {
+      "source": "独占初始化目录",
+      "translation": "独占初始化目录",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.test.mode.move": {
+      "source": "禁止覆盖的原子移动（MOVE / Overwrite: F）",
+      "translation": "禁止覆盖的原子移动（MOVE / Overwrite: F）",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.directory": {
+      "source": "认证、服务器入口及目标目录可用",
+      "translation": "认证、服务器入口及目标目录可用",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.readWrite": {
+      "source": "临时文件写入与读取一致",
+      "translation": "临时文件写入与读取一致",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.layout": {
+      "source": "同步子目录可用",
+      "translation": "同步子目录可用",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.initialMove": {
+      "source": "MOVE 拒绝覆盖已有目标",
+      "translation": "MOVE 拒绝覆盖已有目标",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.initialMoveConcurrent": {
+      "source": "并发 MOVE 只能有一个创建成功",
+      "translation": "并发 MOVE 只能有一个创建成功",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.probeInitialMove": {
+      "source": "禁止覆盖的 MOVE 检查未通过，无法安全建立首次同步入口。测试仅操作随机临时文件，没有改写现有同步入口。",
+      "translation": "禁止覆盖的 MOVE 检查未通过，无法安全建立首次同步入口。测试仅操作随机临时文件，没有改写现有同步入口。",
+      "description": "WebDAV configuration test and initialization protection.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.configure.policyNutstore": {
+      "source": "坚果云兼容策略：首次创建使用禁止覆盖的 MOVE，允许经内容与并发检查确认的 409 冲突响应；后续更新使用 If-Match。跳过 If-None-Match 创建保护及独占 MKCOL 检查。",
+      "translation": "坚果云兼容策略：首次创建使用禁止覆盖的 MOVE，允许经内容与并发检查确认的 409 冲突响应；后续更新使用 If-Match。跳过 If-None-Match 创建保护及独占 MKCOL 检查。",
+      "description": "WebDAV provider compatibility policy and connection checks.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.configure.policyStandard": {
+      "source": "标准 WebDAV 策略：实测 If-None-Match 创建保护，不支持时依次检查独占 MKCOL、禁止覆盖的 MOVE；后续更新使用 If-Match。Nextcloud、ownCloud 和自定义服务均以实测结果为准。",
+      "translation": "标准 WebDAV 策略：实测 If-None-Match 创建保护，不支持时依次检查独占 MKCOL、禁止覆盖的 MOVE；后续更新使用 If-Match。Nextcloud、ownCloud 和自定义服务均以实测结果为准。",
+      "description": "WebDAV provider compatibility policy and connection checks.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.nutstoreCreateSkipped": {
+      "source": "坚果云策略：跳过 If-None-Match 创建保护，改用 MOVE",
+      "translation": "坚果云策略：跳过 If-None-Match 创建保护，改用 MOVE",
+      "description": "WebDAV provider compatibility policy and connection checks.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.nutstoreGateSkipped": {
+      "source": "坚果云策略：跳过独占 MKCOL 检查，改用 MOVE",
+      "translation": "坚果云策略：跳过独占 MKCOL 检查，改用 MOVE",
+      "description": "WebDAV provider compatibility policy and connection checks.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.probe.initialMoveCreate": {
+      "source": "MOVE 创建新目标并移除源文件",
+      "translation": "MOVE 创建新目标并移除源文件",
+      "description": "WebDAV provider compatibility policy and connection checks.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.probeInitialMoveCreate": {
+      "source": "MOVE 未能正确创建新目标并移除源文件，无法安全建立首次同步入口。此阶段的 409 不能当作“目标已存在”而放行。请检查目录权限或提供方的 MOVE 支持；测试未改写现有同步入口。",
+      "translation": "MOVE 未能正确创建新目标并移除源文件，无法安全建立首次同步入口。此阶段的 409 不能当作“目标已存在”而放行。请检查目录权限或提供方的 MOVE 支持；测试未改写现有同步入口。",
+      "description": "WebDAV provider compatibility policy and connection checks.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.status.previewPending": {
+      "source": "下方已有同步预览，请先确认应用或取消预览，再发起新的同步。",
+      "translation": "下方已有同步预览，请先确认应用或取消预览，再发起新的同步。",
+      "description": "Manual synchronization is paused while the user reviews an existing preview.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart"
+      ]
+    },
+    "diagnostics.log.newestFirst": {
+      "source": "最新日志在上",
+      "translation": "最新日志在上",
+      "description": "Newest-first diagnostics and explicit synchronization progress, result, or safe failure category.",
+      "placeholders": {},
+      "locations": [
+        "diagnostics_tab.dart"
+      ]
+    },
+    "sync.progress.working": {
+      "source": "正在处理同步操作…",
+      "translation": "正在处理同步操作…",
+      "description": "Newest-first diagnostics and explicit synchronization progress, result, or safe failure category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.progress.preparing": {
+      "source": "正在读取远端并生成同步预览…",
+      "translation": "正在读取远端并生成同步预览…",
+      "description": "Newest-first diagnostics and explicit synchronization progress, result, or safe failure category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.progress.applying": {
+      "source": "正在校验预览、创建本地备份并应用同步结果…",
+      "translation": "正在校验预览、创建本地备份并应用同步结果…",
+      "description": "Newest-first diagnostics and explicit synchronization progress, result, or safe failure category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.progress.uploading": {
+      "source": "正在上传并校验加密快照…",
+      "translation": "正在上传并校验加密快照…",
+      "description": "Newest-first diagnostics and explicit synchronization progress, result, or safe failure category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.progress.acknowledging": {
+      "source": "正在确认已发布的同步版本…",
+      "translation": "正在确认已发布的同步版本…",
+      "description": "Newest-first diagnostics and explicit synchronization progress, result, or safe failure category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.progress.cleanup": {
+      "source": "同步已完成，正在检查远端历史文件清理…",
+      "translation": "同步已完成，正在检查远端历史文件清理…",
+      "description": "Newest-first diagnostics and explicit synchronization progress, result, or safe failure category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.result.upToDate": {
+      "source": "同步检查完成，两端数据已一致，无需更新。",
+      "translation": "同步检查完成，两端数据已一致，无需更新。",
+      "description": "Newest-first diagnostics and explicit synchronization progress, result, or safe failure category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.result.completed": {
+      "source": "同步已完成，结果已确认。",
+      "translation": "同步已完成，结果已确认。",
+      "description": "Newest-first diagnostics and explicit synchronization progress, result, or safe failure category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.result.needsReview": {
+      "source": "同步预览已生成，请在下方检查并确认应用；存在冲突时需先选择保留版本。",
+      "translation": "同步预览已生成，请在下方检查并确认应用；存在冲突时需先选择保留版本。",
+      "description": "Newest-first diagnostics and explicit synchronization progress, result, or safe failure category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.errors.readLocal": {
+      "source": "读取本地同步数据或保险库配置失败，本次同步未完成。",
+      "translation": "读取本地同步数据或保险库配置失败，本次同步未完成。",
+      "description": "Newest-first diagnostics and explicit synchronization progress, result, or safe failure category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.errors.previewValidation": {
+      "source": "同步预览未通过数据校验，尚未应用本次结果。请检查关联记录及数据格式。",
+      "translation": "同步预览未通过数据校验，尚未应用本次结果。请检查关联记录及数据格式。",
+      "description": "Newest-first diagnostics and explicit synchronization progress, result, or safe failure category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.errors.archive": {
+      "source": "创建同步密文快照失败，本次结果尚未发布。已有本地备份会保留。",
+      "translation": "创建同步密文快照失败，本次结果尚未发布。已有本地备份会保留。",
+      "description": "Newest-first diagnostics and explicit synchronization progress, result, or safe failure category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.errors.applyLocal": {
+      "source": "保存本地同步结果失败，本次同步尚未确认完成。请重新检查同步状态。",
+      "translation": "保存本地同步结果失败，本次同步尚未确认完成。请重新检查同步状态。",
+      "description": "Newest-first diagnostics and explicit synchronization progress, result, or safe failure category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "diagnostics.log.legacyFile": {
+      "source": "旧版日志 · agent.log",
+      "translation": "旧版日志 · agent.log",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "diagnostics_tab.dart"
+      ]
+    },
+    "diagnostics.log.legacyPart": {
+      "source": "旧版日志 · 分卷 {part}",
+      "translation": "旧版日志 · 分卷 {part}",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {
+        "part": {
+          "description": "Keep {part} unchanged."
+        }
+      },
+      "locations": [
+        "diagnostics_tab.dart"
+      ]
+    },
+    "diagnostics.log.datePart": {
+      "source": "{date} · 分卷 {part}",
+      "translation": "{date} · 分卷 {part}",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {
+        "part": {
+          "description": "Keep {part} unchanged."
+        },
+        "date": {
+          "description": "Keep {date} unchanged."
+        }
+      },
+      "locations": [
+        "diagnostics_tab.dart"
+      ]
+    },
+    "diagnostics.log.dateFile": {
+      "source": "日志日期 / 分卷",
+      "translation": "日志日期 / 分卷",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "diagnostics_tab.dart"
+      ]
+    },
+    "diagnostics.log.today": {
+      "source": "今天",
+      "translation": "今天",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "diagnostics_tab.dart"
+      ]
+    },
+    "diagnostics.log.tailHint": {
+      "source": "显示所选文件的最近 400 条记录；完整日志保存在上方路径所指的文件中。",
+      "translation": "显示所选文件的最近 400 条记录；完整日志保存在上方路径所指的文件中。",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "diagnostics_tab.dart"
+      ]
+    },
+    "sync.diff.help": {
+      "source": "仅列出存在差异的记录，各侧标签表示同步后该侧的变化。密码、密钥、恢复码及备注正文不在此展示。本页冲突在表格下方选择，处理所有页面的冲突后才能应用。",
+      "translation": "仅列出存在差异的记录，各侧标签表示同步后该侧的变化。密码、密钥、恢复码及备注正文不在此展示。本页冲突在表格下方选择，处理所有页面的冲突后才能应用。",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.unavailable": {
+      "source": "当前预览没有逐条差异数据，请重新生成同步预览。",
+      "translation": "当前预览没有逐条差异数据，请重新生成同步预览。",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.noChanges": {
+      "source": "记录内容没有差异；保险库身份及接入策略仍以本次选择为准。",
+      "translation": "记录内容没有差异；保险库身份及接入策略仍以本次选择为准。",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.record": {
+      "source": "记录 / 变化字段",
+      "translation": "记录 / 变化字段",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.local": {
+      "source": "本地当前",
+      "translation": "本地当前",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.remote": {
+      "source": "远端当前",
+      "translation": "远端当前",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.result": {
+      "source": "预计同步结果",
+      "translation": "预计同步结果",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.pending": {
+      "source": "待选择保留版本",
+      "translation": "待选择保留版本",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.absent": {
+      "source": "不存在 / 已删除",
+      "translation": "不存在 / 已删除",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.trashed": {
+      "source": "位于回收站",
+      "translation": "位于回收站",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.conflict": {
+      "source": "冲突：请在下方选择",
+      "translation": "冲突：请在下方选择",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.resolved": {
+      "source": "已选择保留版本",
+      "translation": "已选择保留版本",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.action.added": {
+      "source": "同步后新增",
+      "translation": "同步后新增",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.action.deleted": {
+      "source": "同步后删除",
+      "translation": "同步后删除",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.action.modified": {
+      "source": "同步后修改",
+      "translation": "同步后修改",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.action.unchanged": {
+      "source": "同步后不变",
+      "translation": "同步后不变",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.action.pending": {
+      "source": "待决定",
+      "translation": "待决定",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.range": {
+      "source": "第 {start}～{end} 条，共 {total} 条差异",
+      "translation": "第 {start}～{end} 条，共 {total} 条差异",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {
+        "end": {
+          "description": "Keep {end} unchanged."
+        },
+        "start": {
+          "description": "Keep {start} unchanged."
+        },
+        "total": {
+          "description": "Keep {total} unchanged."
+        }
+      },
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.previous": {
+      "source": "上一页",
+      "translation": "上一页",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.next": {
+      "source": "下一页",
+      "translation": "下一页",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.errors.recordSchema": {
+      "source": "同步记录的字段结构或字段类型与当前数据库不一致，未应用本次结果。",
+      "translation": "同步记录的字段结构或字段类型与当前数据库不一致，未应用本次结果。",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.errors.recordConstraint": {
+      "source": "同步记录未通过数据库约束检查，可能存在重复记录、缺少必填值或无效引用，未应用本次结果。",
+      "translation": "同步记录未通过数据库约束检查，可能存在重复记录、缺少必填值或无效引用，未应用本次结果。",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.errors.invalidDetails": {
+      "source": "同步记录的资料格式无效，未应用本次结果。",
+      "translation": "同步记录的资料格式无效，未应用本次结果。",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.errors.invalidWebsiteRules": {
+      "source": "同步记录的网站匹配规则无效或规则 ID 重复，未应用本次结果。",
+      "translation": "同步记录的网站匹配规则无效或规则 ID 重复，未应用本次结果。",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.errors.invalidMfa": {
+      "source": "同步记录中的 MFA 种子或算法、位数、周期无效，未应用本次结果。",
+      "translation": "同步记录中的 MFA 种子或算法、位数、周期无效，未应用本次结果。",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.errors.invalidKey": {
+      "source": "同步记录中的 SSH 密钥或通行密钥格式无效，未应用本次结果。",
+      "translation": "同步记录中的 SSH 密钥或通行密钥格式无效，未应用本次结果。",
+      "description": "Historical log selection, safe synchronization differences, or validation error category.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.diff.unresolved": {
+      "source": "还有 {count} 项冲突待选择（包含其他页面）。",
+      "translation": "还有 {count} 项冲突待选择（包含其他页面）。",
+      "description": "Remaining unresolved conflicts across all preview pages.",
+      "placeholders": {
+        "count": {
+          "description": "Keep {count} unchanged."
+        }
+      },
+      "locations": [
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.fields.notes": {
+      "source": "备注正文（内容隐藏）",
+      "translation": "备注正文（内容隐藏）",
+      "description": "Non-sensitive field labels in synchronization differences.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.fields.customFields": {
+      "source": "自定义字段（内容隐藏）",
+      "translation": "自定义字段（内容隐藏）",
+      "description": "Non-sensitive field labels in synchronization differences.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.fields.relatedRecords": {
+      "source": "关联记录",
+      "translation": "关联记录",
+      "description": "Non-sensitive field labels in synchronization differences.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.fields.organization": {
+      "source": "标签 / 收藏 / 分类",
+      "translation": "标签 / 收藏 / 分类",
+      "description": "Non-sensitive field labels in synchronization differences.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.fields.policy": {
+      "source": "凭据策略",
+      "translation": "凭据策略",
+      "description": "Non-sensitive field labels in synchronization differences.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.fields.loginLink": {
+      "source": "关联登录账号",
+      "translation": "关联登录账号",
+      "description": "Non-sensitive field labels in synchronization differences.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.errors.invalidMfaSecret": {
+      "source": "同步记录的 MFA Base32 种子无法解码，未应用本次结果。请在 MFA 管理中核对相应记录。",
+      "translation": "同步记录的 MFA Base32 种子无法解码，未应用本次结果。请在 MFA 管理中核对相应记录。",
+      "description": "Specific MFA validation failure without including secret material.",
+      "placeholders": {},
+      "locations": [
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.errors.invalidMfaAlgorithm": {
+      "source": "同步记录的 MFA 算法不受支持，仅支持 SHA1、SHA256、SHA512，未应用本次结果。",
+      "translation": "同步记录的 MFA 算法不受支持，仅支持 SHA1、SHA256、SHA512，未应用本次结果。",
+      "description": "Specific MFA validation failure without including secret material.",
+      "placeholders": {},
+      "locations": [
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.errors.invalidMfaParameters": {
+      "source": "同步记录的 MFA 位数或周期无效：位数须为 6～8，周期须为 1～86400 秒，未应用本次结果。",
+      "translation": "同步记录的 MFA 位数或周期无效：位数须为 6～8，周期须为 1～86400 秒，未应用本次结果。",
+      "description": "Specific MFA validation failure without including secret material.",
+      "placeholders": {},
+      "locations": [
+        "sync.rs",
+        "ipc.rs"
+      ]
+    },
+    "sync.errors.dialogTitle": {
+      "source": "同步操作失败",
+      "translation": "同步操作失败",
+      "description": "Mandatory sync failure dialog and private record identification; identifiers are not logged.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.errors.acknowledge": {
+      "source": "知道了",
+      "translation": "知道了",
+      "description": "Mandatory sync failure dialog and private record identification; identifiers are not logged.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.errors.itemFailure": {
+      "source": "项目：{type} · {identifier}\n原因：{reason}",
+      "translation": "项目：{type} · {identifier}\n原因：{reason}",
+      "description": "Mandatory sync failure dialog and private record identification; identifiers are not logged.",
+      "placeholders": {
+        "reason": {
+          "description": "Keep {reason} unchanged."
+        },
+        "identifier": {
+          "description": "Keep {identifier} unchanged."
+        },
+        "type": {
+          "description": "Keep {type} unchanged."
+        }
+      },
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.errors.trashedItem": {
+      "source": "{identifier}（回收站）",
+      "translation": "{identifier}（回收站）",
+      "description": "Mandatory sync failure dialog and private record identification; identifiers are not logged.",
+      "placeholders": {
+        "identifier": {
+          "description": "Keep {identifier} unchanged."
+        }
+      },
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.itemType.login": {
+      "source": "登录密码",
+      "translation": "登录密码",
+      "description": "Mandatory sync failure dialog and private record identification; identifiers are not logged.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.itemType.mfa": {
+      "source": "MFA",
+      "translation": "MFA",
+      "description": "Mandatory sync failure dialog and private record identification; identifiers are not logged.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.itemType.ssh": {
+      "source": "SSH 凭据",
+      "translation": "SSH 凭据",
+      "description": "Mandatory sync failure dialog and private record identification; identifiers are not logged.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.itemType.server": {
+      "source": "服务器",
+      "translation": "服务器",
+      "description": "Mandatory sync failure dialog and private record identification; identifiers are not logged.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.itemType.recovery": {
+      "source": "恢复码",
+      "translation": "恢复码",
+      "description": "Mandatory sync failure dialog and private record identification; identifiers are not logged.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.itemType.note": {
+      "source": "安全笔记",
+      "translation": "安全笔记",
+      "description": "Mandatory sync failure dialog and private record identification; identifiers are not logged.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.itemType.passkey": {
+      "source": "通行密钥",
+      "translation": "通行密钥",
+      "description": "Mandatory sync failure dialog and private record identification; identifiers are not logged.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.itemType.group": {
+      "source": "分组",
+      "translation": "分组",
+      "description": "Mandatory sync failure dialog and private record identification; identifiers are not logged.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart"
+      ]
+    },
+    "sync.itemType.record": {
+      "source": "记录",
+      "translation": "记录",
+      "description": "Mandatory sync failure dialog and private record identification; identifiers are not logged.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart"
+      ]
+    },
+    "credentials.trash.title": {
+      "source": "回收站",
+      "translation": "回收站",
+      "description": "Credentials trash tab and restore or permanent deletion feedback.",
+      "placeholders": {},
+      "locations": [
+        "credentials_page.dart",
+        "vault_tools.dart"
+      ]
+    },
+    "credentials.trash.description": {
+      "source": "查看已删除的凭据，可恢复或永久删除。永久删除前会验证身份并保留本地恢复点；已有备份不受影响。",
+      "translation": "查看已删除的凭据，可恢复或永久删除。永久删除前会验证身份并保留本地恢复点；已有备份不受影响。",
+      "description": "Credentials trash tab and restore or permanent deletion feedback.",
+      "placeholders": {},
+      "locations": [
+        "vault_tools.dart"
+      ]
+    },
+    "credentials.trash.empty": {
+      "source": "回收站为空",
+      "translation": "回收站为空",
+      "description": "Credentials trash tab and restore or permanent deletion feedback.",
+      "placeholders": {},
+      "locations": [
+        "vault_tools.dart"
+      ]
+    },
+    "credentials.trash.restored": {
+      "source": "已恢复，可在对应凭据页面查看。",
+      "translation": "已恢复，可在对应凭据页面查看。",
+      "description": "Credentials trash tab and restore or permanent deletion feedback.",
+      "placeholders": {},
+      "locations": [
+        "vault_tools.dart"
+      ]
+    },
+    "credentials.trash.purged": {
+      "source": "已从当前库永久删除。",
+      "translation": "已从当前库永久删除。",
+      "description": "Credentials trash tab and restore or permanent deletion feedback.",
+      "placeholders": {},
+      "locations": [
+        "vault_tools.dart"
+      ]
+    },
+    "credentials.trash.other": {
+      "source": "凭据",
+      "translation": "凭据",
+      "description": "Credentials trash tab and restore or permanent deletion feedback.",
+      "placeholders": {},
+      "locations": [
+        "vault_tools.dart"
       ]
     }
   }

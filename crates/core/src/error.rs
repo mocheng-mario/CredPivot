@@ -14,6 +14,13 @@ pub enum CoreError {
     BadSecret,
     #[error("revision conflict")]
     Conflict,
+    /// 仅含白名单记录标识；错误的显示文案不自动展开名称、账号等私有元数据。
+    #[error("record validation failed: {source}")]
+    RecordValidation {
+        record: serde_json::Value,
+        #[source]
+        source: Box<CoreError>,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;

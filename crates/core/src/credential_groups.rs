@@ -46,8 +46,8 @@ pub fn create_credential_group(conn: &Connection, scope: &str, name: &str) -> Re
         )
         .unwrap_or(0);
     conn.execute(
-        "INSERT INTO credential_groups (id, name, scope, sort_order, created_at_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO credential_groups (id, name, scope, sort_order, created_at_ms, updated_at_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
         params![id, name.trim(), scope, sort, ts],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;

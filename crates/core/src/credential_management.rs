@@ -198,7 +198,7 @@ fn parse<T: serde::de::DeserializeOwned>(s: &str) -> Result<T> {
 fn encode(value: &impl Serialize) -> Result<String> {
     serde_json::to_string(value).map_err(|_| CoreError::format("数据无法序列化"))
 }
-fn rows(conn: &Connection, sql: &str, args: impl rusqlite::Params) -> Result<Vec<Value>> {
+pub(crate) fn rows(conn: &Connection, sql: &str, args: impl rusqlite::Params) -> Result<Vec<Value>> {
     let mut stmt = conn.prepare(sql)?;
     let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
     let mut cursor = stmt.query(args)?;
@@ -666,7 +666,10 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
         }
         TrashList => {
             changed = false;
-            json!({"items":rows(&tx,"SELECT id,kind,title,current_revision,trashed_at_ms FROM items WHERE trashed=1 ORDER BY trashed_at_ms DESC",[]) ?})
+            json!({"items":rows(&tx,"SELECT i.id,i.kind,i.title,i.current_revision,i.trashed_at_ms,
+                COALESCE((SELECT account FROM totp_credentials WHERE item_id=i.id LIMIT 1),
+                    (SELECT username FROM login_credentials WHERE item_id=i.id LIMIT 1),'') AS account
+                FROM items i WHERE i.trashed=1 ORDER BY i.trashed_at_ms DESC",[]) ?})
         }
         TrashRestore {
             item_id,

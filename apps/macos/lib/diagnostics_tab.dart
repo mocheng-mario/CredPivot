@@ -22,8 +22,13 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
   static const _logLevels = ['debug', 'info', 'warn', 'error'];
   String _logText = '';
   String _logPath = '';
+  String? _selectedLog;
+  String _activeLog = '';
+  List<String> _logFiles = [];
+  bool _logNewestFirst = false;
   String _logLevel = 'info';
   String _recordLevel = 'info';
+  final _logScroll = ScrollController();
   bool _loading = false;
   bool _repairing = false;
   bool get _busy => widget.busy || _loading || _repairing;
@@ -31,7 +36,7 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
 
   String get _filteredLogText {
     final minimumLevel = _logLevels.indexOf(_logLevel);
-    return _logText.split('\n').where((line) {
+    final lines = _logText.split('\n').where((line) {
       if (line.isEmpty) return false;
       // Agent 的事件格式为「时间\t级别\t来源\t事件」，按级别列过滤，避免误判事件文案。
       final fields = line.split('\t');
@@ -39,7 +44,21 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
       final level = _logLevels.indexOf(fields[1].toLowerCase());
       // 读取失败、暂无日志等状态提示不属于事件，仍需展示。
       return level < 0 || level >= minimumLevel;
-    }).join('\n');
+    }).toList();
+    // 新接口已倒序；旧接口未标明顺序时仅在界面反转一次，避免两层反转回正序。
+    return (_logNewestFirst ? lines : lines.reversed).join('\n');
+  }
+
+  void _showNewestLog() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _logScroll.hasClients) _logScroll.jumpTo(0);
+    });
+  }
+
+  @override
+  void dispose() {
+    _logScroll.dispose();
+    super.dispose();
   }
 
   @override
@@ -93,10 +112,13 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
     if (!mounted) return;
     setState(() => _loading = true);
     try {
-      final data = await AgentBridge.fetchDiagnosticLog();
+      final data = await AgentBridge.fetchDiagnosticLog(file: _selectedLog);
       if (!mounted) return;
       setState(() {
         _logPath = data['path']?.toString() ?? '';
+        _activeLog = data['file']?.toString() ?? '';
+        _logFiles = (data['files'] as List? ?? []).whereType<String>().toList();
+        _logNewestFirst = data['order'] == 'newest_first';
         final level = data['level'];
         if (_logLevels.contains(level)) {
           _recordLevel = level as String;
@@ -107,15 +129,33 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
         }
       });
     } catch (_) {
-      if (mounted) setState(() => _logText = tr('diagnostics.refresh.text.item2'));
+      if (mounted) setState(() {
+        if (_selectedLog != null) _activeLog = _selectedLog!;
+        _logPath = '';
+        _logText = tr('diagnostics.refresh.text.item2');
+      });
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+        _showNewestLog();
+      }
     }
+  }
+
+  String _logFileLabel(String file) {
+    if (file == 'agent.log') return tr('diagnostics.log.legacyFile');
+    if (file.startsWith('agent.log.')) {
+      return tr('diagnostics.log.legacyPart', args: {'part': file.substring(10)});
+    }
+    final parts = file.substring(6).split('.log');
+    return parts.length > 1 && parts[1].startsWith('.')
+        ? tr('diagnostics.log.datePart', args: {'date': parts[0], 'part': parts[1].substring(1)})
+        : parts[0];
   }
 
   @override
   Widget build(BuildContext context) {
-    final path = _logPath.isEmpty ? '~/.credpivot/logs/agent.log' : _logPath;
+    final path = _logPath.isEmpty ? '~/.credpivot/logs/' : _logPath;
     final filteredLogText = _filteredLogText;
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 6, 24, 24),
@@ -193,6 +233,33 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                     runSpacing: 8,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
+                      SizedBox(
+                        width: 250,
+                        child: DropdownButtonFormField<String>(
+                          key: ValueKey(_activeLog),
+                          initialValue: _logFiles.contains(_activeLog) ? _activeLog : null,
+                          isExpanded: true,
+                          dropdownColor: AppColors.surface,
+                          style: TextStyle(color: AppColors.ink, fontSize: 12),
+                          decoration: InputDecoration(labelText: tr('diagnostics.log.dateFile')),
+                          items: _logFiles.map((file) => DropdownMenuItem(
+                            value: file,
+                            child: Text(_logFileLabel(file), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          )).toList(),
+                          onChanged: _busy ? null : (file) {
+                            if (file == null) return;
+                            _selectedLog = file;
+                            _refresh();
+                          },
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _busy ? null : () {
+                          _selectedLog = null;
+                          _refresh();
+                        },
+                        child: const LText('diagnostics.log.today'),
+                      ),
                       Row(mainAxisSize: MainAxisSize.min, children: [
                         Icon(Icons.filter_list_rounded,
                             size: 18, color: AppColors.muted),
@@ -213,7 +280,10 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                                   value: level, child: Text(level.toUpperCase())))
                               .toList(),
                           onChanged: _busy ? null : (level) {
-                            if (level != null) setState(() => _logLevel = level);
+                            if (level != null) {
+                              setState(() => _logLevel = level);
+                              _showNewestLog();
+                            }
                           },
                         )),
                         const SizedBox(width: 8),
@@ -228,6 +298,8 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                           child: LText('diagnostics.log.recordLevel', args: {'level': _recordLevel.toUpperCase()})),
                     ]),
               )),
+              const SizedBox(height: 8),
+              LText('diagnostics.log.tailHint', style: TextStyle(color: AppColors.muted, fontSize: 12)),
               const SizedBox(height: 16),
               SizedBox(
                   height: 360,
@@ -256,6 +328,9 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                                       fontFamily: 'monospace',
                                       fontSize: 11,
                                       color: Color(0xFFB7C1D8))))),
+                      const SizedBox(width: 10),
+                      const LText('diagnostics.log.newestFirst',
+                          style: TextStyle(fontSize: 11, color: Color(0xFFB7C1D8))),
                     ]),
                   ),
                   if (_busy)
@@ -264,6 +339,7 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                     const SizedBox(height: 2),
                   Expanded(
                       child: SingleChildScrollView(
+                    controller: _logScroll,
                     padding: const EdgeInsets.all(16),
                     child: SelectableText(
                         _logText.isEmpty

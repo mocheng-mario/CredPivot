@@ -9,6 +9,22 @@ pub const MIN_COMPATIBLE_PROTOCOL: u32 = 2;
 pub enum AgentRequest {
     Ping,
     Status,
+    SyncStatus,
+    SyncControlAuthorize,
+    SyncCancel,
+    SyncPrepare {
+        location: String,
+        #[serde(default)] head: Option<credpivot_core::sync::Head>,
+        #[serde(default)] remote_ovb: Option<String>,
+        #[serde(default)] strategy: Option<String>,
+        #[serde(default)] remote_password: String,
+    },
+    SyncResolve { plan_id: String, decisions: std::collections::BTreeMap<String,String> },
+    SyncPreviewPage { plan_id: String, offset: usize, limit: usize },
+    SyncApply { plan_id: String },
+    SyncPublishAuthorize { location: String, head: credpivot_core::sync::Head },
+    SyncAcknowledge { location: String, head: credpivot_core::sync::Head },
+    SyncDisconnect,
     SshAuthorizationsPending,
     SshAuthorizationResolve { request_id: String, approved: bool },
     AppSettingsGet,
@@ -237,6 +253,8 @@ pub enum AgentRequest {
     DiagnosticLogTail {
         #[serde(default = "default_log_tail_lines")]
         max_lines: usize,
+        #[serde(default)]
+        file: Option<String>,
     },
     DiagnosticLogSetLevel { level: crate::diagnostics::LogLevel },
 }
@@ -247,6 +265,16 @@ impl AgentRequest {
         match self {
             Self::Ping => "ping",
             Self::Status => "status",
+            Self::SyncStatus => "sync_status",
+            Self::SyncControlAuthorize => "sync_control_authorize",
+            Self::SyncCancel => "sync_cancel",
+            Self::SyncPrepare { .. } => "sync_prepare",
+            Self::SyncResolve { .. } => "sync_resolve",
+            Self::SyncPreviewPage { .. } => "sync_preview_page",
+            Self::SyncApply { .. } => "sync_apply",
+            Self::SyncPublishAuthorize { .. } => "sync_publish_authorize",
+            Self::SyncAcknowledge { .. } => "sync_acknowledge",
+            Self::SyncDisconnect => "sync_disconnect",
             Self::SshAuthorizationsPending => "ssh_authorizations_pending",
             Self::SshAuthorizationResolve { .. } => "ssh_authorization_resolve",
             Self::AppSettingsGet => "app_settings_get",
@@ -344,6 +372,8 @@ pub enum AgentResponse {
         protocol_version: u32,
         code: String,
         message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<Value>,
     },
 }
 
@@ -361,6 +391,13 @@ impl AgentResponse {
             protocol_version: PROTOCOL_VERSION,
             code: code.into(),
             message,
+            details: None,
+        }
+    }
+
+    pub fn err_with_details(code: &str, message: impl Into<String>, details: Value) -> Self {
+        Self::Err {
+            protocol_version: PROTOCOL_VERSION, code: code.into(), message: message.into(), details: Some(details),
         }
     }
 }

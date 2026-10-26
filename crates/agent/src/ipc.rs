@@ -257,12 +257,13 @@ pub async fn handle_request(
             | "ssh_session_prepare" | "vault_change_password" | "vault_export_ovb"
             | "vault_recover_ovb" | "vault_open_dir" | "restore_point_recover"
             | "vault_migrate" | "vault_security_rebuild" | "recovery_codes_create"
-            | "recovery_codes_update" | "server_profile_create" | "server_profile_update" => {
+            | "recovery_codes_update" | "server_profile_create" | "server_profile_update"
+            | "sync_apply" => {
                 crate::diagnostics::info(operation, "operation completed");
             }
             _ => crate::diagnostics::debug(operation, "request completed"),
         },
-        AgentResponse::Err { code, .. } => {
+        AgentResponse::Err { code, message, .. } => {
             // 错误正文可能含用户输入或本地路径，只记录固定分类。
             match code.as_str() {
                 "locked" => crate::diagnostics::warn(operation, "request rejected: vault locked"),
@@ -278,6 +279,33 @@ pub async fn handle_request(
                 }
                 "origin_mismatch" | "frame_mismatch" => {
                     crate::diagnostics::warn(operation, "fill context mismatch");
+                }
+                "sync_error" => {
+                    // 只展开固定错误键，不能把任意异常正文写入日志。
+                    let event = match message.as_str() {
+                        "sync.errors.localChanged" => "sync preview invalidated by local changes",
+                        "sync.errors.previewExpired" => "sync preview missing or expired",
+                        "sync.errors.previewValidation" => "sync preview validation failed",
+                        "sync.errors.recordSchema" => "sync record schema or value type invalid",
+                        "sync.errors.recordConstraint" => "sync record database constraint failed",
+                        "sync.errors.invalidDetails" => "sync record details format invalid",
+                        "sync.errors.invalidWebsiteRules" => "sync website matching rules invalid",
+                        "sync.errors.invalidMfa" => "sync MFA secret or parameters invalid",
+                        "sync.errors.invalidMfaSecret" => "sync MFA Base32 secret invalid",
+                        "sync.errors.invalidMfaAlgorithm" => "sync MFA algorithm unsupported",
+                        "sync.errors.invalidMfaParameters" => "sync MFA digits or period invalid",
+                        "sync.errors.invalidKey" => "sync SSH or passkey material invalid",
+                        "sync.errors.unresolved" => "sync conflicts unresolved",
+                        "sync.errors.relatedCredential" => "sync related credential conflict",
+                        "sync.errors.relatedMfa" => "sync related MFA conflict",
+                        "sync.errors.relatedGroup" => "sync related group conflict",
+                        "sync.errors.readLocal" => "sync local data read failed",
+                        "sync.errors.backup" => "sync local backup failed",
+                        "sync.errors.archive" => "sync encrypted snapshot creation failed",
+                        "sync.errors.applyLocal" => "sync local result commit failed",
+                        _ => "sync request failed",
+                    };
+                    crate::diagnostics::error(operation, event);
                 }
                 _ => crate::diagnostics::error(operation, "request failed"),
             }
@@ -298,6 +326,9 @@ async fn handle_request_inner(
         | AgentRequest::UnlockLocal { .. } | AgentRequest::VerifyMasterPassword { .. }
         | AgentRequest::SensitiveAuthGrant | AgentRequest::ExtensionGateGrant { .. }
         | AgentRequest::AppSettingsGet | AgentRequest::AppSettingsBackup | AgentRequest::AppSettingsSet { .. }
+        | AgentRequest::SyncStatus | AgentRequest::SyncControlAuthorize | AgentRequest::SyncCancel | AgentRequest::SyncPrepare { .. } | AgentRequest::SyncResolve { .. }
+        | AgentRequest::SyncPreviewPage { .. }
+        | AgentRequest::SyncApply { .. } | AgentRequest::SyncPublishAuthorize { .. } | AgentRequest::SyncAcknowledge { .. } | AgentRequest::SyncDisconnect
         | AgentRequest::VaultManage { .. }
         | AgentRequest::SshAuthorizationsPending | AgentRequest::SshAuthorizationResolve { .. }
         | AgentRequest::PasskeyRequestsPending | AgentRequest::PasskeyResolve { .. } | AgentRequest::PasskeyList
@@ -350,6 +381,29 @@ async fn handle_request_inner(
         if !v.authorize_sensitive_operation() { return AgentResponse::err("auth_required", "identity verification required"); }
     }
     let resp = match req {
+        request @ (AgentRequest::SyncStatus | AgentRequest::SyncControlAuthorize | AgentRequest::SyncCancel | AgentRequest::SyncPrepare { .. } | AgentRequest::SyncResolve { .. }
+            | AgentRequest::SyncPreviewPage { .. }
+            | AgentRequest::SyncApply { .. } | AgentRequest::SyncPublishAuthorize { .. } | AgentRequest::SyncAcknowledge { .. } | AgentRequest::SyncDisconnect) => {
+            let applies=matches!(&request,AgentRequest::SyncApply { .. });
+            let mut vault=st.vault.lock().await;
+            let result=crate::sync::handle(&mut vault,request);
+            let locked = !vault.unlocked;
+            drop(vault);
+            // 切换后的会话刷新失败会锁定；错误响应也必须清除切换前的浏览器/SSH 授权。
+            if applies && (locked || result.as_ref().is_ok_and(|p|p["changed"]==true)) {
+                st.pending_fills.clear(); st.pending_ssh_sessions.clear();
+                if locked || result.as_ref().is_ok_and(|p|p["vault_switched"]==true) { revoke_extension_gate(st); }
+            }
+            match result {
+                Ok(payload)=>AgentResponse::ok(payload),
+                Err(AgentError::Locked)=>AgentResponse::err("locked","vault locked"),
+                Err(AgentError::Protocol(message)) if message=="auth_required"=>AgentResponse::err("auth_required","identity verification required"),
+                Err(AgentError::Vault(message))=>AgentResponse::err("sync_error",message),
+                Err(AgentError::SyncRecord { message, record }) =>
+                    AgentResponse::err_with_details("sync_error", message, json!({"record":record})),
+                Err(_)=>AgentResponse::err("sync_error","sync.errors.operation"),
+            }
+        }
         AgentRequest::BrowserRequest { .. } => AgentResponse::err("forbidden", "nested browser request"),
         AgentRequest::Ping => AgentResponse::ok(json!({ "pong": true })),
         AgentRequest::PasskeyList => {
@@ -1397,14 +1451,17 @@ async fn handle_request_inner(
                 }
             }
         }
-        AgentRequest::DiagnosticLogTail { max_lines } => {
+        AgentRequest::DiagnosticLogTail { max_lines, file } => {
             let lines = max_lines.clamp(1, 2000);
-            let text = crate::diagnostics::tail_lines(lines);
-            AgentResponse::ok(json!({
-                "path": crate::diagnostics::log_file_path().to_string_lossy(),
-                "text": text,
-                "level": crate::diagnostics::level(),
-            }))
+            match crate::diagnostics::read_log(file.as_deref(), lines) {
+                Ok((path, text, files)) => AgentResponse::ok(json!({
+                    "file": path.file_name().and_then(|v| v.to_str()),
+                    "path": path.to_string_lossy(), "files": files,
+                    "text": text, "order": "newest_first",
+                    "level": crate::diagnostics::level(),
+                })),
+                Err(_) => AgentResponse::err("diagnostics", "log file unavailable"),
+            }
         }
         AgentRequest::DiagnosticLogSetLevel { level } => {
             match crate::diagnostics::set_level(level) {

@@ -21,6 +21,7 @@ mod password_change;
 pub mod passkey;
 mod recovery_key;
 mod snapshot;
+pub mod sync;
 mod vault_db;
 mod vault_init;
 mod vault_pipeline;

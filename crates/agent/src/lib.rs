@@ -13,6 +13,7 @@ mod single_writer;
 mod ssh_agent;
 mod ssh_session;
 mod vault_session;
+mod sync;
 
 pub use client::{call_agent, call_in_process};
 pub use diagnostics::{init as init_diagnostics, log_file_path, tail_lines as diagnostic_log_tail};

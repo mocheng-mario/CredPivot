@@ -32,6 +32,11 @@ pub fn pack_snapshot_from_dir(vault_dir: &Path, vmk: &Zeroizing<[u8; 32]>) -> Re
 }
 
 pub fn unpack_snapshot_to_dir(snapshot: &[u8], vault_dir: &Path, vmk: &Zeroizing<[u8; 32]>) -> Result<()> {
+    let format: serde_json::Value = serde_json::from_slice(snapshot)
+        .map_err(|_| CoreError::format("snapshot format"))?;
+    if format["format"] == "credpivot-sync" {
+        return crate::sync::unpack_sync_snapshot(snapshot, vault_dir, vmk);
+    }
     let snap: M1Snapshot =
         serde_json::from_slice(snapshot).map_err(|e| CoreError::format(e.to_string()))?;
     if snap.format != SNAPSHOT_FORMAT || snap.version != SNAPSHOT_VERSION {
@@ -45,6 +50,8 @@ pub fn unpack_snapshot_to_dir(snapshot: &[u8], vault_dir: &Path, vmk: &Zeroizing
             .decode(b64)
             .map_err(|_| CoreError::format("database b64"))?;
         local_db::import_database_bytes(vault_dir, &**vmk, &bytes)?;
+        let conn = local_db::open_database(vault_dir, vmk)?;
+        crate::sync::disconnect(&conn)?;
     }
     Ok(())
 }
