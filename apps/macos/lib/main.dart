@@ -69,6 +69,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
   final _password = TextEditingController();
   final _passwordFocus = FocusNode();
   final _newPassword = TextEditingController();
+  final _syncHostName = TextEditingController();
   final _recoveryKey = TextEditingController();
   // 备份可能来自其他保险库，恢复密码不与当前主密码共用输入状态。
   final _recoveryPassword = TextEditingController();
@@ -150,6 +151,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
       } else if (agentUnlocked && _lastVaultLockGen != 0 && gen != _lastVaultLockGen) {
         notifyVaultLocked();
       } else if (_status['master_password_required'] != payload['master_password_required'] ||
+          _status['sync_host_name'] != payload['sync_host_name'] ||
           _status['vault_path'] != payload['vault_path'] ||
           _vaultExists != (payload['vault_exists'] == true)) {
         await _refreshStatus();
@@ -192,6 +194,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
     _password.dispose();
     _passwordFocus.dispose();
     _newPassword.dispose();
+    _syncHostName.dispose();
     _recoveryKey.dispose();
     _recoveryPassword.dispose();
     _chromeExtensionId.dispose();
@@ -388,6 +391,14 @@ class _VaultHomePageState extends State<VaultHomePage> {
     if (!await _guardAgent(tr('vault.createVault.text.item2'))) return;
     await _run(tr('vault.createVault.text.item2'), () async {
       final recovery = await AgentBridge.vaultCreate(pw);
+      Object? hostNameError;
+      try {
+        await AgentBridge.setSyncHostName(_syncHostName.text.trim());
+        _syncHostName.clear();
+      } catch (e) {
+        // 名称写入失败不能跳过恢复密钥提示；展示密钥后再报告此错误。
+        hostNameError = e;
+      }
       await _refreshStatus();
       if (!mounted) return;
       await showDialog<void>(
@@ -409,6 +420,39 @@ class _VaultHomePageState extends State<VaultHomePage> {
           ],
         ),
       );
+      if (hostNameError != null) throw hostNameError;
+    });
+  }
+
+  Future<void> _editSyncHostName() async {
+    final original = _status['sync_host_name_override']?.toString() ?? '';
+    var name = original;
+    final value = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(
+      title: const LText('vault.syncHost.title'),
+      content: SizedBox(width: appEditDialogWidth(ctx), child: TextFormField(
+        initialValue: original,
+        autofocus: true,
+        maxLength: 128,
+        decoration: InputDecoration(
+          labelText: tr('vault.syncHost.label'),
+          hintText: _status['computer_name']?.toString(),
+          helperText: tr('vault.syncHost.help'), helperMaxLines: 3),
+        onChanged: (text) => name = text,
+        onFieldSubmitted: (text) => Navigator.pop(ctx, text),
+      )),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.cancel')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, name), child: const LText('common.save')),
+      ],
+    ));
+    if (value == null || !mounted) return;
+    await _run(tr('vault.syncHost.title'), () async {
+      await AgentBridge.setSyncHostName(value.trim());
+      await _refreshStatus();
+      // 同步页可能已打开；只刷新本地状态，不触发网络同步。
+      await WebDavSync.instance.refresh();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: LText('vault.syncHost.saved')));
     });
   }
 
@@ -850,6 +894,17 @@ class _VaultHomePageState extends State<VaultHomePage> {
                     AppNotice(_status['local_unlock_notice'].toString()),
                   const SizedBox(height: 22),
                   if (!_unlocked) ...[
+                    if (!_vaultExists) ...[
+                      TextField(
+                        controller: _syncHostName,
+                        maxLength: 128,
+                        decoration: InputDecoration(
+                          labelText: tr('vault.syncHost.label'),
+                          helperText: tr('vault.syncHost.help'), helperMaxLines: 3,
+                          prefixIcon: const Icon(Icons.computer_outlined)),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
                     TextField(
                       controller: _password,
                       obscureText: true,
@@ -889,6 +944,16 @@ class _VaultHomePageState extends State<VaultHomePage> {
                           child: const LText('vault.vaultOverview.text.item9')),
                     ]),
                   ] else ...[
+                    Row(children: [
+                      const Icon(Icons.computer_outlined, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(child: LText('sync.host.local', args: {
+                        'name': _status['sync_host_name'] ?? ''})),
+                      TextButton.icon(onPressed: _busy ? null : _editSyncHostName,
+                          icon: const Icon(Icons.edit_outlined, size: 16),
+                          label: const LText('common.edit')),
+                    ]),
+                    const SizedBox(height: 14),
                     Wrap(spacing: 10, runSpacing: 10, children: [
                       FilledButton.icon(
                           onPressed: () => _selectPage(1),

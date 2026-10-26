@@ -221,7 +221,7 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
   private var writeCapabilities: (location: String, policy: WebDAVProviderPolicy, createOnly: Bool, initialCreation: String)?
   private var cleanupLocation = ""
   private var cleanupDue = Date.distantPast
-  private var cleanupReferences: [String: (etag: String, snapshot: String)] = [:]
+  private var cleanupReferences: [String: HistoryReference] = [:]
   private var cleanupDeleteVerified = false
   private var cleanupRequests = 0
 
@@ -297,6 +297,11 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
     guard let interval = args["interval_seconds"] as? Int, (60...3600).contains(interval) else {
       throw WebDAVFailure("sync.errors.interval")
     }
+    let dailyHistoryCount: Int
+    if let value = args["daily_history_count"] {
+      guard let count = value as? Int, (3...99).contains(count) else { throw WebDAVFailure("sync.errors.dailyHistoryCount") }
+      dailyHistoryCount = count
+    } else { dailyHistoryCount = 5 }
     parts.scheme = "https"; parts.host = host.lowercased()
     if !parts.percentEncodedPath.hasSuffix("/") { parts.percentEncodedPath += "/" }
     guard let server = parts.url?.absoluteString, server.utf8.count <= 4096 else { throw WebDAVFailure("sync.errors.address") }
@@ -318,7 +323,8 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
     let identity = try JSONSerialization.data(withJSONObject:[root,username], options:[.sortedKeys])
     return ["root":root,"username":username,"location":hash(identity),
             "provider":provider,"server_url":server,"directory":relative,
-            "automatic":args["automatic"] as? Bool ?? true,"interval_seconds":interval]
+            "automatic":args["automatic"] as? Bool ?? true,"interval_seconds":interval,
+            "daily_history_count":dailyHistoryCount]
   }
   private func saveSettings(_ value: Any) throws {
     guard let payload = LocalVaultUnlock.request(["type":"app_settings_get"]),
@@ -338,13 +344,15 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
       }
     }
   }
-  private func authorizePublish(_ config: [String: Any]) throws {
-    guard let head = config["_publish_head"] as? [String: Any] else { return }
+  @discardableResult private func authorizePublish(_ config: [String: Any]) throws -> Bool {
+    guard let head = config["_publish_head"] as? [String: Any] else { return false }
     let body = try JSONSerialization.data(withJSONObject:["type":"sync_publish_authorize","location":config["location"] ?? "","head":head])
     guard let text = String(data:body,encoding:.utf8),
           let data = credpivotAgentRequestJsonString(text).data(using:.utf8),
           let response = try JSONSerialization.jsonObject(with:data) as? [String:Any] else { throw WebDAVFailure("sync.errors.operation") }
-    if response["type"] as? String == "ok" { return }
+    if response["type"] as? String == "ok" {
+      return (response["payload"] as? [String: Any])?["preserve_previous"] as? Bool ?? false
+    }
     if response["code"] as? String == "locked" { throw WebDAVFailure("sync.errors.locked") }
     let key = response["message"] as? String ?? ""
     guard ["sync.errors.localControlChanged","sync.errors.localChanged"].contains(key) else { throw WebDAVFailure("sync.errors.operation") }
@@ -695,16 +703,22 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
     return path
   }
   private func read(_ config: [String: Any], knownETag: String?) async throws -> [String: Any] {
-    let reply = try await request(config,"head.json",headers:knownETag.map { ["If-None-Match":$0] } ?? [:],limit:64 * 1024)
-    if reply.response.statusCode == 304 { return ["not_modified":true,"location":config["location"] ?? ""] }
-    if reply.response.statusCode == 404 { return ["empty":true,"location":config["location"] ?? ""] }
-    guard reply.response.statusCode == 200,
-          let head = try JSONSerialization.jsonObject(with:reply.data) as? [String: Any] else { throw WebDAVFailure("sync.errors.format") }
-    let tag = try etag(reply), path = try validSnapshot(head)
-    let snapshot = try await request(config,path,limit:maxSnapshot)
-    guard snapshot.response.statusCode == 200, let expected = head["sha256"] as? String,
-          hash(snapshot.data) == expected else { throw WebDAVFailure("sync.errors.integrity") }
-    return ["head":head,"etag":tag,"remote_ovb":snapshot.data.base64EncodedString(),"location":config["location"] ?? ""]
+    for attempt in 0..<3 {
+      let headers = attempt == 0 ? knownETag.map { ["If-None-Match":$0] } ?? [:] : [:]
+      let reply = try await request(config,"head.json",headers:headers,limit:64 * 1024)
+      if reply.response.statusCode == 304 { return ["not_modified":true,"location":config["location"] ?? ""] }
+      if reply.response.statusCode == 404 { return ["empty":true,"location":config["location"] ?? ""] }
+      guard reply.response.statusCode == 200,
+            let head = try JSONSerialization.jsonObject(with:reply.data) as? [String: Any] else { throw WebDAVFailure("sync.errors.format") }
+      let tag = try etag(reply), path = try validSnapshot(head)
+      let snapshot = try await request(config,path,limit:maxSnapshot)
+      // 刚读到的旧入口可能已被另一台设备替换并清理；重新读取入口，不能继续使用旧缓存。
+      if snapshot.response.statusCode == 404, attempt < 2 { continue }
+      guard snapshot.response.statusCode == 200, let expected = head["sha256"] as? String,
+            hash(snapshot.data) == expected else { throw WebDAVFailure("sync.errors.integrity") }
+      return ["head":head,"etag":tag,"remote_ovb":snapshot.data.base64EncodedString(),"location":config["location"] ?? ""]
+    }
+    throw WebDAVFailure("sync.errors.remoteChanged")
   }
   private func uploadUnique(_ config: [String: Any], path: String, data: Data, limit: Int, createOnly: Bool) async throws {
     // 快照和历史入口都有 UUID，永不更新已有内容。兼容模式先检查重试遗留文件，再上传并逐字校验。
@@ -791,7 +805,7 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
     let path = try validSnapshot(head)
     var publishing = config
     publishing["_publish_head"] = head
-    try authorizePublish(publishing)
+    let preservePrevious = try authorizePublish(publishing)
     let policy = WebDAVProviderPolicy(config)
     if writeCapabilities?.location != config["location"] as? String || writeCapabilities?.policy != policy { try await probe(config) }
     guard let capabilities = writeCapabilities, capabilities.location == config["location"] as? String, capabilities.policy == policy else {
@@ -810,7 +824,14 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
             old["revision"] as? String == head["parent"] as? String else { throw WebDAVFailure("sync.errors.remoteChanged") }
       backup = try validSnapshot(old)
       let backupPath = "backups/head_\(Int64(Date().timeIntervalSince1970 * 1000))_\(UUID().uuidString).json"
-      try await uploadUnique(publishing,path:backupPath,data:prior.data,limit:64 * 1024,createOnly:capabilities.createOnly)
+      var history: [String: Any] = ["format":"credpivot-history","version":1,"head":old,
+                                    "important":preservePrevious,"retired":false]
+      // 日期属于被归档的版本，不是本次创建历史入口的时间；各设备统一按 UTC 分桶。
+      if let published = httpDate(prior.response.value(forHTTPHeaderField:"Last-Modified")) {
+        history["published_at_ms"] = published.timeIntervalSince1970 * 1000
+      }
+      let historyData = try JSONSerialization.data(withJSONObject:history,options:[.sortedKeys])
+      try await uploadUnique(publishing,path:backupPath,data:historyData,limit:64 * 1024,createOnly:capabilities.createOnly)
       condition = ["If-Match":tag]
     } else {
       guard prior.response.statusCode == 404 else { throw WebDAVFailure("sync.errors.remoteChanged") }
@@ -823,6 +844,36 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
     let path: String
     let etag: String
     let modified: Date
+  }
+  private struct HistoryReference {
+    let etag: String
+    let snapshot: String
+    let head: [String: Any]
+    let published: Date?
+    let important: Bool
+    let retired: Bool
+  }
+  private func historyReference(_ data: Data, tag: String) throws -> HistoryReference {
+    guard let object = try JSONSerialization.jsonObject(with:data) as? [String: Any] else {
+      throw WebDAVFailure("sync.cleanup.incomplete")
+    }
+    var head = object
+    var published: Date? = nil
+    var important = false, retired = false
+    if object["format"] as? String == "credpivot-history" {
+      guard object["version"] as? Int == 1, let storedHead = object["head"] as? [String: Any],
+            let storedImportant = object["important"] as? Bool,
+            let storedRetired = object["retired"] as? Bool else { throw WebDAVFailure("sync.cleanup.incomplete") }
+      head = storedHead; important = storedImportant; retired = storedRetired
+      if let value = object["published_at_ms"] {
+        guard let milliseconds = value as? Double, milliseconds.isFinite,
+              milliseconds > 0, milliseconds <= 253402300799000 else { throw WebDAVFailure("sync.cleanup.incomplete") }
+        published = Date(timeIntervalSince1970:milliseconds / 1000)
+      }
+    }
+    // 兼容此前直接保存 head.json 的历史入口。
+    return HistoryReference(etag:tag,snapshot:try validSnapshot(head),head:head,
+                            published:published,important:important,retired:retired)
   }
   private func httpDate(_ value: String?) -> Date? {
     guard let value = value else { return nil }
@@ -936,6 +987,12 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
       guard original.response.statusCode == 200, original.data == body else { throw WebDAVFailure("sync.cleanup.deleteUnsupported") }
       let invalid = "credpivot-invalid-" + UUID().uuidString
       let wrongTag = tag.hasPrefix("\"") ? "\"\(invalid)\"" : invalid
+      // 淘汰标记需要条件更新；不能只检查 DELETE，否则服务器忽略 If-Match 时会覆盖别端标记。
+      let changedBody = Data("credpivot-cleanup-changed".utf8)
+      let wrongUpdate = try await cleanupRequest(config,path,method:"PUT",data:changedBody,headers:["If-Match":wrongTag])
+      let afterUpdate = try await cleanupRequest(config,path)
+      guard wrongUpdate.response.statusCode == 412, afterUpdate.response.statusCode == 200,
+            afterUpdate.data == body, try etag(afterUpdate) == tag else { throw WebDAVFailure("sync.cleanup.deleteUnsupported") }
       let wrong = try await cleanupRequest(config,path,method:"DELETE",headers:["If-Match":wrongTag])
       let unchanged = try await cleanupRequest(config,path)
       guard wrong.response.statusCode == 412, unchanged.response.statusCode == 200,
@@ -950,6 +1007,13 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
       throw error
     }
   }
+  private func removeCleanupEntry(_ config: [String: Any], entry: CleanupEntry,
+                                  head: [String: Any], tag: String) async throws {
+    guard cleanupRequests >= 2 else { throw WebDAVFailure("sync.cleanup.deferred") }
+    _ = try await cleanupCurrent(config,head:head,tag:tag)
+    let removed = try await cleanupRequest(config,entry.path,method:"DELETE",headers:["If-Match":entry.etag])
+    guard [200,204,404].contains(removed.response.statusCode) else { throw WebDAVFailure("sync.cleanup.changed") }
+  }
   private func cleanup(_ config: [String: Any], args: [String: Any]) async throws -> [String: Any] {
     guard let location = config["location"] as? String, args["location"] as? String == location,
           let head = args["head"] as? [String: Any], let tag = args["etag"] as? String,
@@ -960,18 +1024,22 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
       cleanupLocation = location; cleanupDue = .distantPast; cleanupReferences.removeAll(); cleanupDeleteVerified = false
     }
     if Date() < cleanupDue { return ["throttled":true] }
+    let dailyHistoryCount = config["daily_history_count"] as? Int ?? 5
+    guard (3...99).contains(dailyHistoryCount) else { throw WebDAVFailure("sync.errors.dailyHistoryCount") }
     // 限制额外请求量，引用缓存由每轮完整列表中的 ETag 校验，不缓存密文或凭据。
     cleanupRequests = 64; cleanupDue = Date().addingTimeInterval(15 * 60)
     do {
-      var protected: Set<String> = [try validSnapshot(head)]
+      let currentSnapshot = try validSnapshot(head)
       let current = try await cleanupCurrent(config,head:head,tag:tag)
       guard let serverTime = httpDate(current.response.value(forHTTPHeaderField:"Date")) else { throw WebDAVFailure("sync.cleanup.incomplete") }
-      // 无引用文件留 7 天，为失败重试和其他设备尚未完成的上传留出缓冲。
-      let now = min(serverTime,Date()), historyCutoff = now.addingTimeInterval(-30 * 86400), orphanCutoff = now.addingTimeInterval(-7 * 86400)
+      let now = min(serverTime,Date()), historyCutoff = now.addingTimeInterval(-30 * 86400)
+      let orphanCutoff = now.addingTimeInterval(-7 * 86400), readCutoff = now.addingTimeInterval(-10 * 60)
       let backupListing = try await cleanupListing(config,"backups/")
       let snapshotListing = try await cleanupListing(config,"snapshots/")
       let rootListing = try await cleanupListing(config,"")
       let backups = backupListing.compactMap { cleanupEntry($0,directory:"backups/") }.sorted { $0.modified < $1.modified }
+      let snapshots = snapshotListing.compactMap { cleanupEntry($0,directory:"snapshots/") }
+      let snapshotsByPath = Dictionary(uniqueKeysWithValues:snapshots.map { ($0.path,$0) })
       // 无法辨认的入口也可能引用有效快照，此时不猜测、不删除。
       guard backups.count == backupListing.count else { throw WebDAVFailure("sync.cleanup.incomplete") }
       let listed = Set(backups.map { $0.path })
@@ -979,31 +1047,111 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
       for entry in backups {
         if cleanupReferences[entry.path]?.etag != entry.etag {
           let reply = try await cleanupRequest(config,entry.path,headers:["If-Match":entry.etag])
-          guard reply.response.statusCode == 200, try etag(reply) == entry.etag,
-                let old = try JSONSerialization.jsonObject(with:reply.data) as? [String: Any] else { throw WebDAVFailure("sync.cleanup.incomplete") }
-          cleanupReferences[entry.path] = (entry.etag,try validSnapshot(old))
+          guard reply.response.statusCode == 200, try etag(reply) == entry.etag else { throw WebDAVFailure("sync.cleanup.incomplete") }
+          cleanupReferences[entry.path] = try historyReference(reply.data,tag:entry.etag)
         }
-        if entry.modified >= historyCutoff, let reference = cleanupReferences[entry.path] { protected.insert(reference.snapshot) }
       }
-      let expired = backups.filter { $0.modified < historyCutoff }
-      let unused = snapshotListing.compactMap { cleanupEntry($0,directory:"snapshots/") }
-        .filter { $0.modified < orphanCutoff && !protected.contains($0.path) }.sorted { $0.modified < $1.modified }
+      let references = cleanupReferences
+      let listedSnapshots = Set(snapshotListing.map { "snapshots/" + $0.href })
+      for reference in references.values {
+        // 列表中存在但缺少可靠版本号/时间的快照，不能当成已删除，否则会丢失后续清理凭据。
+        if listedSnapshots.contains(reference.snapshot), snapshotsByPath[reference.snapshot] == nil {
+          throw WebDAVFailure("sync.cleanup.incomplete")
+        }
+      }
+      func versionDate(_ entry: CleanupEntry) -> Date {
+        guard let reference = references[entry.path] else { return entry.modified }
+        return reference.published ?? snapshotsByPath[reference.snapshot]?.modified ?? entry.modified
+      }
+      let active = backups.filter { references[$0.path]?.retired == false }
+      let ranked = active.sorted {
+        let first = versionDate($0), second = versionDate($1)
+        if first != second { return first > second }
+        if $0.modified != $1.modified { return $0.modified > $1.modified }
+        return $0.path < $1.path
+      }
+      // 一次版本可能因重试留下多个入口；先去重，并优先保留有重要操作标记的入口。
+      var canonical: [String: CleanupEntry] = [:]
+      for entry in ranked {
+        guard let reference = references[entry.path] else { throw WebDAVFailure("sync.cleanup.incomplete") }
+        if let previous = canonical[reference.snapshot] {
+          if reference.important && references[previous.path]?.important != true { canonical[reference.snapshot] = entry }
+        } else { canonical[reference.snapshot] = entry }
+      }
+      let eligible = ranked.filter { entry in
+        guard let reference = references[entry.path] else { return false }
+        return canonical[reference.snapshot]?.path == entry.path
+          && reference.snapshot != currentSnapshot && versionDate(entry) >= historyCutoff
+      }
+      var retained = Set<String>(), recent = 0
+      var days: [Date: Int] = [:]
+      var calendar = Calendar(identifier:.gregorian)
+      calendar.timeZone = TimeZone(secondsFromGMT:0)!
+      for entry in eligible {
+        guard let reference = references[entry.path] else { throw WebDAVFailure("sync.cleanup.incomplete") }
+        // 时钟异常的未来版本先保留，也不占用正常的五个近期恢复位置。
+        if versionDate(entry) > now { retained.insert(entry.path); continue }
+        if recent < 5 { retained.insert(entry.path); recent += 1 }
+        let day = calendar.startOfDay(for:versionDate(entry)), count = days[day] ?? 0
+        if (days[day] != nil || days.count < 30), count < dailyHistoryCount {
+          retained.insert(entry.path); days[day] = count + 1
+        }
+        if reference.important { retained.insert(entry.path) }
+      }
+      // 当前版本可因失败发布已存在历史副本，其中的重要操作标记仍应保留。
+      for entry in active {
+        if let reference = references[entry.path], reference.snapshot == currentSnapshot,
+           reference.important, canonical[reference.snapshot]?.path == entry.path,
+           versionDate(entry) >= historyCutoff { retained.insert(entry.path) }
+      }
+      let retiring = active.filter { !retained.contains($0.path) && $0.modified < readCutoff }
+      let retired = backups.filter { references[$0.path]?.retired == true && $0.modified < readCutoff }
+      // 原历史入口是持久清理凭据：淘汰后仍保留一个短暂读取窗口，重启或网络失败均可续做。
+      var protected: Set<String> = [currentSnapshot]
+      for entry in active {
+        if let reference = references[entry.path] { protected.insert(reference.snapshot) }
+      }
+      let managed = Set(references.values.map { $0.snapshot })
+      // 只有从未归档的失败上传才走 7 天规则；正常淘汰的历史由 retired 标记单独处理。
+      let unused = snapshots.filter { $0.modified < orphanCutoff && $0.path != currentSnapshot && !managed.contains($0.path) }
+        .sorted { $0.modified < $1.modified }
       let abandonedProbes = rootListing.compactMap { cleanupEntry($0,directory:"") }
         .filter { $0.modified < orphanCutoff }.sorted { $0.modified < $1.modified }
-      guard !expired.isEmpty || !unused.isEmpty || !abandonedProbes.isEmpty else { return ["completed":true] }
+      guard !retiring.isEmpty || !retired.isEmpty || !unused.isEmpty || !abandonedProbes.isEmpty else { return ["completed":true] }
       try await verifyCleanupDelete(config)
-      var removedHeads = 0, removedSnapshots = 0, removedProbes = 0
-      // 先删过期入口。任何失败都会停止本轮，不继续删除仍可能被该入口引用的快照。
-      for entry in expired + unused + abandonedProbes {
-        guard cleanupRequests >= 2 else { throw WebDAVFailure("sync.cleanup.deferred") }
+      var removedHeads = 0, removedSnapshots = Set<String>(), removedProbes = 0, marked = 0
+      for entry in retiring {
+        guard cleanupRequests >= 3, let reference = references[entry.path] else { throw WebDAVFailure("sync.cleanup.deferred") }
         _ = try await cleanupCurrent(config,head:head,tag:tag)
-        let removed = try await cleanupRequest(config,entry.path,method:"DELETE",headers:["If-Match":entry.etag])
-        guard [200,204,404].contains(removed.response.statusCode) else { throw WebDAVFailure("sync.cleanup.changed") }
-        if entry.path.hasPrefix("backups/") { removedHeads += 1; cleanupReferences.removeValue(forKey:entry.path) }
-        else if entry.path.hasPrefix("snapshots/") { removedSnapshots += 1 }
-        else { removedProbes += 1 }
+        let marker: [String: Any] = ["format":"credpivot-history","version":1,"head":reference.head,
+          "important":reference.important,"retired":true,"published_at_ms":versionDate(entry).timeIntervalSince1970 * 1000]
+        let body = try JSONSerialization.data(withJSONObject:marker,options:[.sortedKeys])
+        let changed = try await cleanupRequest(config,entry.path,method:"PUT",data:body,
+          headers:["If-Match":entry.etag,"Content-Type":"application/json"])
+        guard [200,204].contains(changed.response.statusCode) else { throw WebDAVFailure("sync.cleanup.changed") }
+        let verified = try await cleanupRequest(config,entry.path)
+        guard verified.response.statusCode == 200, verified.data == body else { throw WebDAVFailure("sync.cleanup.changed") }
+        cleanupReferences[entry.path] = try historyReference(verified.data,tag:etag(verified))
+        marked += 1
       }
-      return ["completed":true,"deleted_heads":removedHeads,"deleted_snapshots":removedSnapshots,"deleted_probes":removedProbes]
+      for entry in retired {
+        guard let reference = references[entry.path] else { throw WebDAVFailure("sync.cleanup.incomplete") }
+        if !protected.contains(reference.snapshot), !removedSnapshots.contains(reference.snapshot),
+           let snapshot = snapshotsByPath[reference.snapshot] {
+          // 如果失败或中断，保留淘汰标记；下次继续，避免把正常历史误当成 7 天孤立文件。
+          guard snapshot.modified < readCutoff else { continue }
+          try await removeCleanupEntry(config,entry:snapshot,head:head,tag:tag)
+          removedSnapshots.insert(snapshot.path)
+        }
+        try await removeCleanupEntry(config,entry:entry,head:head,tag:tag)
+        cleanupReferences.removeValue(forKey:entry.path); removedHeads += 1
+      }
+      for entry in unused + abandonedProbes {
+        try await removeCleanupEntry(config,entry:entry,head:head,tag:tag)
+        if entry.path.hasPrefix("snapshots/") { removedSnapshots.insert(entry.path) } else { removedProbes += 1 }
+      }
+      return ["completed":true,"retired_heads":marked,"deleted_heads":removedHeads,
+              "deleted_snapshots":removedSnapshots.count,"deleted_probes":removedProbes]
     } catch let failure as WebDAVFailure {
       if failure.key == "sync.cleanup.deferred" { cleanupDue = Date().addingTimeInterval(5 * 60) }
       throw failure
@@ -1273,6 +1421,30 @@ final class CredPivotPlatform: NSObject {
 
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
+    case "syncHostInfo":
+      let status = LocalVaultUnlock.request(["type": "status"]) ?? [:]
+      result(AppPreferences.syncHostInfo(vaultId: status["vault_id"] as? String ?? ""))
+    case "setSyncHostName":
+      guard let value = call.arguments as? String,
+            let status = LocalVaultUnlock.request(["type": "status"]),
+            status["unlocked"] as? Bool == true,
+            let vaultId = status["vault_id"] as? String else {
+        result(FlutterError(code: "locked", message: NativePresentation.tr("common.unlockFirst"), details: nil))
+        return
+      }
+      let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard name.unicodeScalars.count <= 128,
+            name.rangeOfCharacter(from: .controlCharacters) == nil else {
+        result(FlutterError(code: "bad_args", message: NativePresentation.tr("vault.syncHost.invalid"), details: nil))
+        return
+      }
+      var names = AppPreferences.settings()["sync_host_names"] as? [String: String] ?? [:]
+      if name.isEmpty { names.removeValue(forKey: vaultId) } else { names[vaultId] = name }
+      guard AppPreferences.update(["sync_host_names": names]) else {
+        result(FlutterError(code: "settings", message: NativePresentation.tr("vault.syncHost.saveFailed"), details: nil))
+        return
+      }
+      result(nil)
     case "webdavSettings", "webdavSave", "webdavTest", "webdavRead", "webdavPublish", "webdavProbe", "webdavRemove", "webdavCleanup":
       Task { @MainActor in CredPivotWebDAV.shared.handle(call, result: result) }
     case "webdavCancel":
@@ -1321,6 +1493,9 @@ final class CredPivotPlatform: NSObject {
         payload["local_unlock_configured"] = LocalVaultUnlock.configured
         payload["local_unlock_notice"] = LocalVaultUnlock.setupNotice
         payload["browser_background_launch"] = AppDelegate.launchedForBrowser
+        for (key, value) in AppPreferences.syncHostInfo(vaultId: payload["vault_id"] as? String ?? "") {
+          payload[key] = value
+        }
         object["payload"] = payload
         if let data = try? JSONSerialization.data(withJSONObject: object),
            let updated = String(data: data, encoding: .utf8) { response = updated }
@@ -1650,6 +1825,17 @@ enum ExtensionGateCoordinator {
 // MARK: - 用户偏好统一由 Rust 校验和原子写入 settings.json
 
 enum AppPreferences {
+  static func syncHostInfo(vaultId: String) -> [String: String] {
+    let localized = Host.current().localizedName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let raw = localized.isEmpty ? ProcessInfo.processInfo.hostName : localized
+    let scalars = Array(raw.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.prefix(128))
+    let computer = String(String.UnicodeScalarView(scalars))
+    let names = settings()["sync_host_names"] as? [String: String] ?? [:]
+    let custom = names[vaultId] ?? ""
+    return ["sync_host_name": custom.isEmpty ? computer : custom,
+            "sync_host_name_override": custom, "computer_name": computer]
+  }
+
   static func settings() -> [String: Any] {
     LocalVaultUnlock.request(["type": "app_settings_get"])?["settings"] as? [String: Any] ?? [:]
   }

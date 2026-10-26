@@ -132,7 +132,10 @@ pub(crate) fn handle(vault: &mut VaultSession, request: AgentRequest) -> Result<
             plan.resolve(decisions).map_err(vault_error)?;
             Ok(plan.preview())
         }
-        AgentRequest::SyncApply { plan_id } => {
+        AgentRequest::SyncApply { plan_id, host_name } => {
+            if !sync::valid_host_name(&host_name) {
+                return Err(AgentError::Vault("vault.syncHost.invalid".into()));
+            }
             let plan = vault
                 .sync_plan
                 .as_ref()
@@ -144,6 +147,7 @@ pub(crate) fn handle(vault: &mut VaultSession, request: AgentRequest) -> Result<
             }
             // 预检、备份或归档失败时保留预览；直到开始写入才消费，允许用户直接重试。
             let plan = vault.sync_plan.as_mut().ok_or(AgentError::Locked)?;
+            plan.host_name = host_name.trim().to_string();
             let db = vault.db.as_ref().ok_or(AgentError::Locked)?;
             let current = sync::capture(db.conn())
                 .map_err(|e| apply_error(e, "sync.errors.readLocal"))?;
@@ -252,14 +256,14 @@ pub(crate) fn handle(vault: &mut VaultSession, request: AgentRequest) -> Result<
         }
         AgentRequest::SyncPublishAuthorize { location, head } => {
             let config = credpivot_core::read_vault_json(&vault.vault_dir).map_err(vault_error)?;
-            sync::authorize_publish(
+            let preserve_previous = sync::authorize_publish(
                 vault.db.as_ref().ok_or(AgentError::Locked)?.conn(),
                 &config,
                 &location,
                 &head,
             )
             .map_err(vault_error)?;
-            Ok(json!({"authorized":true}))
+            Ok(json!({"authorized":true,"preserve_previous":preserve_previous}))
         }
         AgentRequest::SyncAcknowledge { location, head } => {
             let config = credpivot_core::read_vault_json(&vault.vault_dir).map_err(vault_error)?;

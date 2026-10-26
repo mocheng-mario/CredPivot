@@ -30,7 +30,10 @@ pub struct WebDavSettings {
     pub location: String,
     pub automatic: bool,
     pub interval_seconds: u64,
+    #[serde(default = "default_daily_history_count")]
+    pub daily_history_count: usize,
 }
+fn default_daily_history_count() -> usize { 5 }
 impl WebDavSettings {
     pub fn valid(&self) -> bool {
         let Ok(url) = url::Url::parse(&self.root) else {
@@ -57,6 +60,7 @@ impl WebDavSettings {
             && self.location.len() == 64
             && hex::decode(&self.location).is_ok()
             && (60..=3600).contains(&self.interval_seconds)
+            && (3..=99).contains(&self.daily_history_count)
     }
 
     fn valid_directory(&self) -> bool {
@@ -150,6 +154,9 @@ struct Envelope {
     parent: Option<String>,
     vault_json: String,
     document: Document,
+    // 来源名称随快照加密，不放进远端明文 head.json，也不写入诊断日志。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    host_name: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -160,6 +167,8 @@ pub struct Binding {
     pub control_hash: String,
     pub remote_control_hash: Option<String>,
     pub last_synced_ms: i64,
+    #[serde(default)]
+    pub host_name: String,
     /// 首次合并独立保险库、尚未发布成功时，用于重新读取旧远端。仅存于加密数据库。
     pub previous_remote_vmk: Option<String>,
 }
@@ -168,6 +177,10 @@ pub struct Binding {
 struct Pending {
     head: Head,
     document: Document,
+    #[serde(default)]
+    host_name: String,
+    #[serde(default)]
+    preserve_previous: bool,
 }
 
 pub struct Plan {
@@ -188,6 +201,9 @@ pub struct Plan {
     pub previous_remote_vmk: Option<String>,
     pub decisions: BTreeMap<String, String>,
     pub no_upload: bool,
+    pub host_name: String,
+    pub remote_host_name: String,
+    pub preserve_previous: bool,
     generation: String,
 }
 
@@ -202,6 +218,9 @@ fn invalid() -> CoreError {
 }
 pub fn now_ms() -> i64 {
     crate::repo::now_ms()
+}
+pub fn valid_host_name(name: &str) -> bool {
+    name.chars().count() <= 128 && !name.chars().any(char::is_control)
 }
 fn archive_time() -> String {
     chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms())
@@ -258,7 +277,8 @@ pub fn status(conn: &Connection) -> Result<Value> {
     Ok(
         json!({"connected":state.is_some(),"location":state.as_ref().map(|s|&s.location),
         "last_synced_ms":state.as_ref().map(|s|s.last_synced_ms),"pending_upload":pending.is_some(),
-        "generation":state.as_ref().and_then(|s|s.head.as_ref()).map(|h|&h.generation)}),
+        "generation":state.as_ref().and_then(|s|s.head.as_ref()).map(|h|&h.generation),
+        "remote_host_name":state.as_ref().map(|s|&s.host_name)}),
     )
 }
 pub fn disconnect(conn: &Connection) -> Result<()> {
@@ -736,6 +756,7 @@ fn decode_remote(
     if envelope.format != FORMAT
         || envelope.version != 1
         || envelope.schema_version != crate::SCHEMA_USER_VERSION
+        || !valid_host_name(&envelope.host_name)
         || envelope.generation != head.generation
         || envelope.revision != head.revision
         || envelope.parent != head.parent
@@ -782,6 +803,8 @@ pub fn prepare(
         (None, None) => None,
         _ => return Err(invalid()),
     };
+    let remote_host_name = remote.as_ref().map(|(envelope, _, _)| envelope.host_name.clone())
+        .unwrap_or_default();
     if !initial {
         let state = state.as_ref().ok_or_else(invalid)?;
         if state.control_hash != control_hash(config)? {
@@ -868,6 +891,10 @@ pub fn prepare(
         .as_ref()
         .map(|(_, cfg, _)| control_hash(cfg))
         .transpose()?;
+    // 重试发布时也要保留首次接入/冲突处理的保护标记，不能因本地已应用而丢失。
+    let preserve_previous = initial || !conflicts.is_empty()
+        || control_hash(&target_config)? != control_hash(config)?
+        || pending.as_ref().is_some_and(|p| p.preserve_previous);
     let generation = if initial {
         if strategy == "remote" {
             // 重新接入采用所选远端的代际，不能继承上一次未完成发布的任务。
@@ -900,6 +927,9 @@ pub fn prepare(
         previous_remote_vmk,
         decisions: BTreeMap::new(),
         no_upload: false,
+        host_name: String::new(),
+        remote_host_name,
+        preserve_previous,
     })
 }
 
@@ -949,6 +979,7 @@ impl Plan {
         }).collect();
         let page = self.preview_changes(0, 20);
         json!({"plan_id":self.id,"initial":self.initial,"strategy":self.strategy,"local_count":self.local.records.len(),
+            "remote_host_name":self.remote_host_name,
             "remote_count":self.remote.records.len(),"result_count":self.result.records.len(),"conflicts":conflicts,
             "remote_present":self.remote_head.is_some(),"decisions":self.decisions,
             "changes":page["changes"],"changes_total":page["changes_total"],"changes_offset":page["changes_offset"],
@@ -1087,6 +1118,7 @@ impl Plan {
         !same_document(&self.local, &self.result)
     }
     pub fn archive(&self) -> Result<(Head, Vec<u8>)> {
+        if !valid_host_name(&self.host_name) { return Err(invalid()); }
         let generation = self.generation.clone();
         let revision = Uuid::new_v4().to_string();
         let parent = self.remote_head.as_ref().map(|h| h.revision.clone());
@@ -1099,6 +1131,7 @@ impl Plan {
             parent: parent.clone(),
             vault_json: crate::serialize_config(&self.target_config)?,
             document: self.result.clone(),
+            host_name: self.host_name.clone(),
         };
         let plain = Zeroizing::new(encoded(&envelope)?);
         let vault_id = Uuid::parse_str(&self.target_config.vault_id).map_err(|_| invalid())?;
@@ -1466,6 +1499,7 @@ pub fn store_applied(conn: &Connection, plan: &Plan, published_head: &Head) -> R
         remote_control_hash: plan.remote_control_hash.clone(),
         last_synced_ms: old.map(|s| s.last_synced_ms).unwrap_or(0),
         previous_remote_vmk: plan.previous_remote_vmk.clone(),
+        host_name: plan.remote_host_name.clone(),
     };
     write_state(conn, "binding", &state)?;
     write_state(
@@ -1474,6 +1508,8 @@ pub fn store_applied(conn: &Connection, plan: &Plan, published_head: &Head) -> R
         &Pending {
             head: published_head.clone(),
             document: plan.result.clone(),
+            host_name: plan.host_name.clone(),
+            preserve_previous: plan.preserve_previous,
         },
     )
 }
@@ -1484,7 +1520,8 @@ pub fn store_pending(conn: &Connection, plan: &Plan, head: &Head) -> Result<()> 
     Ok(())
 }
 /// 发布和确认都绑定当前控制配置及待上传任务，不能继续使用改密/安全重建前的快照。
-pub fn authorize_publish(conn: &Connection, config: &CpvcConfig, location: &str, head: &Head) -> Result<()> {
+/// 返回待上传任务的历史保护标记，不能仅由界面参数决定是否保留旧远端版本。
+pub fn authorize_publish(conn: &Connection, config: &CpvcConfig, location: &str, head: &Head) -> Result<bool> {
     // 每个网络步骤都会检查；只取控制字段，避免反复反序列化整库基线和待上传文档。
     let state: Option<(String, String)> = conn.query_row(
         "SELECT json_extract(value,'$.location'),json_extract(value,'$.control_hash') FROM sync_state WHERE key='binding'",
@@ -1497,14 +1534,16 @@ pub fn authorize_publish(conn: &Connection, config: &CpvcConfig, location: &str,
     if expected_control != control_hash(config)? {
         return Err(CoreError::format("sync.errors.localControlChanged"));
     }
-    let pending: Option<String> = conn.query_row(
-        "SELECT json_extract(value,'$.head') FROM sync_state WHERE key='pending'", [], |row| row.get(0),
+    let pending: Option<(String, bool)> = conn.query_row(
+        "SELECT json_extract(value,'$.head'),COALESCE(json_extract(value,'$.preserve_previous'),0) FROM sync_state WHERE key='pending'",
+        [], |row| Ok((row.get(0)?, row.get(1)?)),
     ).optional()?;
-    let pending: Head = serde_json::from_str(&pending.ok_or_else(invalid)?).map_err(|_| invalid())?;
+    let (pending, preserve_previous) = pending.ok_or_else(invalid)?;
+    let pending: Head = serde_json::from_str(&pending).map_err(|_| invalid())?;
     if pending != *head {
         return Err(CoreError::Conflict);
     }
-    Ok(())
+    Ok(preserve_previous)
 }
 pub fn acknowledge(conn: &Connection, config: &CpvcConfig, location: &str, head: &Head) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
@@ -1523,6 +1562,7 @@ pub fn acknowledge(conn: &Connection, config: &CpvcConfig, location: &str, head:
     remember_head(&tx, head)?;
     state.head = Some(head.clone());
     state.baseline = pending.document;
+    state.host_name = pending.host_name;
     state.last_synced_ms = now_ms();
     state.previous_remote_vmk = None;
     state.remote_control_hash = Some(state.control_hash.clone());
@@ -1548,6 +1588,7 @@ pub fn store_current(conn: &Connection, plan: &Plan) -> Result<()> {
         remote_control_hash: plan.remote_control_hash.clone(),
         last_synced_ms: now_ms(),
         previous_remote_vmk: None,
+        host_name: plan.remote_host_name.clone(),
     };
     let tx = conn.unchecked_transaction()?;
     if let Some(previous) = binding(&tx)?.and_then(|state| state.head) {
@@ -1598,6 +1639,7 @@ pub(crate) fn unpack_sync_snapshot(
     if envelope.format != FORMAT
         || envelope.version != 1
         || envelope.schema_version != crate::SCHEMA_USER_VERSION
+        || !valid_host_name(&envelope.host_name)
     {
         return Err(invalid());
     }

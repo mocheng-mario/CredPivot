@@ -161,6 +161,12 @@ class AgentBridge {
     return payload['recovery_key'] as String? ?? '';
   }
 
+  static Future<Map<String, dynamic>> syncHostInfo() async =>
+      Map<String, dynamic>.from(await _channel.invokeMethod<Map>('syncHostInfo') ?? {});
+
+  static Future<void> setSyncHostName(String name) =>
+      _channel.invokeMethod<void>('setSyncHostName', name);
+
   static Future<void> vaultChangePassword(String oldPassword, String newPassword) async {
     await request({
       'type': 'vault_change_password',

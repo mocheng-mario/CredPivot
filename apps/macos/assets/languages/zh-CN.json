@@ -10377,10 +10377,14 @@
       ]
     },
     "sync.cleanup.policy": {
-      "source": "本地同步备份全部保留；远端历史入口及其快照保留最近 30 天，当前版本始终保留；无引用快照及连接检查临时文件保留 7 天后清理。清理在成功同步后分批进行。",
-      "translation": "本地同步备份全部保留；远端历史入口及其快照保留最近 30 天，当前版本始终保留；无引用快照及连接检查临时文件保留 7 天后清理。清理在成功同步后分批进行。",
+      "source": "本地同步备份全部保留；远端当前版本始终保留，历史保留最近 5 份及近 30 天每天最后 {dailyCount} 个版本（按 UTC 日期去重），首次合并、替换远端或处理冲突前的版本额外保留，历史最长保留 30 天。淘汰历史标记后至少等待 10 分钟再清理；失败上传遗留的无引用快照及连接检查临时文件保留 7 天。清理在成功同步后分批进行。",
+      "translation": "本地同步备份全部保留；远端当前版本始终保留，历史保留最近 5 份及近 30 天每天最后 {dailyCount} 个版本（按 UTC 日期去重），首次合并、替换远端或处理冲突前的版本额外保留，历史最长保留 30 天。淘汰历史标记后至少等待 10 分钟再清理；失败上传遗留的无引用快照及连接检查临时文件保留 7 天。清理在成功同步后分批进行。",
       "description": "WebDAV 历史保留和安全清理提示",
-      "placeholders": {},
+      "placeholders": {
+        "dailyCount": {
+          "description": "Daily history checkpoint count. Keep {dailyCount} unchanged."
+        }
+      },
       "locations": [
         "webdav_sync.dart",
         "CredPivotPlatform.swift"
@@ -10417,8 +10421,8 @@
       ]
     },
     "sync.cleanup.deleteUnsupported": {
-      "source": "同步已完成。服务器未通过条件删除检查，暂不自动清理历史文件；请检查 WebDAV 的删除权限与条件请求支持。",
-      "translation": "同步已完成。服务器未通过条件删除检查，暂不自动清理历史文件；请检查 WebDAV 的删除权限与条件请求支持。",
+      "source": "同步已完成。服务器未通过条件更新或条件删除检查，暂不自动精简历史文件；请检查 WebDAV 的写入、删除权限与条件请求支持。",
+      "translation": "同步已完成。服务器未通过条件更新或条件删除检查，暂不自动精简历史文件；请检查 WebDAV 的写入、删除权限与条件请求支持。",
       "description": "WebDAV 历史保留和安全清理提示",
       "placeholders": {},
       "locations": [
@@ -11727,6 +11731,143 @@
       "placeholders": {},
       "locations": [
         "vault_tools.dart"
+      ]
+    },
+    "vault.syncHost.title": {
+      "source": "修改同步主机名",
+      "translation": "修改同步主机名",
+      "description": "Per-device vault sync host name; remote source is stored inside the encrypted snapshot.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "vault.syncHost.label": {
+      "source": "同步主机名（可选）",
+      "translation": "同步主机名（可选）",
+      "description": "Per-device vault sync host name; remote source is stored inside the encrypted snapshot.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "vault.syncHost.help": {
+      "source": "留空时自动使用当前电脑名称。名称仅作为同步来源标识，不用于连接服务器。",
+      "translation": "留空时自动使用当前电脑名称。名称仅作为同步来源标识，不用于连接服务器。",
+      "description": "Per-device vault sync host name; remote source is stored inside the encrypted snapshot.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "vault.syncHost.saved": {
+      "source": "同步主机名已保存，将用于之后上传的快照。",
+      "translation": "同步主机名已保存，将用于之后上传的快照。",
+      "description": "Per-device vault sync host name; remote source is stored inside the encrypted snapshot.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "vault.syncHost.invalid": {
+      "source": "同步主机名不能超过 128 个字符，也不能包含换行或控制字符。",
+      "translation": "同步主机名不能超过 128 个字符，也不能包含换行或控制字符。",
+      "description": "Per-device vault sync host name; remote source is stored inside the encrypted snapshot.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "vault.syncHost.saveFailed": {
+      "source": "同步主机名保存失败，请在保险库首页重新设置。",
+      "translation": "同步主机名保存失败，请在保险库首页重新设置。",
+      "description": "Per-device vault sync host name; remote source is stored inside the encrypted snapshot.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.host.local": {
+      "source": "本机同步名称：{name}",
+      "translation": "本机同步名称：{name}",
+      "description": "Per-device vault sync host name; remote source is stored inside the encrypted snapshot.",
+      "placeholders": {
+        "name": {
+          "description": "Keep {name} unchanged."
+        }
+      },
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.host.remote": {
+      "source": "远端版本上传主机：{name}",
+      "translation": "远端版本上传主机：{name}",
+      "description": "Per-device vault sync host name; remote source is stored inside the encrypted snapshot.",
+      "placeholders": {
+        "name": {
+          "description": "Keep {name} unchanged."
+        }
+      },
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.host.unknown": {
+      "source": "未记录（旧快照）",
+      "translation": "未记录（旧快照）",
+      "description": "Per-device vault sync host name; remote source is stored inside the encrypted snapshot.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.configure.dailyHistoryCount": {
+      "source": "每日历史版本保留数",
+      "translation": "每日历史版本保留数",
+      "description": "Configurable number of daily WebDAV historical checkpoints, from 3 to 99; defaults to 5.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.configure.dailyHistoryHelp": {
+      "source": "每天保留最新的 3–99 份历史，默认 5 份，最长保留 30 天。最近 5 份历史和重要操作备份另行保护。此设置影响共享远端历史，多台设备建议保持一致。",
+      "translation": "每天保留最新的 3–99 份历史，默认 5 份，最长保留 30 天。最近 5 份历史和重要操作备份另行保护。此设置影响共享远端历史，多台设备建议保持一致。",
+      "description": "Configurable number of daily WebDAV historical checkpoints, from 3 to 99; defaults to 5.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.dailyHistoryCount": {
+      "source": "每日历史版本保留数必须是 3–99 的整数，默认 5。",
+      "translation": "每日历史版本保留数必须是 3–99 的整数，默认 5。",
+      "description": "Configurable number of daily WebDAV historical checkpoints, from 3 to 99; defaults to 5.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "CredPivotPlatform.swift"
       ]
     }
   }

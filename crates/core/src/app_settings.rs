@@ -39,6 +39,8 @@ pub struct AppSettings {
     pub chrome_extension_id: Option<String>,
     pub vault_directory: Option<String>,
     pub webdav: Option<crate::sync::WebDavSettings>,
+    // 每台设备独立保存各保险库的同步来源名，不通过业务快照覆盖其他设备的名称。
+    pub sync_host_names: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for AppSettings {
@@ -70,6 +72,7 @@ impl Default for AppSettings {
             chrome_extension_id: None,
             vault_directory: None,
             webdav: None,
+            sync_host_names: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -95,6 +98,10 @@ impl AppSettings {
             && !self.language.is_empty() && self.language.len() <= 64
             && self.language.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
             && self.webdav.as_ref().is_none_or(|s| s.valid())
+            && self.sync_host_names.len() <= 128
+            && self.sync_host_names.iter().all(|(id, name)| {
+                uuid::Uuid::parse_str(id).is_ok() && crate::sync::valid_host_name(name)
+            })
             && self.version == 1
             && (60..=1800).contains(&self.vault_idle_seconds)
             && self.vault_idle_seconds % 60 == 0

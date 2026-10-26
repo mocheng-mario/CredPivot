@@ -129,6 +129,7 @@ class WebDavSync extends ChangeNotifier with WidgetsBindingObserver {
     final epoch = _epoch;
     final nextSettings = await _native('webdavSettings');
     final nextStatus = await _agent({'type': 'sync_status'});
+    final hostInfo = await AgentBridge.syncHostInfo();
     if (epoch != _epoch || !unlocked) return;
     if (settings['location'] != nextSettings['location']) {
       _remote = null;
@@ -138,7 +139,7 @@ class WebDavSync extends ChangeNotifier with WidgetsBindingObserver {
       _retryAfter = _serverRetryAfter;
     }
     settings = nextSettings;
-    status = nextStatus;
+    status = {...nextStatus, ...hostInfo};
     notifyListeners();
   }
 
@@ -399,8 +400,10 @@ class WebDavSync extends ChangeNotifier with WidgetsBindingObserver {
     final tag = _remote!['etag'];
     final expectedHead = _remote!['head'];
     dynamic cleanupHead = expectedHead, cleanupTag = tag;
-    final result =
-        await _agent({'type': 'sync_apply', 'plan_id': preview['plan_id']});
+    final hostInfo = await AgentBridge.syncHostInfo();
+    if (epoch != _epoch || !unlocked) return;
+    final result = await _agent({'type': 'sync_apply', 'plan_id': preview['plan_id'],
+      'host_name': hostInfo['sync_host_name'] ?? ''});
     if (epoch != _epoch || !unlocked) return;
     preview = {};
     backupPath = result['backup_path']?.toString() ?? backupPath;
@@ -514,6 +517,8 @@ class WebDavSyncPage extends StatelessWidget {
     final username = TextEditingController(
         text: sync.settings['username']?.toString() ?? '');
     final password = TextEditingController();
+    final dailyHistoryCount = TextEditingController(
+        text: ((sync.settings['daily_history_count'] as num?)?.toInt() ?? 5).toString());
     // 下一项实现 S3 / S3 兼容存储；目前仅展示入口，不提交为 WebDAV 配置。
     const providers = ['custom', 'nutstore', 'nextcloud', 'owncloud', 's3'];
     var provider = sync.settings['provider']?.toString() ?? 'custom';
@@ -528,7 +533,8 @@ class WebDavSyncPage extends StatelessWidget {
       username.text,
       provider,
       interval,
-      automatic
+      automatic,
+      dailyHistoryCount.text
     ];
     final form = GlobalKey<FormState>();
     var testing = false;
@@ -544,6 +550,7 @@ class WebDavSyncPage extends StatelessWidget {
           'password': password.text,
           'automatic': automatic,
           'interval_seconds': interval,
+          'daily_history_count': int.tryParse(dailyHistoryCount.text.trim()),
         };
     String? addressError(String? value) {
       try {
@@ -632,7 +639,8 @@ class WebDavSyncPage extends StatelessWidget {
                 username.text,
                 provider == 's3' ? initial[4] : provider,
                 interval,
-                automatic
+                automatic,
+                dailyHistoryCount.text
               ]
                   .asMap()
                   .entries
@@ -822,6 +830,23 @@ class WebDavSyncPage extends StatelessWidget {
                                                     });
                                                   }
                                                 }),
+                                            const SizedBox(height: 18),
+                                            TextFormField(
+                                                controller: dailyHistoryCount,
+                                                keyboardType: TextInputType.number,
+                                                inputFormatters: [
+                                                  FilteringTextInputFormatter.digitsOnly,
+                                                ],
+                                                decoration: InputDecoration(
+                                                    labelText: tr('sync.configure.dailyHistoryCount'),
+                                                    helperText: tr('sync.configure.dailyHistoryHelp'),
+                                                    helperMaxLines: 4),
+                                                validator: (value) {
+                                                  final count = int.tryParse(value?.trim() ?? '');
+                                                  return count == null || count < 3 || count > 99
+                                                      ? tr('sync.errors.dailyHistoryCount') : null;
+                                                },
+                                                onChanged: (_) => setLocal(clearTest)),
                                             SwitchListTile(
                                                 contentPadding: EdgeInsets.zero,
                                                 title: const LText(
@@ -999,6 +1024,7 @@ class WebDavSyncPage extends StatelessWidget {
       directory.dispose();
       username.dispose();
       password.dispose();
+      dailyHistoryCount.dispose();
     }
     if (values == null || !context.mounted) return;
     if (!await requireTouchId(context, reason: 'sync.auth.configure')) {
@@ -1435,9 +1461,14 @@ class WebDavSyncPage extends StatelessWidget {
                             const SizedBox(height: 10),
                             const LText('sync.status.previewPending')
                           ],
+                          if (sync.unlocked) ...[
+                            const SizedBox(height: 10),
+                            LText('sync.host.local', args: {'name': sync.status['sync_host_name'] ?? ''}),
+                          ],
                           if (sync.configured) ...[
                             const SizedBox(height: 10),
-                            const LText('sync.cleanup.policy'),
+                            LText('sync.cleanup.policy', args: {
+                              'dailyCount': (sync.settings['daily_history_count'] as num?)?.toInt() ?? 5}),
                             if (!sync.connected) ...[
                               const SizedBox(height: 10),
                               const LText('sync.status.joinHelp')
@@ -1448,6 +1479,12 @@ class WebDavSyncPage extends StatelessWidget {
                             LText('sync.status.lastSuccess', args: {
                               'time': _time(sync.status['last_synced_ms'])
                             }),
+                            if (sync.connected && sync.status['generation'] != null) ...[
+                              const SizedBox(height: 8),
+                              LText('sync.host.remote', args: {'name':
+                                (sync.status['remote_host_name']?.toString() ?? '').isEmpty
+                                  ? tr('sync.host.unknown') : sync.status['remote_host_name']}),
+                            ],
                             if (sync.status['pending_upload'] == true) ...[
                               const SizedBox(height: 8),
                               const LText('sync.status.pending')
@@ -1511,6 +1548,12 @@ class WebDavSyncPage extends StatelessWidget {
                               'remote': sync.preview['remote_count'],
                               'result': sync.preview['result_count']
                             }),
+                            if (sync.preview['remote_present'] == true) ...[
+                              const SizedBox(height: 8),
+                              LText('sync.host.remote', args: {'name':
+                                (sync.preview['remote_host_name']?.toString() ?? '').isEmpty
+                                  ? tr('sync.host.unknown') : sync.preview['remote_host_name']}),
+                            ],
                             const SizedBox(height: 8),
                             LText('sync.preview.differences', args: {
                               'local': sync.preview['local_only'],

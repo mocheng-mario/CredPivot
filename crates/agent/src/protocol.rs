@@ -21,7 +21,7 @@ pub enum AgentRequest {
     },
     SyncResolve { plan_id: String, decisions: std::collections::BTreeMap<String,String> },
     SyncPreviewPage { plan_id: String, offset: usize, limit: usize },
-    SyncApply { plan_id: String },
+    SyncApply { plan_id: String, #[serde(default)] host_name: String },
     SyncPublishAuthorize { location: String, head: credpivot_core::sync::Head },
     SyncAcknowledge { location: String, head: credpivot_core::sync::Head },
     SyncDisconnect,
