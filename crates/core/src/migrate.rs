@@ -2,7 +2,7 @@ use crate::error::{CoreError, Result};
 use rusqlite::Connection;
 
 /// SQLCipher `user_version`：与迁移脚本同步递增。
-pub const SCHEMA_USER_VERSION: i32 = 13;
+pub const SCHEMA_USER_VERSION: i32 = 14;
 
 const MIGRATION_V1: &str = "
 CREATE TABLE IF NOT EXISTS vault_meta (
@@ -328,6 +328,24 @@ WHEN NOT EXISTS (SELECT 1 FROM sync_state WHERE key='applying')
 BEGIN UPDATE items SET updated_at_ms=CAST((julianday('now')-2440587.5)*86400000 AS INTEGER) WHERE id IN ({parent}); END;"))?;
             }
         }
+        crate::mark_restore_dirty(c)?;
+        Ok(())
+    })?;
+    apply_migration_step(conn, 14, |c| {
+        c.execute_batch("CREATE TABLE partitions (
+ id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, sort_order INTEGER NOT NULL,
+ current_revision TEXT NOT NULL, created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL
+);
+INSERT INTO partitions VALUES ('00000000-0000-4000-8000-000000000001','个人',0,'00000000-0000-4000-8000-000000000001',0,0);
+INSERT INTO partitions VALUES ('00000000-0000-4000-8000-000000000002','工作',1,'00000000-0000-4000-8000-000000000002',0,0);
+ALTER TABLE items ADD COLUMN partition_id TEXT NOT NULL DEFAULT '00000000-0000-4000-8000-000000000001';
+ALTER TABLE credential_groups ADD COLUMN partition_id TEXT NOT NULL DEFAULT '00000000-0000-4000-8000-000000000001';
+CREATE INDEX idx_items_partition ON items(partition_id,trashed);
+CREATE INDEX idx_groups_partition ON credential_groups(partition_id,scope);
+CREATE TRIGGER sync_partition_deleted AFTER DELETE ON partitions
+WHEN NOT EXISTS (SELECT 1 FROM sync_state WHERE key='applying')
+BEGIN INSERT OR REPLACE INTO sync_tombstones VALUES ('partition:' || OLD.id, CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)); END;")?;
+        crate::partitions::install_constraints(c)?;
         crate::mark_restore_dirty(c)?;
         Ok(())
     })?;

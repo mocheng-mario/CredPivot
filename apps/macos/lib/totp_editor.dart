@@ -8,6 +8,7 @@ import 'touch_id_gate.dart';
 import 'website_rules_editor.dart';
 
 Future<bool> showTotpEditor(BuildContext context, {Map<String, dynamic>? existing, List<Map<String, dynamic>> groups = const []}) async {
+  final partition = existing?['partition_id']?.toString() ?? AgentBridge.activePartitionId;
   Map<String, dynamic>? reveal;
   try {
     if (existing != null) {
@@ -16,7 +17,7 @@ Future<bool> showTotpEditor(BuildContext context, {Map<String, dynamic>? existin
     }
     if (!context.mounted) return false;
     return await showDialog<bool>(context: context, barrierDismissible: false,
-      builder: (_) => _TotpEditor(existing: existing, reveal: reveal, groups: groups)) == true;
+      builder: (_) => _TotpEditor(existing: existing, reveal: reveal, groups: groups, partitionId: partition)) == true;
   } catch (e) {
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is AgentException ? e.message : tr('mfa.showTotpEditor.message'))));
     return false;
@@ -24,9 +25,10 @@ Future<bool> showTotpEditor(BuildContext context, {Map<String, dynamic>? existin
 }
 
 class _TotpEditor extends StatefulWidget {
-  const _TotpEditor({this.existing, this.reveal, required this.groups});
+  const _TotpEditor({this.existing, this.reveal, required this.groups, required this.partitionId});
   final Map<String, dynamic>? existing, reveal;
   final List<Map<String, dynamic>> groups;
+  final String partitionId;
   @override
   State<_TotpEditor> createState() => _TotpEditorState();
 }
@@ -124,7 +126,7 @@ class _TotpEditorState extends State<_TotpEditor> {
           'account': account.text.trim(), 'secret': input.text.trim(), 'website_rules': rules,
           'resolve_pending_rules': pendingRules.isNotEmpty});
       } else {
-        await AgentBridge.createTotp(issuer: issuer.text.trim(), account: account.text.trim(),
+        await AgentBridge.createTotp(partitionId: widget.partitionId, issuer: issuer.text.trim(), account: account.text.trim(),
           secretBase32: input.text.trim(), groupId: groupId, websiteRules: rules);
       }
       if (mounted) { closing = true; Navigator.pop(context, true); }

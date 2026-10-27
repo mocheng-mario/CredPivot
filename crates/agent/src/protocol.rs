@@ -7,6 +7,8 @@ pub const MIN_COMPATIBLE_PROTOCOL: u32 = 2;
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentRequest {
+    /// App 的列表/创建请求携带分区；浏览器仍按网站匹配全库，不继承 App 页面状态。
+    PartitionRequest { partition_id: String, request: Box<AgentRequest> },
     Ping,
     Status,
     SyncStatus,
@@ -263,6 +265,7 @@ impl AgentRequest {
     /// 仅记录固定操作名，不序列化含密码、令牌或导入内容的请求。
     pub fn operation(&self) -> &'static str {
         match self {
+            Self::PartitionRequest {request,..} => request.operation(),
             Self::Ping => "ping",
             Self::Status => "status",
             Self::SyncStatus => "sync_status",

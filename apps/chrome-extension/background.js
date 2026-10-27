@@ -33,8 +33,8 @@ async function clearMetadataCache() {
 
 // 严格白名单：即便响应将来增加字段，也不能把密码、密钥或验证码写入扩展存储。
 function metadataPayload(payload, mfa) {
-  const fields = mfa ? ["id", "issuer", "account", "linked", "match_rank"] :
-    ["id", "origin", "username", "display_name", "current_revision"];
+  const fields = mfa ? ["id", "issuer", "account", "linked", "match_rank", "partition_id", "partition_name"] :
+    ["id", "origin", "username", "display_name", "current_revision", "partition_id", "partition_name"];
   return {
     candidates: (payload.candidates ?? []).map((row) => Object.fromEntries(
       fields.filter((field) => Object.hasOwn(row, field)).map((field) => [field, row[field]]))),

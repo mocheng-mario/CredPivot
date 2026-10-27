@@ -102,6 +102,7 @@ impl WebDavSettings {
     }
 }
 const TABLES: &[&str] = &[
+    "partitions",
     "credential_groups",
     "items",
     "login_credentials",
@@ -293,6 +294,10 @@ pub fn disconnect(conn: &Connection) -> Result<()> {
 pub fn capture(conn: &Connection) -> Result<Document> {
     let tx = conn.unchecked_transaction()?;
     let mut doc = Document::default();
+    for partition in rows(&tx,"SELECT * FROM partitions ORDER BY id",[])? {
+        let id=partition["id"].as_str().ok_or_else(invalid)?.to_string();
+        doc.records.insert(format!("partition:{id}"),Record {tables:BTreeMap::from([("partitions".into(),vec![partition])])});
+    }
     for group in rows(&tx, "SELECT * FROM credential_groups ORDER BY id", [])? {
         let id = group["id"].as_str().ok_or_else(invalid)?.to_string();
         doc.records.insert(
@@ -305,7 +310,7 @@ pub fn capture(conn: &Connection) -> Result<Document> {
     for item in rows(&tx, "SELECT * FROM items ORDER BY id", [])? {
         let id = item["id"].as_str().ok_or_else(invalid)?.to_string();
         let mut tables = BTreeMap::from([("items".into(), vec![item])]);
-        for table in &TABLES[2..] {
+        for table in &TABLES[3..] {
             let sql = match *table {
                 "password_history" | "password_candidates" => format!("SELECT * FROM {table} WHERE credential_id IN (SELECT id FROM login_credentials WHERE item_id=?1) ORDER BY id"),
                 "recovery_code_entries" => format!("SELECT * FROM {table} WHERE recovery_id IN (SELECT id FROM recovery_code_items WHERE item_id=?1) ORDER BY id"),
@@ -391,6 +396,7 @@ fn metadata(record: Option<&Record>, deleted_at: Option<i64>) -> Value {
         .tables
         .get("items")
         .or_else(|| record.tables.get("credential_groups"))
+        .or_else(|| record.tables.get("partitions"))
         .and_then(|r| r.first());
     let updated = record
         .tables
@@ -417,7 +423,8 @@ fn metadata(record: Option<&Record>, deleted_at: Option<i64>) -> Value {
         .unwrap_or_default();
     let website = if websites.is_empty() { primary_website.map(str::to_owned) } else { Some(websites.join("\n")) };
     json!({"deleted":false,"title":row.and_then(|r|r.get("title").or_else(||r.get("name"))).and_then(Value::as_str),
-        "kind":row.and_then(|r|r.get("kind").or_else(||r.get("scope"))).and_then(Value::as_str),
+        "kind":if record.tables.contains_key("partitions") { Some("partition") } else { row.and_then(|r|r.get("kind").or_else(||r.get("scope"))).and_then(Value::as_str) },
+        "partition_id":row.and_then(|r|r["partition_id"].as_str()),
         "username":username,"website":website,"trashed":row.is_some_and(|r| r["trashed"] == 1),
         "created_at_ms":row.and_then(|r|r["created_at_ms"].as_i64()),"updated_at_ms":updated})
 }
@@ -431,11 +438,23 @@ fn record_change(before: Option<&Record>, after: Option<&Record>) -> &'static st
     }
 }
 
+fn document_metadata(doc: &Document, key: &str) -> Value {
+    let mut info = metadata(doc.records.get(key), doc.tombstones.get(key).copied());
+    if let Some(partition) = info["partition_id"].as_str() {
+        let name = doc.records.get(&format!("partition:{partition}"))
+            .and_then(|record| record.tables.get("partitions"))
+            .and_then(|rows| rows.first()).and_then(|row| row["name"].as_str())
+            .map(str::to_owned);
+        info["partition_name"] = json!(name);
+    }
+    info
+}
+
 fn record_error(key: &str, record: Option<&Record>, source: CoreError) -> CoreError {
     let info = metadata(record, None);
     CoreError::RecordValidation {
         // 只携带定位所需信息，不附带网站、原始行、资料正文或 MFA 种子。
-        record: json!({"id":key,"kind":if key.starts_with("group:") { json!("group") } else { info["kind"].clone() },
+        record: json!({"id":key,"kind":if key.starts_with("group:") { json!("group") } else if key.starts_with("partition:") {json!("partition")} else { info["kind"].clone() },
             "title":info["title"],"account":info["username"],"trashed":info["trashed"]}),
         source: Box::new(source),
     }
@@ -561,6 +580,7 @@ fn related_conflicts(
         let mut targets = Vec::new();
         for rows in record.tables.values() {
             for row in rows {
+                if let Some(partition)=row["partition_id"].as_str() { targets.push(format!("partition:{partition}")); }
                 if let Some(group) = row["group_id"].as_str().filter(|g| !g.is_empty()) {
                     targets.push(format!("group:{group}"));
                 }
@@ -595,7 +615,12 @@ fn related_conflicts(
             }
         }
         for target in targets {
-            if !result.records.contains_key(&target) {
+            let partition_of=|key:&str| result.records.get(key).and_then(|record|
+                record.tables.get("items").or_else(||record.tables.get("credential_groups")))
+                .and_then(|rows|rows.first()).and_then(|row|row["partition_id"].as_str());
+            let cross_partition = !target.starts_with("partition:") && partition_of(key).is_some()
+                && partition_of(key)!=partition_of(&target);
+            if !result.records.contains_key(&target) || cross_partition {
                 // 选择保留旧关联时，也必须能选择恢复其目标记录，而不是产生无法解决的错误。
                 for candidate in [key, &target] {
                     if (local.records.contains_key(candidate)
@@ -604,6 +629,30 @@ fn related_conflicts(
                     {
                         conflicts.push(candidate.clone());
                     }
+                }
+            }
+        }
+    }
+    // 两台设备各自创建同名分区时，必须先选择保留哪一份，不能生成无法分辨的入口。
+    let mut names = BTreeMap::<String, Vec<String>>::new();
+    for (key, record) in &result.records {
+        if let Some(row) = record.tables.get("partitions").and_then(|rows| rows.first()) {
+            if let Some(name) = row["name"].as_str() {
+                names.entry(name.trim().to_ascii_lowercase()).or_default().push(key.clone());
+            }
+        }
+    }
+    for keys in names.values().filter(|keys| keys.len() > 1) {
+        for key in keys {
+            if !conflicts.contains(key) { conflicts.push(key.clone()); }
+        }
+        // 一并提供这些分区内记录的来源选择，避免删除同名入口后留下无法在界面解决的悬空引用。
+        for doc in [local, remote] {
+            for (key, record) in &doc.records {
+                let partition = record.tables.get("items").or_else(|| record.tables.get("credential_groups"))
+                    .and_then(|rows| rows.first()).and_then(|row| row["partition_id"].as_str());
+                if partition.is_some_and(|id| keys.contains(&format!("partition:{id}"))) && !conflicts.contains(key) {
+                    conflicts.push(key.clone());
                 }
             }
         }
@@ -748,6 +797,9 @@ fn decode_remote(
     });
     verify_head(head, &vmk)?;
     let envelope: Envelope = serde_json::from_slice(&plain).map_err(|_| invalid())?;
+    if envelope.schema_version != crate::SCHEMA_USER_VERSION {
+        return Err(CoreError::format("sync.errors.schemaVersion"));
+    }
     let config = crate::parse_config(&envelope.vault_json)?;
     config.verify_mac(&vmk)?;
     if encoded(&config.key_slots)? != encoded(&header.slots)? {
@@ -961,9 +1013,9 @@ impl Plan {
             // 两端都不存在并不是“删除”；记录的存在变化由增删标签表达。
             fields.remove("deletion");
             json!({"key":key,"pending":pending,"conflict":conflict,
-                "local":metadata(local,self.local.tombstones.get(key).copied()),
-                "remote":metadata(remote,self.remote.tombstones.get(key).copied()),
-                "result":if pending { Value::Null } else { metadata(result,self.result.tombstones.get(key).copied()) },
+                "local":document_metadata(&self.local,key),
+                "remote":document_metadata(&self.remote,key),
+                "result":if pending { Value::Null } else { document_metadata(&self.result,key) },
                 "local_action":if pending { "pending" } else { record_change(local,result) },
                 "remote_action":if pending { "pending" } else { record_change(remote,result) },
                 "changed_fields":fields})
@@ -974,8 +1026,8 @@ impl Plan {
     pub fn preview(&self) -> Value {
         let conflicts: Vec<_> = self.conflicts.iter().map(|key| {
             let l=self.local.records.get(key); let r=self.remote.records.get(key);
-            json!({"key":key,"local":metadata(l,self.local.tombstones.get(key).copied()),
-                "remote":metadata(r,self.remote.tombstones.get(key).copied()),"changed_fields":changed_fields(l,r)})
+            json!({"key":key,"local":document_metadata(&self.local,key),
+                "remote":document_metadata(&self.remote,key),"changed_fields":changed_fields(l,r)})
         }).collect();
         let page = self.preview_changes(0, 20);
         json!({"plan_id":self.id,"initial":self.initial,"strategy":self.strategy,"local_count":self.local.records.len(),
@@ -1233,6 +1285,7 @@ fn load_rows(conn: &Connection, doc: &Document) -> Result<()> {
 }
 
 fn validate_relations(conn: &Connection, doc: &Document) -> Result<()> {
+    crate::partitions::validate(conn)?;
     let invalid_group: Option<String> = conn.query_row("SELECT i.id FROM items i WHERE group_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM credential_groups g WHERE g.id=i.group_id) LIMIT 1",[],|r|r.get(0)).optional()?;
     if let Some(id) = invalid_group {
         let key = format!("item:{id}");
@@ -1311,6 +1364,7 @@ pub fn validate_document(doc: &Document) -> Result<()> {
             let primary = match prefix {
                 "item" => "items",
                 "group" => "credential_groups",
+                "partition" => "partitions",
                 _ => return Err(invalid()),
             };
             let root = record
@@ -1324,8 +1378,8 @@ pub fn validate_document(doc: &Document) -> Result<()> {
             }
             for (table, rows) in &record.tables {
                 if !TABLES.contains(&table.as_str())
-                    || (prefix == "group" && table != primary)
-                    || (prefix == "item" && table == "credential_groups")
+                    || (prefix != "item" && table != primary)
+                    || (prefix == "item" && ["credential_groups","partitions"].contains(&table.as_str()))
                 {
                     return Err(invalid());
                 }
@@ -1426,6 +1480,7 @@ pub fn validate_document(doc: &Document) -> Result<()> {
     conn.execute_batch("PRAGMA temp_store=MEMORY;")?;
     crate::migrate_to_latest(&conn)?;
     conn.execute("INSERT INTO sync_state VALUES ('applying','1')", [])?;
+    conn.execute("DELETE FROM partitions",[])?;
     load_rows(&conn, doc)?;
     validate_relations(&conn, doc)
 }

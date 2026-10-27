@@ -33,7 +33,7 @@ class WebDavSync extends ChangeNotifier with WidgetsBindingObserver {
     if (record == null) return reason;
     const types = {'login': 'login', 'totp': 'mfa', 'ssh': 'ssh', 'ssh_key': 'ssh',
       'server_login': 'server', 'recovery_codes': 'recovery', 'secure_note': 'note',
-      'passkey': 'passkey', 'group': 'group'};
+      'passkey': 'passkey', 'group': 'group', 'partition': 'partition'};
     final type = tr('sync.itemType.${types[record['kind']] ?? 'record'}');
     final title = record['title']?.toString().trim() ?? '';
     final account = record['account']?.toString().trim() ?? '';
@@ -1177,6 +1177,7 @@ class WebDavSyncPage extends StatelessWidget {
     if (['history_limit', 'reminder_days', 'mfa_state', 'ssh_sign_policy'].contains(field)) return tr('sync.fields.policy');
     if (['linked_mfa_ids', 'mfa_bindings', 'otp_extra_parameters'].contains(field)) return tr('sync.fields.mfa');
     if (field == 'linked_login_id') return tr('sync.fields.loginLink');
+    if (field == 'partition_id') return tr('partitions.label');
     if (field == 'linked_ssh_key_id') return tr('sync.fields.ssh');
     if (field == 'details_json') return tr('sync.fields.details');
     if (field == 'title' || field == 'name' || field == 'label') {
@@ -1245,6 +1246,8 @@ class WebDavSyncPage extends StatelessWidget {
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w600)),
                           const SizedBox(height: 8),
+                          if ((info['partition_name']?.toString() ?? '').isNotEmpty)
+                            Text('${tr('partitions.label')}：${info['partition_name']}'),
                           LText('sync.conflict.created',
                               args: {'time': _time(info['created_at_ms'])}),
                           const SizedBox(height: 6),
@@ -1318,7 +1321,7 @@ class WebDavSyncPage extends StatelessWidget {
           else ...[
             Text(metadata['title']?.toString() ?? tr('sync.conflict.untitled'),
                 maxLines: 2, overflow: TextOverflow.ellipsis),
-            for (final field in ['username', 'website'])
+            for (final field in ['partition_name', 'username', 'website'])
               if ((metadata[field]?.toString() ?? '').isNotEmpty)
                 Tooltip(message: metadata[field].toString(),
                     child: Text(metadata[field].toString(), maxLines: 1,

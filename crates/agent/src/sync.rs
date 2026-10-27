@@ -20,7 +20,7 @@ fn vault_error(e: credpivot_core::CoreError) -> AgentError {
         error => error,
     };
     let key = match e {
-        credpivot_core::CoreError::Format(message) if message.starts_with("sync.") => message,
+        credpivot_core::CoreError::Format(message) if message.starts_with("sync.") || message.starts_with("partitions.errors.") => message,
         credpivot_core::CoreError::Auth | credpivot_core::CoreError::BadSecret => {
             "sync.errors.remotePassword".into()
         }

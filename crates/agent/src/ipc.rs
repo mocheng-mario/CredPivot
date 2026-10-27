@@ -227,6 +227,18 @@ pub async fn handle_request(
     req: AgentRequest,
     peer: RequestPeerContext,
 ) -> AgentResponse {
+    let (req, partition) = match req {
+        AgentRequest::PartitionRequest { partition_id, request } => {
+            if !peer.from_app { return AgentResponse::err("forbidden","partition scope is App-only"); }
+            let v=st.vault.lock().await;
+            if !v.unlocked { return AgentResponse::err("locked","vault locked"); }
+            let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","database not attached"); };
+            if let Err(e)=credpivot_core::partitions::require(db.conn(),&partition_id) { return AgentResponse::err("vault",e.to_string().trim_start_matches("invalid format: ")); }
+            (*request,Some(partition_id))
+        }
+        request => (request,None),
+    };
+    let moving_partition=matches!(&req,AgentRequest::VaultManage {action:credpivot_core::VaultAction::PartitionMoveApply {..}});
     let operation = req.operation();
     crate::diagnostics::debug(operation, "request started");
     let mutates = matches!(&req,
@@ -243,12 +255,33 @@ pub async fn handle_request(
             | credpivot_core::VaultAction::CandidateDiscard { .. } | credpivot_core::VaultAction::HistoryRestore { .. }
             | credpivot_core::VaultAction::TrashRestore { .. } | credpivot_core::VaultAction::TrashPurge { .. }
             | credpivot_core::VaultAction::NoteCreate { .. } | credpivot_core::VaultAction::BitwardenImport { .. }
-            | credpivot_core::VaultAction::SshImport { .. } | credpivot_core::VaultAction::RecoveryEntryUse { .. }));
-    let response = handle_request_inner(st, req, peer).await;
+            | credpivot_core::VaultAction::SshImport { .. } | credpivot_core::VaultAction::RecoveryEntryUse { .. }
+            | credpivot_core::VaultAction::PartitionCreate {..} | credpivot_core::VaultAction::PartitionRename {..}
+            | credpivot_core::VaultAction::PartitionDelete {..} | credpivot_core::VaultAction::PartitionReorder {..}
+            | credpivot_core::VaultAction::PartitionMoveApply {..} | credpivot_core::VaultAction::GroupRename {..}));
+    let mut response = handle_request_inner(st, req, peer, partition.as_deref()).await;
+    if let AgentResponse::Ok {payload,..}=&mut response {
+        let v=st.vault.lock().await;
+        if let Some(db)=v.db.as_ref() {
+            if let Err(e)=credpivot_core::partitions::annotate(db.conn(),payload,partition.as_deref()) {
+                response=AgentResponse::err("vault",e.to_string());
+            }
+        }
+    }
     if mutates && matches!(&response,AgentResponse::Ok { .. }) {
         let mut v = st.vault.lock().await;
         v.data_revision = uuid::Uuid::new_v4().to_string();
         v.ssh_authorization.clear();
+        if moving_partition {
+            v.sync_plan=None;
+            v.passkey_requests.clear();
+            st.pending_fills.clear();
+            st.pending_ssh_sessions.clear();
+        }
+    }
+    if let AgentResponse::Err {message,..}=&mut response {
+        let key=message.trim_start_matches("invalid format: ");
+        if key.starts_with("partitions.errors.") && key.bytes().all(|c|c.is_ascii_alphanumeric() || c==b'.') { *message=key.to_string(); }
     }
     match &response {
         AgentResponse::Ok { .. } => match operation {
@@ -318,6 +351,7 @@ async fn handle_request_inner(
     st: &mut IpcState,
     req: AgentRequest,
     peer: RequestPeerContext,
+    partition: Option<&str>,
 ) -> AgentResponse {
     if st.shutting_down {
         return AgentResponse::err("shutting_down", "agent is shutting down");
@@ -381,6 +415,7 @@ async fn handle_request_inner(
         if !v.authorize_sensitive_operation() { return AgentResponse::err("auth_required", "identity verification required"); }
     }
     let resp = match req {
+        AgentRequest::PartitionRequest {..} => AgentResponse::err("bad_args","nested partition scope is not supported"),
         request @ (AgentRequest::SyncStatus | AgentRequest::SyncControlAuthorize | AgentRequest::SyncCancel | AgentRequest::SyncPrepare { .. } | AgentRequest::SyncResolve { .. }
             | AgentRequest::SyncPreviewPage { .. }
             | AgentRequest::SyncApply { .. } | AgentRequest::SyncPublishAuthorize { .. } | AgentRequest::SyncAcknowledge { .. } | AgentRequest::SyncDisconnect) => {
@@ -731,7 +766,8 @@ async fn handle_request_inner(
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
-            let cred = match v.save_credential(
+            let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","database not attached"); };
+            let cred = match credpivot_core::insert_login_extended_in_partition(db.conn(), partition.unwrap_or(credpivot_core::partitions::PERSONAL),
                 &origin,
                 &username,
                 &password,
@@ -782,6 +818,9 @@ async fn handle_request_inner(
             let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","vault locked"); };
             if !credential_id.is_empty() && !v.credential_matches_page(&credential_id, &origin) {
                 return AgentResponse::err("origin_mismatch", "账号与网站不匹配");
+            }
+            if !credential_id.is_empty() && !credpivot_core::partitions::same_credentials(db.conn(),&credential_id,&totp_id).unwrap_or(false) {
+                return AgentResponse::err("forbidden","partitions.errors.crossLink");
             }
             // 明确选择 MFA 后仅验证该记录；不为读取验证码重新扫描全库。
             if totp_id.is_empty() { return AgentResponse::err("bad_args", "请选择当前网站的 MFA"); }
@@ -914,7 +953,8 @@ async fn handle_request_inner(
             }
             v.touch_activity();
             let lim = limit.unwrap_or(100);
-            match v.list_credentials(query.as_deref(), lim, offset) {
+            let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","database not attached"); };
+            match credpivot_core::list_logins_page_in_partition(db.conn(), query.as_deref(), lim, offset, partition) {
                 Ok(items) => AgentResponse::ok(json!({ "items": items })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
@@ -977,14 +1017,18 @@ async fn handle_request_inner(
             if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
             if !action.is_passive() { v.touch_activity(); }
             // 导入和永久删除前保留可恢复快照，且失败时不执行危险操作。
-            if matches!(&action, credpivot_core::VaultAction::BitwardenImport { .. } | credpivot_core::VaultAction::TrashPurge { .. }) {
+            if matches!(&action, credpivot_core::VaultAction::BitwardenImport { .. } | credpivot_core::VaultAction::TrashPurge { .. } | credpivot_core::VaultAction::PartitionMoveApply {..}) {
                 let (Some(vmk), Some(db)) = (v.vmk.as_ref(), v.db.as_ref()) else { return AgentResponse::err("locked", "vault locked"); };
                 if credpivot_core::create_restore_point_for_risky_op(&v.vault_dir, &**vmk, db.conn()).is_err() {
                     return AgentResponse::err("backup", "操作前的恢复点创建失败");
                 }
             }
             let result = match v.db.as_ref() {
-                Some(db) => credpivot_core::manage_credentials(db.conn(), action),
+                Some(db) => match (partition,action) {
+                    (Some(partition),credpivot_core::VaultAction::NoteCreate {title,text}) => credpivot_core::partitions::create_note(db.conn(),partition,&title,&text),
+                    (Some(partition),credpivot_core::VaultAction::SshImport {label,pem,passphrase}) => credpivot_core::partitions::import_ssh_key(db.conn(),partition,&label,&pem,&passphrase),
+                    (_,action) => credpivot_core::manage_credentials(db.conn(),action),
+                },
                 None => return AgentResponse::err("locked", "database not attached"),
             };
             match result {
@@ -1036,13 +1080,17 @@ async fn handle_request_inner(
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
-            match v.create_totp(
+            let result=(|| -> credpivot_core::Result<credpivot_core::TotpListRow> {
+                let db=v.db.as_ref().ok_or_else(||credpivot_core::CoreError::format("database not attached"))?;
+                let id=credpivot_core::insert_totp_with_rules_in_partition(db.conn(),partition.unwrap_or(credpivot_core::partitions::PERSONAL),
                 &issuer,
                 &account,
                 &secret_base32,
                 group_id.as_deref().and_then(|s| opt_nonempty(s)),
-                &website_rules,
-            ) {
+                &website_rules)?;
+                db.list_totp()?.into_iter().find(|row|row.id==id).ok_or_else(||credpivot_core::CoreError::format("MFA not found"))
+            })();
+            match result {
                 Ok(row) => AgentResponse::ok(json!({ "item": row })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
@@ -1092,12 +1140,16 @@ async fn handle_request_inner(
             }
             v.touch_activity();
             let def = set_default.unwrap_or(false);
-            match v.generate_ssh_key(
+            let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","database not attached"); };
+            match credpivot_core::generate_ssh_key_in_partition(db.conn(), partition.unwrap_or(credpivot_core::partitions::PERSONAL),
                 &label,
                 def,
                 group_id.as_deref().and_then(|s| opt_nonempty(s)),
             ) {
-                Ok(row) => AgentResponse::ok(json!({ "item": row })),
+                Ok(row) => match v.sync_ssh_from_db() {
+                    Ok(()) => AgentResponse::ok(json!({"item":row})),
+                    Err(e) => AgentResponse::err("vault",e.to_string()),
+                },
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }
@@ -1135,6 +1187,12 @@ async fn handle_request_inner(
                 return AgentResponse::err("not_found", "login credential not found");
             }
             let totp = totp_id.filter(|s| !s.trim().is_empty());
+            if let Some(totp)=&totp {
+                let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","vault locked"); };
+                if !credpivot_core::partitions::same_credentials(db.conn(),&login_credential_id,totp).unwrap_or(false) {
+                    return AgentResponse::err("forbidden","partitions.errors.crossLink");
+                }
+            }
             let session_id = prepare_session(
                 &mut st.pending_ssh_sessions,
                 &host,
@@ -1213,7 +1271,8 @@ async fn handle_request_inner(
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
-            match v.create_recovery_codes(&service_name, &codes) {
+            let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","database not attached"); };
+            match credpivot_core::insert_recovery_codes_in_partition(db.conn(), partition.unwrap_or(credpivot_core::partitions::PERSONAL),&service_name, &codes) {
                 Ok(row) => AgentResponse::ok(json!({ "item": row })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
@@ -1345,7 +1404,8 @@ async fn handle_request_inner(
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
-            match v.create_credential_group(&scope, &name) {
+            let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","database not attached"); };
+            match credpivot_core::create_credential_group_in_partition(db.conn(), partition.unwrap_or(credpivot_core::partitions::PERSONAL),&scope, &name) {
                 Ok(item) => AgentResponse::ok(json!({ "item": item })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
@@ -1397,7 +1457,8 @@ async fn handle_request_inner(
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
-            match v.create_server_profile(
+            let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","database not attached"); };
+            match credpivot_core::insert_server_profile_in_partition(db.conn(), partition.unwrap_or(credpivot_core::partitions::PERSONAL),
                 &label,
                 &host,
                 port,

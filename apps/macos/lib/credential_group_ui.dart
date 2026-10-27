@@ -5,9 +5,41 @@ import 'app_ui.dart';
 import 'linked_refs.dart';
 import 'credential_confirm.dart';
 
-/// 凭据子模块 scope：login | totp | ssh | server
-Future<List<Map<String, dynamic>>> loadCredentialGroups(String scope) async {
-  return AgentBridge.listCredentialGroups(scope);
+/// 凭据子模块 scope：login | totp | ssh | server | passkey
+Future<List<Map<String, dynamic>>> loadCredentialGroups(String scope, {String? partitionId}) async {
+  return AgentBridge.listCredentialGroups(scope, partitionId: partitionId);
+}
+
+Future<bool> _renameGroup(BuildContext context, Map<String, dynamic> group) async {
+  final controller = TextEditingController(text: group['name']?.toString() ?? '');
+  var busy = false;
+  var error = '';
+  try {
+    return await showDraftDialog<bool>(context: context,
+      hasChanges: () => controller.text != group['name'], isBusy: () => busy,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
+        title: const LText('groups.rename'),
+        content: SizedBox(width: appEditDialogWidth(ctx), child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: controller, autofocus: true, enabled: !busy, maxLength: 80,
+            decoration: InputDecoration(labelText: tr('common.name'))),
+          if (error.isNotEmpty) LText(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+        ])),
+        actions: [
+          TextButton(onPressed: busy ? null : () => Navigator.maybePop(ctx), child: const LText('common.cancel')),
+          FilledButton(onPressed: busy ? null : () async {
+            update(() { busy = true; error = ''; });
+            try {
+              await AgentBridge.manage({'action': 'group_rename', 'id': group['id'],
+                'expected_updated_at_ms': group['updated_at_ms'], 'name': controller.text.trim()});
+              AgentBridge.notifyVaultChanged();
+              if (ctx.mounted) Navigator.pop(ctx, true);
+            } catch (e) {
+              if (ctx.mounted) update(() { busy = false; error = e is AgentException ? e.message : 'common.operationFailed'; });
+            }
+          }, child: const LText('common.save')),
+        ],
+      ))) == true;
+  } finally { controller.dispose(); }
 }
 
 Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
@@ -29,7 +61,14 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
                     final g = groups[i];
                     return ListTile(
                       title: Text(g['name']?.toString() ?? ''),
-                      trailing: IconButton(
+                      trailing: Wrap(children: [
+                        IconButton(icon: const Icon(Icons.edit_outlined), tooltip: tr('groups.rename'), onPressed: () async {
+                          if (await _renameGroup(ctx, g) && ctx.mounted) {
+                            groups = await loadCredentialGroups(scope);
+                            if (ctx.mounted) setLocal(() {});
+                          }
+                        }),
+                        IconButton(
                         icon: const Icon(Icons.delete_outline),
                         onPressed: () async {
                           if (!await confirmCredentialDanger(ctx, title: tr('groups.showManageGroupsDialog.title'),
@@ -43,7 +82,7 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
                             if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: LText(e.message)));
                           }
                         },
-                      ),
+                      )]),
                     );
                   },
                 ),
@@ -171,6 +210,7 @@ Widget buildGroupFilterBar({
 }
 
 List<Widget> buildGroupedListTiles({
+  required String scope,
   required List<Map<String, dynamic>> groups,
   required List<Map<String, dynamic>> items,
   required Widget Function(Map<String, dynamic> row) tileBuilder,
@@ -195,17 +235,18 @@ List<Widget> buildGroupedListTiles({
   final out = <Widget>[];
   for (final key in keys) {
     final title = key == null ? tr('common.ungrouped') : (groupName[key] ?? tr('common.group'));
-    out.add(Padding(
-      padding: const EdgeInsets.only(left: 4, top: 8, bottom: 10),
-      child: LText('$title  ·  ${buckets[key]!.length}',
-          style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: AppColors.muted)),
+    out.add(ExpansionTile(
+      // 未分组也需要独立状态；分区和子模块参与 key，避免切换页面后互相继承折叠状态。
+      key: PageStorageKey<String>('credential-group:${AgentBridge.activePartitionId}:$scope:${key ?? 'ungrouped'}'),
+      initiallyExpanded: true,
+      tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+      childrenPadding: const EdgeInsets.only(bottom: 8),
+      shape: const Border(),
+      collapsedShape: const Border(),
+      title: Text('$title  ·  ${buckets[key]!.length}',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.muted)),
+      children: [for (final row in buckets[key]!) tileBuilder(row)],
     ));
-    for (final row in buckets[key]!) {
-      out.add(tileBuilder(row));
-    }
   }
   return out;
 }

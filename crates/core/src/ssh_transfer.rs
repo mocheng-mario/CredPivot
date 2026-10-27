@@ -5,6 +5,10 @@ use ssh_key::{private::Ed25519Keypair, LineEnding, PrivateKey};
 use zeroize::Zeroizing;
 
 pub fn import_key(conn: &Connection, label: &str, pem: &str, passphrase: &str) -> Result<Value> {
+    import_key_in_partition(conn,crate::partitions::PERSONAL,label,pem,passphrase)
+}
+
+pub(crate) fn import_key_in_partition(conn: &Connection, partition_id: &str, label: &str, pem: &str, passphrase: &str) -> Result<Value> {
     if label.trim().is_empty() || label.len() > 200 || pem.len() > 65536 || passphrase.len() > 16384
     {
         return Err(CoreError::format("密钥名称或文件大小无效"));
@@ -42,7 +46,7 @@ pub fn import_key(conn: &Connection, label: &str, pem: &str, passphrase: &str) -
     if existing > 0 {
         return Err(CoreError::format("密钥已存在，请检查凭据列表或回收站"));
     }
-    let rec = crate::insert_ssh_key(conn, label.trim(), &public, &seed, false, None)?;
+    let rec = crate::repo_m2::insert_ssh_key_in_partition(conn, partition_id, label.trim(), &public, &seed, false, None)?;
     Ok(json!({"id":rec.id,"item_id":rec.item_id,"public_openssh":rec.public_openssh}))
 }
 pub fn export_key(conn: &Connection, id: &str, passphrase: &str) -> Result<Value> {

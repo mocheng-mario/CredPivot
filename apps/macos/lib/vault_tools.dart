@@ -264,7 +264,7 @@ Future<void> editItemDetails(
     final result = await vaultAction(context,
         {'action': 'item_details', 'item_id': row['item_id'] ?? row['id']});
     final all =
-        await vaultAction(context, {'action': 'item_search', 'query': ''});
+        await AgentBridge.manage({'action': 'item_search', 'query': ''}, partitionId: row['partition_id']?.toString());
     if (!context.mounted) return;
     await showDialog<void>(
         context: context,
@@ -1378,24 +1378,25 @@ Future<void> copySelectedCredential(BuildContext context, Map<String, dynamic> r
 
 Future<void> openCredentialActions(BuildContext context, Map<String, dynamic> item, {String? action}) async {
   try {
-    final result = await AgentBridge.manage({'action':'item_search','query':''});
+    final result = await AgentBridge.manage({'action':'item_search','query':''}, allPartitions: true);
     final itemId = item['item_id'] ?? item['id'];
     final matches = (result['items'] as List).cast<Map>().where((v) => v['id'] == itemId);
     if (matches.isEmpty) throw AgentException('not_found',tr('vaultTools.openCredentialActions.text'));
     final meta = Map<String, dynamic>.from(matches.first);
     final kind = meta['kind'];
+    final partition = meta['partition_id']?.toString();
     Map<String, dynamic> current = meta;
     if (kind == 'login') {
-      final rows = await AgentBridge.listCredentials();
+      final rows = await AgentBridge.listCredentials(null, partition);
       current = rows.firstWhere((v) => v['item_id'] == itemId);
     } else if (kind == 'totp') {
-      current = (await AgentBridge.listTotp()).firstWhere((v) => v['item_id'] == itemId);
+      current = (await AgentBridge.listTotp(partitionId: partition)).firstWhere((v) => v['item_id'] == itemId);
     } else if (kind == 'ssh_key') {
-      current = (await AgentBridge.listSshKeys()).firstWhere((v) => v['item_id'] == itemId);
+      current = (await AgentBridge.listSshKeys(partitionId: partition)).firstWhere((v) => v['item_id'] == itemId);
     } else if (kind == 'recovery_codes') {
-      current = (await AgentBridge.listRecoveryCodes()).firstWhere((v) => v['item_id'] == itemId);
+      current = (await AgentBridge.listRecoveryCodes(partitionId: partition)).firstWhere((v) => v['item_id'] == itemId);
     } else if (kind == 'server_login') {
-      current = (await AgentBridge.listServerProfiles()).firstWhere((v) => v['item_id'] == itemId);
+      current = (await AgentBridge.listServerProfiles(partitionId: partition)).firstWhere((v) => v['item_id'] == itemId);
     }
     if (!context.mounted) return;
     if (action == 'details') { await editItemDetails(context,{...meta,...current,'item_id':itemId,'kind':kind}); AgentBridge.notifyVaultChanged(); return; }
@@ -1448,7 +1449,7 @@ class _CredentialSearchState extends State<_CredentialSearch> {
     final version = ++generation;
     setState(() {loading=true;error='';});
     try {
-      final result = await AgentBridge.manage({'action':'item_search','query':query.text.trim()});
+      final result = await AgentBridge.manage({'action':'item_search','query':query.text.trim()}, allPartitions: true);
       if (mounted && version == generation) setState(() => rows = (result['items'] as List).map((v) => Map<String,dynamic>.from(v as Map)).toList());
     } catch (e) { if (mounted && version == generation) setState(() => error = e is AgentException ? e.message : tr('vaultTools.search.message')); }
     finally { if (mounted && version == generation) setState(() => loading=false); }
@@ -1461,7 +1462,7 @@ class _CredentialSearchState extends State<_CredentialSearch> {
         onChanged:(_){generation++;debounce?.cancel();debounce=Timer(const Duration(milliseconds:250),search);},onSubmitted:(_)=>search()),
       if(loading) const LinearProgressIndicator(),
       if(error.isNotEmpty) AppNotice(error),
-      Expanded(child:ListView(children:[for(final row in rows.take(100)) ListTile(title:Text(row['title']?.toString()??''),subtitle:Text(row['kind'].toString()),onTap:()=>openCredentialActions(context,row)),
+      Expanded(child:ListView(children:[for(final row in rows.take(100)) ListTile(title:Text(row['title']?.toString()??''),subtitle:Text([row['kind'],row['partition_name']].where((v)=>v!=null).join(' · ')),onTap:()=>openCredentialActions(context,row)),
         if(rows.length>100) const ListTile(title:LText('vaultTools.build.text.item66'))])),
     ])),
     actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const LText('common.close'))],

@@ -18,6 +18,7 @@ import 'settings_page.dart';
 import 'shortcuts_page.dart';
 import 'vault_tools.dart';
 import 'webdav_sync.dart';
+import 'credential_partitions.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -99,6 +100,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
   @override
   void initState() {
     super.initState();
+    CredentialPartitions.instance.start();
+    CredentialPartitions.instance.addListener(_onPartitionsChanged);
     WebDavSync.instance.start();
     WebDavSync.instance.onFailure = _showSyncFailure;
     AppPresentation.instance.addListener(_onPresentationChanged);
@@ -113,6 +116,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
     // 系统外观及语言切换后，重新计算页面中已解析的颜色和输入框文案。
     if (mounted) setState(() {});
   }
+
+  void _onPartitionsChanged() { if (mounted) setState(() {}); }
 
   Future<void> _showSyncFailure(String message) async {
     if (!mounted || !WebDavSync.instance.unlocked) return;
@@ -140,6 +145,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
       final gen = (payload['vault_lock_generation'] as num?)?.toInt() ?? 0;
       final agentUnlocked = payload['unlocked'] == true;
       WebDavSync.instance.setUnlocked(agentUnlocked);
+      CredentialPartitions.instance.setUnlocked(agentUnlocked);
       final revision = payload['data_revision']?.toString();
       if (agentUnlocked && _lastDataRevision != null && revision != _lastDataRevision) AgentBridge.notifyVaultChanged();
       _lastDataRevision = revision;
@@ -167,6 +173,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
 
   void _onVaultLockedExternally() {
     WebDavSync.instance.setUnlocked(false);
+    CredentialPartitions.instance.setUnlocked(false);
     _statusRequestGeneration++;
     clearSensitiveAuthGrace();
     _password.clear();
@@ -186,6 +193,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
 
   @override
   void dispose() {
+    CredentialPartitions.instance.removeListener(_onPartitionsChanged);
+    CredentialPartitions.instance.stop();
     WebDavSync.instance.onFailure = null;
     WebDavSync.instance.stop();
     AgentBridge.onShortcut = null;
@@ -242,6 +251,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
     try { memoryBytes = await AgentBridge.residentMemoryBytes(); } catch (_) {}
     // 锁定通知或较新的刷新已经到达时，不再应用旧的解锁状态。
     if (!mounted || generation != _statusRequestGeneration) return;
+    if (_status['vault_id'] != payload['vault_id']) CredentialPartitions.instance.setUnlocked(false);
+    CredentialPartitions.instance.setUnlocked(payload['unlocked'] == true);
     _memoryBytes = memoryBytes;
     if (payload['unlocked'] != true) {
       clearSensitiveAuthGrace();
@@ -594,6 +605,12 @@ class _VaultHomePageState extends State<VaultHomePage> {
     });
   }
 
+  void _selectPartition(String id) {
+    if (!_unlocked) return;
+    AgentBridge.activePartitionId = id;
+    _selectPage(1);
+  }
+
   @override
   Widget build(BuildContext context) {
     final vaultLabel = !_vaultExists ? tr('vault.build.text.item2') : (_unlocked ? tr('vault.status.unlockedShort') : tr('vault.status.lockedShort'));
@@ -610,6 +627,9 @@ class _VaultHomePageState extends State<VaultHomePage> {
           child: LayoutBuilder(builder: (context, constraints) {
             return Row(children: [
               AppSidebar(
+                partitions: CredentialPartitions.instance.items,
+                selectedPartitionId: AgentBridge.activePartitionId,
+                onPartitionSelected: _selectPartition,
                 selectedIndex: _pageIndex,
                 onSelected: _selectPage,
                 compact: constraints.maxWidth < 960,
@@ -629,7 +649,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
                             child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                              LText(appPageTitles[_pageIndex],
+                              LText(_pageIndex == 1 ? tr('partitions.credentialsTitle', args: {'name': CredentialPartitions.instance.activeName}) : appPageTitles[_pageIndex],
                                   style: Theme.of(context)
                                       .textTheme
                                       .headlineMedium),
@@ -802,6 +822,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
     switch (index) {
       case 1:
         return CredentialsTab(
+            key: ValueKey(AgentBridge.activePartitionId),
             unlocked: _unlocked, onUnlock: () => _selectPage(0));
       case 2:
         return ChromeSetupTab(
@@ -827,6 +848,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
         return ShortcutsPage(active: _pageIndex == 6, busy: _busy);
       case 7:
         return const WebDavSyncPage();
+      case 8:
+        return const PartitionManagementPage();
       case 5:
         return SettingsPage(
             active: _pageIndex == 5,

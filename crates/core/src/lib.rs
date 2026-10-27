@@ -11,6 +11,7 @@ mod local_db;
 mod migrate;
 mod bitwarden_import;
 mod credential_groups;
+pub mod partitions;
 mod repo;
 mod repo_m2;
 mod server_profiles;
@@ -64,6 +65,10 @@ pub use credential_groups::{
     create_credential_group, delete_credential_group, list_credential_groups,
     rename_credential_group, set_item_group, CredentialGroupRow,
 };
+pub use credential_groups::create_credential_group_in_partition;
+pub use repo_m2::{list_logins_page_in_partition, insert_login_extended_in_partition, insert_ssh_key_in_partition,
+    generate_ssh_key_in_partition, insert_totp_with_rules_in_partition, insert_recovery_codes_in_partition};
+pub use server_profiles::insert_server_profile_in_partition;
 pub use server_profiles::{
     insert_server_profile, list_server_profiles, update_server_profile, ServerProfileRow,
 };

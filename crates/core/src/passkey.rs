@@ -34,6 +34,7 @@ pub struct Summary {
     pub display_name: String,
     pub created_at_ms: i64,
     pub last_used_at_ms: Option<i64>,
+    pub group_id: Option<String>,
 }
 
 fn invalid() -> CoreError {
@@ -297,7 +298,7 @@ fn cbor_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
 }
 
 pub fn list(conn: &Connection) -> Result<Vec<Summary>> {
-    let mut stmt = conn.prepare("SELECT p.credential_id,p.item_id,p.rp_id,p.username,p.display_name,p.created_at_ms,u.last_used_at_ms
+    let mut stmt = conn.prepare("SELECT p.credential_id,p.item_id,p.rp_id,p.username,p.display_name,p.created_at_ms,u.last_used_at_ms,i.group_id
         FROM passkey_credentials p JOIN items i ON i.id=p.item_id LEFT JOIN local_usage u ON u.item_id=p.item_id
         WHERE i.trashed=0 ORDER BY p.created_at_ms DESC,p.credential_id")?;
     let rows = stmt.query_map([], |r| {
@@ -309,6 +310,7 @@ pub fn list(conn: &Connection) -> Result<Vec<Summary>> {
             display_name: r.get(4)?,
             created_at_ms: r.get(5)?,
             last_used_at_ms: r.get(6)?,
+            group_id: r.get(7)?,
         })
     })?;
     rows.collect::<rusqlite::Result<Vec<_>>>()

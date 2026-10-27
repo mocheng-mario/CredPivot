@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'agent_bridge.dart';
 import 'app_ui.dart';
 import 'credential_confirm.dart';
+import 'credential_group_ui.dart';
 import 'credential_list_tile.dart';
+import 'linked_refs.dart';
 import 'touch_id_gate.dart';
 import 'vault_tools.dart';
 
@@ -15,6 +17,8 @@ class PasskeysPanel extends StatefulWidget {
 
 class _PasskeysPanelState extends State<PasskeysPanel> {
   List<Map<String, dynamic>> _items = [];
+  List<Map<String, dynamic>> _groups = [];
+  String? _filterGroupId;
   Map<String, dynamic>? _selected;
   String _query = '';
   String _error = '';
@@ -45,17 +49,22 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
       _error = '';
     });
     try {
+      final partition = AgentBridge.activePartitionId;
       final response = AgentBridge.payloadOf(
-          await AgentBridge.request({'type': 'passkey_list'}));
+          await AgentBridge.request({'type': 'passkey_list'}, partitionId: partition));
+      final groups = await loadCredentialGroups('passkey', partitionId: partition);
       if (!mounted || generation != _generation) return;
       final items = (response['items'] as List? ?? [])
           .map((v) => Map<String, dynamic>.from(v as Map))
           .toList();
       final id = _selected?['credential_id'];
       _items = items;
+      _groups = groups;
+      _filterGroupId = dropdownValueIfPresent(_filterGroupId, groups);
       _selected = null;
       for (final row in items) {
-        if (row['credential_id'] == id) {
+        if (row['credential_id'] == id &&
+            (_filterGroupId == null || row['group_id'] == _filterGroupId)) {
           _selected = row;
           break;
         }
@@ -100,8 +109,9 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
   Widget build(BuildContext context) {
     final query = _query.trim().toLowerCase();
     final visible = _items
-        .where((row) => [row['rp_id'], row['username'], row['display_name']]
-            .any((value) => value.toString().toLowerCase().contains(query)))
+        .where((row) => (_filterGroupId == null || row['group_id'] == _filterGroupId) &&
+            [row['rp_id'], row['username'], row['display_name']]
+                .any((value) => value.toString().toLowerCase().contains(query)))
         .toList();
     final selected = _selected;
     return Padding(
@@ -123,7 +133,15 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                 hintText: tr('passkey.build.text.item3'),
                 prefixIcon: const Icon(Icons.search_rounded))),
         if (_error.isNotEmpty) AppNotice(_error),
-        const SizedBox(height: 12),
+        buildGroupFilterBar(
+          groups: _groups,
+          selectedGroupId: _filterGroupId,
+          onChanged: (value) => setState(() {
+            _filterGroupId = value;
+            _selected = null;
+          }),
+          onManage: () => showManageGroupsDialog(context, 'passkey').then((_) => _refresh()),
+        ),
         Expanded(
             child: CredentialWorkspace(
           list: visible.isEmpty
@@ -132,8 +150,11 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                   title: tr('passkey.build.title'),
                   message: tr('passkey.build.message'))
               : ListView(
-                  children: visible
-                      .map((row) => selectableCredentialTile(
+                  children: buildGroupedListTiles(
+                      scope: 'passkey',
+                      groups: _groups,
+                      items: visible,
+                      tileBuilder: (row) => selectableCredentialTile(
                             context: context,
                             selected: selected?['credential_id'] ==
                                 row['credential_id'],
@@ -143,8 +164,7 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                             onTap: _busy
                                 ? null
                                 : () => setState(() => _selected = row),
-                          ))
-                      .toList()),
+                          ))),
           detail: selected == null
               ? null
               : CredentialDetails(
@@ -160,14 +180,29 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                     }),
           actions: selected == null
               ? null
-              : CredentialActionSection(
-                  title: tr('server.build.title.item5'),
-                  dangerous: true,
-                  children: [
+              : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  CredentialActionSection(
+                    title: tr('server.build.title.item4'),
+                    children: [
+                      OutlinedButton(
+                          onPressed: _busy ? null : () async {
+                            await showMoveItemToGroupDialog(context, scope: 'passkey',
+                                itemId: selected['item_id'] as String,
+                                currentGroupId: selected['group_id'] as String?);
+                            if (mounted) await _refresh();
+                          },
+                          child: const LText('credentials.build.text.item20')),
+                    ],
+                  ),
+                  CredentialActionSection(
+                    title: tr('server.build.title.item5'),
+                    dangerous: true,
+                    children: [
                       OutlinedButton(
                           onPressed: _busy ? null : _delete,
                           child: const LText('passkey.delete.title'))
                     ]),
+                ]),
         )),
       ]),
     );

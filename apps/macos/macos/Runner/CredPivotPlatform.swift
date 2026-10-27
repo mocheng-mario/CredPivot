@@ -1359,7 +1359,9 @@ final class CredPivotPlatform: NSObject {
     if !create {
       for (index, candidate) in candidates.enumerated() {
         let label = passkeyAccountLabel(candidate["username"] as? String ?? "", candidate["display_name"] as? String ?? "")
-        picker.addItem(withTitle: "\(index + 1). \(label)")
+        let partition = candidate["partition_name"] as? String ?? ""
+        let prefix = partition.isEmpty ? "" : "[\(partition)] "
+        picker.addItem(withTitle: "\(index + 1). \(prefix)\(label)")
         picker.lastItem?.representedObject = candidate["credential_id"] as? String
       }
       alert.accessoryView = picker

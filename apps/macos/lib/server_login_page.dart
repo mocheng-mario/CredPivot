@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'agent_bridge.dart';
 import 'app_ui.dart';
 import 'credential_confirm.dart';
+import 'credential_group_ui.dart';
 import 'credential_list_tile.dart';
 import 'linked_refs.dart';
 import 'terminal_settings.dart';
@@ -24,6 +25,8 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
   List<Map<String, dynamic>> _logins = [];
   List<Map<String, dynamic>> _totps = [];
   List<Map<String, dynamic>> _sshKeys = [];
+  List<Map<String, dynamic>> _groups = [];
+  String? _filterGroupId;
   Map<String, dynamic>? _selected;
   String _status = '';
   int _refreshGeneration = 0;
@@ -50,6 +53,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
       final logins = await AgentBridge.listCredentials();
       final totps = await AgentBridge.listTotp();
       final sshKeys = await AgentBridge.listSshKeys();
+      final groups = await loadCredentialGroups('server');
       if (!mounted || generation != _refreshGeneration) return;
       final selectedId = _selected?['id'];
       setState(() {
@@ -57,9 +61,12 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
         _logins = logins;
         _totps = totps;
         _sshKeys = sshKeys;
+        _groups = groups;
+        _filterGroupId = dropdownValueIfPresent(_filterGroupId, groups);
         _selected = null;
         for (final row in items) {
-          if (row['id'] == selectedId) _selected = row;
+          if (row['id'] == selectedId &&
+              (_filterGroupId == null || row['group_id'] == _filterGroupId)) _selected = row;
         }
         _status = '';
       });
@@ -326,12 +333,15 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final visibleItems = _items
+        .where((row) => _filterGroupId == null || row['group_id'] == _filterGroupId)
+        .toList();
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         AppSectionHeader(
           title: tr('credentials.server.title'),
-          subtitle: tr('server.list.count', args: {'count': _items.length}),
+          subtitle: tr('server.list.count', args: {'count': visibleItems.length}),
           action: Wrap(spacing: 8, runSpacing: 8, children: [
             OutlinedButton.icon(
                 onPressed: () => showTerminalPickerDialog(context),
@@ -344,17 +354,28 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
           ]),
         ),
         if (_status.isNotEmpty) AppNotice(_status),
+        buildGroupFilterBar(
+          groups: _groups,
+          selectedGroupId: _filterGroupId,
+          onChanged: (value) => setState(() {
+            _filterGroupId = value;
+            _selected = null;
+          }),
+          onManage: () => showManageGroupsDialog(context, 'server').then((_) => _refresh()),
+        ),
         Expanded(
             child: CredentialWorkspace(
-          list: _items.isEmpty
+          list: visibleItems.isEmpty
               ? AppEmptyState(
                   icon: Icons.dns_outlined,
                   title: tr('server.build.title'),
                   message: tr('server.build.message'))
-              : ListView.builder(
-                  itemCount: _items.length,
-                  itemBuilder: (_, i) {
-                    final row = _items[i];
+              : ListView(
+                  children: buildGroupedListTiles(
+                  scope: 'server',
+                  groups: _groups,
+                  items: visibleItems,
+                  tileBuilder: (row) {
                     final selected = _selected?['id'] == row['id'];
                     final loginLbl = _linkedLoginDisplayName(
                       row['linked_login_id'] as String?,
@@ -385,7 +406,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                       onTap: () => setState(() => _selected = row),
                     );
                   },
-                ),
+                )),
           detail: _selected == null
               ? null
               : CredentialDetails(
@@ -445,6 +466,15 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                           OutlinedButton(
                               onPressed: () => _addOrEdit(existing: _selected),
                               child: const LText('common.edit')),
+                          OutlinedButton(
+                              onPressed: () async {
+                                final row = _selected!;
+                                await showMoveItemToGroupDialog(context, scope: 'server',
+                                    itemId: row['item_id'] as String,
+                                    currentGroupId: row['group_id'] as String?);
+                                if (mounted) await _refresh();
+                              },
+                              child: const LText('credentials.build.text.item20')),
                         ],
                       ),
                       CredentialActionSection(
@@ -475,11 +505,13 @@ String _loginPickerLabel(Map<String, dynamic> row) {
 
 Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>? existing}) async {
     final isEdit = existing != null;
-    List<Map<String, dynamic>> logins, totps, sshKeys;
+    final partition = existing?['partition_id']?.toString() ?? AgentBridge.activePartitionId;
+    List<Map<String, dynamic>> logins, totps, sshKeys, groups;
     try {
-      logins = await AgentBridge.listCredentials();
-      totps = await AgentBridge.listTotp();
-      sshKeys = await AgentBridge.listSshKeys();
+      logins = await AgentBridge.listCredentials(null, partition);
+      totps = await AgentBridge.listTotp(partitionId: partition);
+      sshKeys = await AgentBridge.listSshKeys(partitionId: partition);
+      groups = await loadCredentialGroups('server', partitionId: partition);
     } on AgentException catch (e) {
       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AgentBridge.friendlyMessage(e))));
       return false;
@@ -496,12 +528,13 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
     var linkedLogin = dropdownValueIfPresent(rawLogin, logins);
     var linkedTotp = dropdownValueIfPresent(rawTotp, totps);
     var linkedSsh = dropdownValueIfPresent(rawSsh, sshKeys);
+    var groupId = dropdownValueIfPresent(existing?['group_id'] as String?, groups);
     final hadStaleLink = isEdit &&
         (staleLinkWasCleared(rawLogin, linkedLogin) ||
             staleLinkWasCleared(rawTotp, linkedTotp) ||
             staleLinkWasCleared(rawSsh, linkedSsh));
 
-    String snapshot() => jsonEncode([labelCtl.text,hostCtl.text,portCtl.text,manualUserCtl.text,linkedLogin,linkedTotp,linkedSsh]);
+    String snapshot() => jsonEncode([labelCtl.text,hostCtl.text,portCtl.text,manualUserCtl.text,linkedLogin,linkedTotp,linkedSsh,groupId]);
     final initialSnapshot = snapshot();
     var closing = false, confirmingDiscard = false, saving = false;
     var formError = '';
@@ -534,13 +567,16 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
             label: labelCtl.text.trim(), host: hostCtl.text.trim(), port: port,
             manualUsername: noLinkedLogin ? manualUserCtl.text.trim() : '',
             linkedLoginId: linkedLogin, linkedTotpId: linkedTotp, linkedSshKeyId: linkedSsh,
+            groupId: groupId,
           );
         } else {
           await AgentBridge.createServerProfile(
+            partitionId: partition,
             label: labelCtl.text.trim().isEmpty ? hostCtl.text.trim() : labelCtl.text.trim(),
             host: hostCtl.text.trim(), port: port,
             manualUsername: noLinkedLogin ? manualUserCtl.text.trim() : '',
             linkedLoginId: linkedLogin, linkedTotpId: linkedTotp, linkedSshKeyId: linkedSsh,
+            groupId: groupId,
           );
         }
         if (ctx.mounted && !closing) {
@@ -568,6 +604,18 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
               mainAxisSize: MainAxisSize.min,
               children: appFormFields([
                 TextField(controller: labelCtl, decoration: InputDecoration(labelText: tr('common.name'))),
+                DropdownButtonFormField<String?>(
+                  isExpanded: true,
+                  value: groupId,
+                  decoration: InputDecoration(labelText: tr('common.group')),
+                  items: [
+                    const DropdownMenuItem(value: null, child: LText('common.ungroupedOption')),
+                    for (final group in groups)
+                      DropdownMenuItem(value: group['id'] as String,
+                          child: Text(group['name'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  ],
+                  onChanged: (value) => setLocal(() => groupId = value),
+                ),
                 TextField(
                   controller: hostCtl,
                   decoration: InputDecoration(labelText: tr('server.save.text.item5')),

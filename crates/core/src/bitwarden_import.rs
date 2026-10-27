@@ -379,6 +379,12 @@ pub fn import_with_choices(
         } else {
             uid()
         };
+        // 重新导入保留条目的现有分区；新条目进入个人分区，不复用其他分区的分组或 MFA。
+        let partition = if updating {
+            crate::partitions::item_partition(&tx, &item)?
+        } else {
+            crate::partitions::PERSONAL.to_string()
+        };
         let rev = new_revision();
         let ts = now_ms();
         let mut d = details(v);
@@ -397,13 +403,15 @@ pub fn import_with_choices(
             let scope = if kind == 1 { "login" } else { "secure_note" };
             let existing: Option<String> = tx
                 .query_row(
-                    "SELECT id FROM credential_groups WHERE name=?1 AND scope=?2",
-                    params![name, scope],
+                    "SELECT id FROM credential_groups WHERE lower(name)=lower(?1) AND scope=?2 AND partition_id=?3 ORDER BY id LIMIT 1",
+                    params![name, scope, partition],
                     |r| r.get(0),
                 )
                 .optional()?;
-            let group = existing.unwrap_or_else(uid);
-            tx.execute("INSERT OR IGNORE INTO credential_groups(id,name,scope,sort_order,created_at_ms) VALUES (?1,?2,?3,0,?4)",params![group,name,scope,ts])?;
+            let group = match existing {
+                Some(id) => id,
+                None => crate::credential_groups::create_credential_group_in_partition(&tx, &partition, scope, name)?.id,
+            };
             Some(group)
         } else {
             None
@@ -447,13 +455,13 @@ pub fn import_with_choices(
             if !totp.is_empty() {
                 match crate::totp::totp_params_for_storage(totp) {
                     Ok(p) => {
-                        let existing:Option<String>=tx.query_row("SELECT t.id FROM totp_credentials t JOIN items i ON i.id=t.item_id WHERE i.trashed=0 AND t.issuer=?1 AND t.account=?2 AND t.secret_base32=?3 AND t.totp_algorithm=?4 AND t.totp_digits=?5 AND t.totp_period=?6 LIMIT 1",params![text(v,"name"),user,p.secret_base32,crate::totp::algorithm_name(p.algorithm),p.digits as i64,p.period as i64],|r|r.get(0)).optional()?;
+                        let existing:Option<String>=tx.query_row("SELECT t.id FROM totp_credentials t JOIN items i ON i.id=t.item_id WHERE i.trashed=0 AND i.partition_id=?7 AND t.issuer=?1 AND t.account=?2 AND t.secret_base32=?3 AND t.totp_algorithm=?4 AND t.totp_digits=?5 AND t.totp_period=?6 LIMIT 1",params![text(v,"name"),user,p.secret_base32,crate::totp::algorithm_name(p.algorithm),p.digits as i64,p.period as i64,partition],|r|r.get(0)).optional()?;
                         let tid = if let Some(tid) = existing {
                             tid
                         } else {
                             let tid = uid();
                             let ti = uid();
-                            tx.execute("INSERT INTO items(id,kind,title,current_revision,created_at_ms,updated_at_ms,group_id) VALUES (?1,'totp',?2,?3,?4,?4,NULL)",params![ti,text(v,"name"),rev,ts])?;
+                            tx.execute("INSERT INTO items(id,kind,title,current_revision,created_at_ms,updated_at_ms,group_id,partition_id) VALUES (?1,'totp',?2,?3,?4,?4,NULL,?5)",params![ti,text(v,"name"),rev,ts,partition])?;
                             tx.execute("INSERT INTO totp_credentials(id,item_id,issuer,account,secret_base32,totp_algorithm,totp_digits,totp_period,current_revision,created_at_ms,updated_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10)",params![tid,ti,text(v,"name"),user,p.secret_base32,crate::totp::algorithm_name(p.algorithm),p.digits as i64,p.period as i64,rev,ts])?;
                             tid
                         };

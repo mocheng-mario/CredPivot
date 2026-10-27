@@ -257,7 +257,14 @@ pub fn browser_mfa_candidates(conn: &Connection, origin: &str, credential_id: Op
         let login = crate::repo_m2::get_login_row(conn, credential)?;
         details_for(conn, &login.item_id)?.linked_mfa_ids
     } else { Vec::new() };
-    let rows = crate::repo_m2::list_totp_credentials(conn)?;
+    let mut rows = crate::repo_m2::list_totp_credentials(conn)?;
+    if let Some(login)=credential_id {
+        let mut filtered=Vec::new();
+        for row in rows {
+            if crate::partitions::same_credentials(conn,login,&row.id)? { filtered.push(row); }
+        }
+        rows=filtered;
+    }
     let mut result = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut last_rank = None;

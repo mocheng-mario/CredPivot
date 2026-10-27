@@ -17,6 +17,7 @@ import 'linked_refs.dart';
 import 'server_login_page.dart';
 import 'touch_id_gate.dart';
 import 'passkeys_page.dart';
+import 'credential_partitions.dart';
 
 Future<void> _showTextRevealDialog(
   BuildContext context, {
@@ -55,11 +56,12 @@ Future<void> _showTextRevealDialog(
 
 Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existing}) async {
     final isEdit = existing != null;
+    final partition = existing?['partition_id']?.toString() ?? AgentBridge.activePartitionId;
     List<Map<String, dynamic>> totps = [];
     List<Map<String, dynamic>> groups = [];
     try {
-      totps = await AgentBridge.listTotp();
-      groups = await loadCredentialGroups('login');
+      totps = await AgentBridge.listTotp(partitionId: partition);
+      groups = await loadCredentialGroups('login', partitionId: partition);
     } on AgentException catch (e) {
       if (context.mounted) vaultMessage(context, e);
       return false;
@@ -159,7 +161,7 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
                   setLocal(() => validating = true);
                   try {
                     if (await showTotpEditor(ctx, existing: mfa)) {
-                      final updated = await AgentBridge.listTotp();
+                      final updated = await AgentBridge.listTotp(partitionId: partition);
                       if (ctx.mounted) setLocal(() => totps = updated);
                     }
                   } finally {
@@ -199,6 +201,7 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
                   );
                 } else {
                   await AgentBridge.createLogin(
+                    partitionId: partition,
                     origin: origin,
                     websiteRules: websiteRules,
                     linkedMfaIds: linkedMfaIds,
@@ -259,6 +262,9 @@ class CredentialsTab extends StatelessWidget {
       length: 7,
       child: Column(
         children: [
+          Align(alignment: Alignment.centerRight, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: OutlinedButton.icon(onPressed: () => showPartitionMigration(context, AgentBridge.activePartitionId),
+              icon: const Icon(Icons.drive_file_move_outlined, size: 18), label: const LText('partitions.move')))),
           Container(
             margin: const EdgeInsets.fromLTRB(24, 4, 24, 8),
             padding: const EdgeInsets.all(4),
@@ -424,6 +430,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                   message: tr('credentials.build.message.item2'))
               : ListView(
                   children: buildGroupedListTiles(
+                  scope: 'login',
                   groups: _groups,
                   items: visibleItems,
                   tileBuilder: (row) {
@@ -744,6 +751,7 @@ class _TotpPanelState extends State<_TotpPanel> {
                     message: tr('credentials.build.message.item4'))
                 : ListView(
                     children: buildGroupedListTiles(
+                      scope: 'totp',
                       groups: _groups,
                       items: visibleItems,
                       tileBuilder: (row) {
@@ -980,6 +988,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                     message: tr('credentials.build.message.item5'))
                 : ListView(
                     children: buildGroupedListTiles(
+                      scope: 'ssh',
                       groups: _groups,
                       items: visibleItems,
                       tileBuilder: (row) {

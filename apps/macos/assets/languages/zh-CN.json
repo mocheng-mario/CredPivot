@@ -11869,6 +11869,519 @@
         "webdav_sync.dart",
         "CredPivotPlatform.swift"
       ]
+    },
+    "partitions.personal": {
+      "source": "个人",
+      "translation": "个人",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.work": {
+      "source": "工作",
+      "translation": "工作",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.manage": {
+      "source": "分区管理",
+      "translation": "分区管理",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.label": {
+      "source": "所属分区",
+      "translation": "所属分区",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.description": {
+      "source": "按用途分类凭据，各分区独立管理分组；共用保险库解锁、备份和同步。",
+      "translation": "按用途分类凭据，各分区独立管理分组；共用保险库解锁、备份和同步。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.credentialsTitle": {
+      "source": "{name}凭据",
+      "translation": "{name}凭据",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {
+        "name": {
+          "description": "Keep {name} unchanged."
+        }
+      },
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.create": {
+      "source": "新增分区",
+      "translation": "新增分区",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.rename": {
+      "source": "重命名",
+      "translation": "重命名",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.delete": {
+      "source": "删除分区",
+      "translation": "删除分区",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.deleteHelp": {
+      "source": "确认删除空分区“{name}”？其中的空分组也会删除。",
+      "translation": "确认删除空分区“{name}”？其中的空分组也会删除。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {
+        "name": {
+          "description": "Keep {name} unchanged."
+        }
+      },
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.emptyDeleteOnly": {
+      "source": "默认个人分区不可删除；其他分区需先迁移全部凭据，并处理回收站，才能删除。",
+      "translation": "默认个人分区不可删除；其他分区需先迁移全部凭据，并处理回收站，才能删除。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.up": {
+      "source": "上移",
+      "translation": "上移",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.down": {
+      "source": "下移",
+      "translation": "下移",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.counts": {
+      "source": "{count} 条凭据 · 回收站 {trash} 条",
+      "translation": "{count} 条凭据 · 回收站 {trash} 条",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {
+        "count": {
+          "description": "Keep {count} unchanged."
+        },
+        "trash": {
+          "description": "Keep {trash} unchanged."
+        }
+      },
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.move": {
+      "source": "迁移凭据",
+      "translation": "迁移凭据",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.target": {
+      "source": "迁移到分区",
+      "translation": "迁移到分区",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.search": {
+      "source": "搜索要迁移的凭据",
+      "translation": "搜索要迁移的凭据",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.selectAll": {
+      "source": "全选 / 取消全选当前结果（已选 {count} 条）",
+      "translation": "全选 / 取消全选当前结果（已选 {count} 条）",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {
+        "count": {
+          "description": "Keep {count} unchanged."
+        }
+      },
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.preview": {
+      "source": "预览迁移",
+      "translation": "预览迁移",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.confirmMove": {
+      "source": "确认迁移",
+      "translation": "确认迁移",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.moveHelp": {
+      "source": "已选 {selected} 条，包含双向及间接关联后，共迁移 {count} 条到“{name}”。关联记录、回收站归属和普通分组会一起处理；目标同名分组会复用，无则创建。",
+      "translation": "已选 {selected} 条，包含双向及间接关联后，共迁移 {count} 条到“{name}”。关联记录、回收站归属和普通分组会一起处理；目标同名分组会复用，无则创建。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {
+        "selected": {
+          "description": "Keep {selected} unchanged."
+        },
+        "count": {
+          "description": "Keep {count} unchanged."
+        },
+        "name": {
+          "description": "Keep {name} unchanged."
+        }
+      },
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.trashed": {
+      "source": "已删除",
+      "translation": "已删除",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.linked": {
+      "source": "关联带入",
+      "translation": "关联带入",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.moved": {
+      "source": "已迁移 {count} 条凭据。",
+      "translation": "已迁移 {count} 条凭据。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {
+        "count": {
+          "description": "Keep {count} unchanged."
+        }
+      },
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.errors.notFound": {
+      "source": "分区或凭据已不存在，请刷新后重试。",
+      "translation": "分区或凭据已不存在，请刷新后重试。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.errors.name": {
+      "source": "分区名称不能为空、不能超过 80 个字符或包含控制字符，internal_work 为保留名称。",
+      "translation": "分区名称不能为空、不能超过 80 个字符或包含控制字符，internal_work 为保留名称。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.errors.duplicateName": {
+      "source": "已存在同名分区，请使用其他名称。",
+      "translation": "已存在同名分区，请使用其他名称。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.errors.defaultDelete": {
+      "source": "默认个人分区不能删除。",
+      "translation": "默认个人分区不能删除。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.errors.notEmpty": {
+      "source": "分区仍有凭据或回收站记录，请先迁移或处理后再删除。",
+      "translation": "分区仍有凭据或回收站记录，请先迁移或处理后再删除。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.errors.invalid": {
+      "source": "分区数据或凭据归属无效，操作未应用。请检查相关记录。",
+      "translation": "分区数据或凭据归属无效，操作未应用。请检查相关记录。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.errors.crossLink": {
+      "source": "关联凭据必须位于同一分区。请通过迁移入口将关联记录一起迁移；同步冲突中需为关联记录选择一致的分区。",
+      "translation": "关联凭据必须位于同一分区。请通过迁移入口将关联记录一起迁移；同步冲突中需为关联记录选择一致的分区。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.errors.crossGroup": {
+      "source": "凭据只能使用所属分区内的分组。请刷新选项，或通过迁移入口改变所属分区。",
+      "translation": "凭据只能使用所属分区内的分组。请刷新选项，或通过迁移入口改变所属分区。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.errors.migrationRequired": {
+      "source": "所属分区只能通过迁移入口修改，以确保所有关联记录一起迁移。",
+      "translation": "所属分区只能通过迁移入口修改，以确保所有关联记录一起迁移。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.errors.selection": {
+      "source": "当前分区没有可迁移的记录，或选择数量无效。",
+      "translation": "当前分区没有可迁移的记录，或选择数量无效。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.errors.noTarget": {
+      "source": "请先创建另一个分区，再迁移凭据。",
+      "translation": "请先创建另一个分区，再迁移凭据。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.errors.groupName": {
+      "source": "分组名称不能为空、不能超过 80 个字符或包含控制字符，internal_work 为保留名称。",
+      "translation": "分组名称不能为空、不能超过 80 个字符或包含控制字符，internal_work 为保留名称。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "partitions.errors.groupDuplicate": {
+      "source": "此分区的当前凭据类型下已存在同名分组。",
+      "translation": "此分区的当前凭据类型下已存在同名分组。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "groups.rename": {
+      "source": "重命名分组",
+      "translation": "重命名分组",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "sync.itemType.partition": {
+      "source": "分区",
+      "translation": "分区",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.schemaVersion": {
+      "source": "远端使用不同的数据结构版本。当前本地数据已升级，请保留备份后重新接入新的远端同步空间，并让所有设备使用同一版本 App。",
+      "translation": "远端使用不同的数据结构版本。当前本地数据已升级，请保留备份后重新接入新的远端同步空间，并让所有设备使用同一版本 App。",
+      "description": "Credential partitions, group rename and atomic migration of related records.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart",
+        "credential_group_ui.dart",
+        "partitions.rs",
+        "sync.rs"
+      ]
     }
   }
 }

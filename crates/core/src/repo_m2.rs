@@ -40,6 +40,10 @@ pub fn list_logins(conn: &Connection, query: Option<&str>, limit: u32) -> Result
 }
 
 pub fn list_logins_page(conn: &Connection, query: Option<&str>, limit: u32, offset: u32) -> Result<Vec<LoginListRow>> {
+    list_logins_page_in_partition(conn,query,limit,offset,None)
+}
+
+pub fn list_logins_page_in_partition(conn: &Connection, query: Option<&str>, limit: u32, offset: u32, partition: Option<&str>) -> Result<Vec<LoginListRow>> {
     let lim = limit.clamp(1, 500);
     let q = query.map(|s| s.trim()).filter(|s| !s.is_empty());
     let mut out = Vec::new();
@@ -51,14 +55,14 @@ pub fn list_logins_page(conn: &Connection, query: Option<&str>, limit: u32, offs
                     "{LOGIN_LIST_SELECT}
                  FROM login_credentials c
                  INNER JOIN items i ON i.id = c.item_id
-                 WHERE i.trashed = 0 AND (i.title LIKE ?1 OR c.display_name LIKE ?1 OR c.origin LIKE ?1 OR c.username LIKE ?1
+                 WHERE i.trashed = 0 AND (?4 IS NULL OR i.partition_id=?4) AND (i.title LIKE ?1 OR c.display_name LIKE ?1 OR c.origin LIKE ?1 OR c.username LIKE ?1
                    OR EXISTS (SELECT 1 FROM json_each(i.details_json, '$.uris') AS rule WHERE json_extract(rule.value, '$.uri') LIKE ?1))
                  ORDER BY c.updated_at_ms DESC, c.id ASC LIMIT ?2 OFFSET ?3"
                 ),
             )
             .map_err(|e| CoreError::format(e.to_string()))?;
         let rows = stmt
-            .query_map(params![pattern, lim, offset], map_login_row)
+            .query_map(params![pattern, lim, offset, partition], map_login_row)
             .map_err(|e| CoreError::format(e.to_string()))?;
         for r in rows {
             out.push(r.map_err(|e| CoreError::format(e.to_string()))?);
@@ -70,13 +74,13 @@ pub fn list_logins_page(conn: &Connection, query: Option<&str>, limit: u32, offs
                     "{LOGIN_LIST_SELECT}
                  FROM login_credentials c
                  INNER JOIN items i ON i.id = c.item_id
-                 WHERE i.trashed = 0
+                 WHERE i.trashed = 0 AND (?3 IS NULL OR i.partition_id=?3)
                  ORDER BY c.updated_at_ms DESC, c.id ASC LIMIT ?1 OFFSET ?2"
                 ),
             )
             .map_err(|e| CoreError::format(e.to_string()))?;
         let rows = stmt
-            .query_map(params![lim, offset], map_login_row)
+            .query_map(params![lim, offset, partition], map_login_row)
             .map_err(|e| CoreError::format(e.to_string()))?;
         for r in rows {
             out.push(r.map_err(|e| CoreError::format(e.to_string()))?);
@@ -140,6 +144,24 @@ pub fn insert_login_extended(
     linked_mfa_ids: Option<&[String]>,
     password_active_since_ms: Option<i64>,
 ) -> Result<LoginListRow> {
+    insert_login_extended_in_partition(conn, crate::partitions::PERSONAL, origin, username, password, display_name, connection_host, linked_totp_id, group_id, website_rules, linked_mfa_ids, password_active_since_ms)
+}
+
+pub fn insert_login_extended_in_partition(
+    conn: &Connection,
+    partition_id: &str,
+    origin: &str,
+    username: &str,
+    password: &str,
+    display_name: &str,
+    connection_host: &str,
+    linked_totp_id: Option<&str>,
+    group_id: Option<&str>,
+    website_rules: Option<&[crate::UriRule]>,
+    linked_mfa_ids: Option<&[String]>,
+    password_active_since_ms: Option<i64>,
+) -> Result<LoginListRow> {
+    crate::partitions::require(conn, partition_id)?;
     let item_id = Uuid::new_v4().to_string();
     let cred_id = Uuid::new_v4().to_string();
     let revision = new_revision();
@@ -151,9 +173,9 @@ pub fn insert_login_extended(
         .unchecked_transaction()
         .map_err(|e| CoreError::format(e.to_string()))?;
     tx.execute(
-        "INSERT INTO items (id, kind, title, trashed, group_id, current_revision, created_at_ms, updated_at_ms)
-         VALUES (?1, 'login', ?2, 0, ?3, ?4, ?5, ?5)",
-        params![item_id, title, group_id, revision, ts],
+        "INSERT INTO items (id, kind, title, trashed, group_id, current_revision, created_at_ms, updated_at_ms, partition_id)
+         VALUES (?1, 'login', ?2, 0, ?3, ?4, ?5, ?5, ?6)",
+        params![item_id, title, group_id, revision, ts, partition_id],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     tx.execute(
@@ -191,6 +213,7 @@ pub fn insert_login_extended(
     }
 
     let row = get_login_row(&tx, &cred_id)?;
+    crate::mark_restore_dirty(&tx)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(row)
 }
@@ -410,6 +433,19 @@ pub fn insert_ssh_key(
     is_default: bool,
     group_id: Option<&str>,
 ) -> Result<SshKeyRecord> {
+    insert_ssh_key_in_partition(conn, crate::partitions::PERSONAL, label, public_openssh, seed, is_default, group_id)
+}
+
+pub fn insert_ssh_key_in_partition(
+    conn: &Connection,
+    partition_id: &str,
+    label: &str,
+    public_openssh: &str,
+    seed: &[u8; 32],
+    is_default: bool,
+    group_id: Option<&str>,
+) -> Result<SshKeyRecord> {
+    crate::partitions::require(conn, partition_id)?;
     let item_id = Uuid::new_v4().to_string();
     let key_id = Uuid::new_v4().to_string();
     let revision = new_revision();
@@ -425,9 +461,9 @@ pub fn insert_ssh_key(
         .map_err(|e| CoreError::format(e.to_string()))?;
     }
     tx.execute(
-        "INSERT INTO items (id, kind, title, trashed, group_id, current_revision, created_at_ms, updated_at_ms)
-         VALUES (?1, 'ssh_key', ?2, 0, ?3, ?4, ?5, ?5)",
-        params![item_id, label, group_id, revision, ts],
+        "INSERT INTO items (id, kind, title, trashed, group_id, current_revision, created_at_ms, updated_at_ms, partition_id)
+         VALUES (?1, 'ssh_key', ?2, 0, ?3, ?4, ?5, ?5, ?6)",
+        params![item_id, label, group_id, revision, ts, partition_id],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     tx.execute(
@@ -445,6 +481,7 @@ pub fn insert_ssh_key(
         ],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
+    crate::mark_restore_dirty(&tx)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(SshKeyRecord {
         id: key_id,
@@ -624,13 +661,24 @@ pub fn generate_ssh_key(
     set_default: bool,
     group_id: Option<&str>,
 ) -> Result<SshKeyListRow> {
+    generate_ssh_key_in_partition(conn, crate::partitions::PERSONAL, label, set_default, group_id)
+}
+
+pub fn generate_ssh_key_in_partition(
+    conn: &Connection,
+    partition_id: &str,
+    label: &str,
+    set_default: bool,
+    group_id: Option<&str>,
+) -> Result<SshKeyListRow> {
+    crate::partitions::require(conn, partition_id)?;
     use ed25519_dalek::SigningKey;
     use rand::rngs::OsRng;
     let signing = SigningKey::generate(&mut OsRng);
     let seed = signing.to_bytes();
     let vk = signing.verifying_key();
     let public = format_ssh_ed25519_openssh(vk.as_bytes(), "credpivot");
-    let rec = insert_ssh_key(conn, label, &public, &seed, set_default, group_id)?;
+    let rec = insert_ssh_key_in_partition(conn, partition_id, label, &public, &seed, set_default, group_id)?;
     Ok(SshKeyListRow {
         id: rec.id,
         item_id: rec.item_id,
@@ -677,6 +725,19 @@ pub(crate) fn insert_totp_with_rules(
     group_id: Option<&str>,
     website_rules: &[crate::UriRule],
 ) -> Result<String> {
+    insert_totp_with_rules_in_partition(conn, crate::partitions::PERSONAL, issuer, account, secret_base32, group_id, website_rules)
+}
+
+pub fn insert_totp_with_rules_in_partition(
+    conn: &Connection,
+    partition_id: &str,
+    issuer: &str,
+    account: &str,
+    secret_base32: &str,
+    group_id: Option<&str>,
+    website_rules: &[crate::UriRule],
+) -> Result<String> {
+    crate::partitions::require(conn, partition_id)?;
     crate::website_rules::validate_website_rules(website_rules)?;
     let parsed = crate::totp::parse_totp_input(secret_base32)?;
     let issuer = if issuer.trim().is_empty() { parsed.issuer.as_str() } else { issuer.trim() };
@@ -692,9 +753,9 @@ pub(crate) fn insert_totp_with_rules(
         .unchecked_transaction()
         .map_err(|e| CoreError::format(e.to_string()))?;
     tx.execute(
-        "INSERT INTO items (id, kind, title, trashed, group_id, current_revision, created_at_ms, updated_at_ms)
-         VALUES (?1, 'totp', ?2, 0, ?3, ?4, ?5, ?5)",
-        params![item_id, title, group_id, revision, ts],
+        "INSERT INTO items (id, kind, title, trashed, group_id, current_revision, created_at_ms, updated_at_ms, partition_id)
+         VALUES (?1, 'totp', ?2, 0, ?3, ?4, ?5, ?5, ?6)",
+        params![item_id, title, group_id, revision, ts, partition_id],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     tx.execute(
@@ -717,6 +778,7 @@ pub(crate) fn insert_totp_with_rules(
     .map_err(|e| CoreError::format(e.to_string()))?;
     let details = crate::credential_management::ItemDetails { uris:website_rules.to_vec(),otp_extra_parameters:parsed.extra_parameters,..Default::default() };
     tx.execute("UPDATE items SET details_json=?1 WHERE id=?2",params![serde_json::to_string(&details).map_err(|_|CoreError::format("MFA 详情编码失败"))?,item_id])?;
+    crate::mark_restore_dirty(&tx)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(totp_id)
 }
@@ -750,6 +812,16 @@ pub fn insert_recovery_codes(
     service_name: &str,
     codes: &[String],
 ) -> Result<RecoveryCodeRow> {
+    insert_recovery_codes_in_partition(conn, crate::partitions::PERSONAL, service_name, codes)
+}
+
+pub fn insert_recovery_codes_in_partition(
+    conn: &Connection,
+    partition_id: &str,
+    service_name: &str,
+    codes: &[String],
+) -> Result<RecoveryCodeRow> {
+    crate::partitions::require(conn, partition_id)?;
     if service_name.trim().is_empty() {
         return Err(CoreError::format("service_name required"));
     }
@@ -771,9 +843,9 @@ pub fn insert_recovery_codes(
         .unchecked_transaction()
         .map_err(|e| CoreError::format(e.to_string()))?;
     tx.execute(
-        "INSERT INTO items (id, kind, title, trashed, current_revision, created_at_ms, updated_at_ms)
-         VALUES (?1, 'recovery_codes', ?2, 0, ?3, ?4, ?4)",
-        params![item_id, service_name, revision, ts],
+        "INSERT INTO items (id, kind, title, trashed, current_revision, created_at_ms, updated_at_ms, partition_id)
+         VALUES (?1, 'recovery_codes', ?2, 0, ?3, ?4, ?4, ?5)",
+        params![item_id, service_name, revision, ts, partition_id],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     tx.execute(
@@ -783,6 +855,7 @@ pub fn insert_recovery_codes(
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     crate::credential_management::sync_recovery_entries(&tx, &rec_id, &cleaned)?;
+    crate::mark_restore_dirty(&tx)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
     Ok(RecoveryCodeRow {
         id: rec_id,

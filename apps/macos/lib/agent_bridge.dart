@@ -5,6 +5,8 @@ import 'app_presentation.dart';
 
 /// 通过 Swift 平台通道调用进程内 Agent（Rust FFI 在 Runner 内链接）。
 class AgentBridge {
+  static const personalPartitionId = '00000000-0000-4000-8000-000000000001';
+  static String activePartitionId = personalPartitionId;
   static const _channel = MethodChannel('credpivot/agent');
   static Future<bool>? _agentReadyCheck;
 
@@ -28,8 +30,17 @@ class AgentBridge {
     });
   }
 
-  static Future<Map<String, dynamic>> request(Map<String, dynamic> body) async {
-    final raw = await _channel.invokeMethod<String>('agentRequest', jsonEncode(body));
+  static Future<Map<String, dynamic>> request(Map<String, dynamic> body,
+      {String? partitionId, bool allPartitions = false}) async {
+    const scopedTypes = {'credential_list', 'credential_save', 'totp_list', 'totp_create',
+      'ssh_key_list', 'ssh_key_generate', 'server_profile_list', 'server_profile_create',
+      'recovery_codes_list', 'recovery_codes_create', 'credential_group_list', 'credential_group_create', 'passkey_list'};
+    final action = body['action'];
+    final scoped = !allPartitions && (scopedTypes.contains(body['type']) ||
+        (body['type'] == 'vault_manage' && action is Map &&
+            {'item_search', 'trash_list', 'note_create', 'ssh_import'}.contains(action['action'])));
+    final wire = scoped ? {'type': 'partition_request', 'partition_id': partitionId ?? activePartitionId, 'request': body} : body;
+    final raw = await _channel.invokeMethod<String>('agentRequest', jsonEncode(wire));
     if (raw == null) {
       throw StateError('empty agent response');
     }
@@ -293,8 +304,9 @@ class AgentBridge {
     return raw ?? '';
   }
 
-  static Future<Map<String, dynamic>> manage(Map<String, dynamic> action) async =>
-      payloadOf(await request({'type': 'vault_manage', 'action': action}));
+  static Future<Map<String, dynamic>> manage(Map<String, dynamic> action,
+          {String? partitionId, bool allPartitions = false}) async =>
+      payloadOf(await request({'type': 'vault_manage', 'action': action}, partitionId: partitionId, allPartitions: allPartitions));
 
   static Future<List<String>> scanQrImage() async =>
       (await _channel.invokeListMethod<String>('scanQrImage')) ?? [];
@@ -305,8 +317,8 @@ class AgentBridge {
   static Future<void> copyConcealed(String secret) =>
       _channel.invokeMethod('copyConcealed', secret);
 
-  static Future<List<Map<String, dynamic>>> listCredentialGroups(String scope) async {
-    final resp = await request({'type': 'credential_group_list', 'scope': scope});
+  static Future<List<Map<String, dynamic>>> listCredentialGroups(String scope, {String? partitionId}) async {
+    final resp = await request({'type': 'credential_group_list', 'scope': scope}, partitionId: partitionId);
     final items = payloadOf(resp)['items'] as List<dynamic>? ?? [];
     return items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
@@ -420,6 +432,7 @@ class AgentBridge {
   }
 
   static Future<Map<String, dynamic>> createLogin({
+    String? partitionId,
     required String origin,
     required String username,
     required String password,
@@ -444,7 +457,7 @@ class AgentBridge {
       if (linkedTotpId != null && linkedTotpId.isNotEmpty) 'linked_totp_id': linkedTotpId,
       if (websiteRules != null) 'website_rules': websiteRules,
       if (linkedMfaIds != null) 'linked_mfa_ids': linkedMfaIds,
-    });
+    }, partitionId: partitionId);
     return Map<String, dynamic>.from(payloadOf(resp)['credential'] as Map? ?? {});
   }
 
@@ -478,13 +491,14 @@ class AgentBridge {
     return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
   }
 
-  static Future<List<Map<String, dynamic>>> listTotp() async {
-    final resp = await request({'type': 'totp_list'});
+  static Future<List<Map<String, dynamic>>> listTotp({String? partitionId}) async {
+    final resp = await request({'type': 'totp_list'}, partitionId: partitionId);
     final items = payloadOf(resp)['items'] as List<dynamic>? ?? [];
     return items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   static Future<Map<String, dynamic>> createTotp({
+    String? partitionId,
     required String issuer,
     required String account,
     required String secretBase32,
@@ -498,7 +512,7 @@ class AgentBridge {
       'account': account,
       'secret_base32': secretBase32,
       if (groupId != null && groupId.isNotEmpty) 'group_id': groupId,
-    });
+    }, partitionId: partitionId);
     return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
   }
 
@@ -512,13 +526,14 @@ class AgentBridge {
     return Map<String, dynamic>.from(payloadOf(resp)['reveal'] as Map? ?? {});
   }
 
-  static Future<List<Map<String, dynamic>>> listServerProfiles() async {
-    final resp = await request({'type': 'server_profile_list'});
+  static Future<List<Map<String, dynamic>>> listServerProfiles({String? partitionId}) async {
+    final resp = await request({'type': 'server_profile_list'}, partitionId: partitionId);
     final items = payloadOf(resp)['items'] as List<dynamic>? ?? [];
     return items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   static Future<Map<String, dynamic>> createServerProfile({
+    String? partitionId,
     required String label,
     required String host,
     int port = 22,
@@ -538,7 +553,7 @@ class AgentBridge {
       if (linkedTotpId != null && linkedTotpId.isNotEmpty) 'linked_totp_id': linkedTotpId,
       if (linkedSshKeyId != null && linkedSshKeyId.isNotEmpty) 'linked_ssh_key_id': linkedSshKeyId,
       if (groupId != null && groupId.isNotEmpty) 'group_id': groupId,
-    });
+    }, partitionId: partitionId);
     return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
   }
 
@@ -570,8 +585,8 @@ class AgentBridge {
     return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
   }
 
-  static Future<List<Map<String, dynamic>>> listSshKeys() async {
-    final resp = await request({'type': 'ssh_key_list'});
+  static Future<List<Map<String, dynamic>>> listSshKeys({String? partitionId}) async {
+    final resp = await request({'type': 'ssh_key_list'}, partitionId: partitionId);
     final items = payloadOf(resp)['items'] as List<dynamic>? ?? [];
     return items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
@@ -590,18 +605,19 @@ class AgentBridge {
     return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
   }
 
-  static Future<List<Map<String, dynamic>>> listCredentials([String? query]) async {
+  static Future<List<Map<String, dynamic>>> listCredentials([String? query, String? partitionId]) async {
     // 分页取元数据，避免超过 200 条后旧账号和服务器关联选项静默消失。
     final items = <Map<String, dynamic>>[];
     final seen = <String>{};
     var offset = 0;
+    final scope = partitionId ?? activePartitionId;
     while (true) {
       final resp = await request({
         'type': 'credential_list',
         if (query != null && query.isNotEmpty) 'query': query,
         'limit': 200,
         'offset': offset,
-      });
+      }, partitionId: scope);
       final page = payloadOf(resp)['items'] as List<dynamic>? ?? [];
       final previousCount = items.length;
       // 分页期间账号可能被更新而移动位置，避免重复项破坏选择框状态。
@@ -680,8 +696,8 @@ class AgentBridge {
     await request({'type': 'vault_verify_recovery_key', 'recovery_key': recoveryKey});
   }
 
-  static Future<List<Map<String, dynamic>>> listRecoveryCodes() async {
-    final resp = await request({'type': 'recovery_codes_list'});
+  static Future<List<Map<String, dynamic>>> listRecoveryCodes({String? partitionId}) async {
+    final resp = await request({'type': 'recovery_codes_list'}, partitionId: partitionId);
     final items = payloadOf(resp)['items'] as List<dynamic>? ?? [];
     return items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }

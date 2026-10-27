@@ -11,6 +11,14 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum VaultAction {
+    PartitionList,
+    PartitionCreate { name: String },
+    PartitionRename { id: String, expected_revision: String, name: String },
+    PartitionDelete { id: String, expected_revision: String },
+    PartitionReorder { ids: Vec<String>, expected: std::collections::BTreeMap<String,String> },
+    PartitionMovePreview { item_ids: Vec<String>, target_partition_id: String },
+    PartitionMoveApply { item_ids: Vec<String>, target_partition_id: String, fingerprint: String },
+    GroupRename { id: String, name: String, expected_updated_at_ms: i64 },
     GeneratePassword {
         length: usize,
         symbols: bool,
@@ -130,6 +138,9 @@ impl VaultAction {
         !matches!(
             self,
             Self::GeneratePassword { .. }
+                | Self::PartitionList | Self::PartitionMovePreview { .. }
+                | Self::PartitionCreate { .. } | Self::PartitionRename { .. } | Self::PartitionReorder { .. }
+                | Self::GroupRename { .. }
                 | Self::LoginWebsiteRules { .. }
                 | Self::WebsiteRulesTest { .. }
                 | Self::TotpParse { .. }
@@ -506,6 +517,17 @@ pub fn manage_credentials(conn: &Connection, action: VaultAction) -> Result<Valu
     use VaultAction::*;
     // 这些操作内部已有事务，避免嵌套 BEGIN。
     match action {
+        PartitionList => crate::partitions::list(conn),
+        PartitionCreate {name} => crate::partitions::create(conn,&name),
+        PartitionRename {id,expected_revision,name} => crate::partitions::rename(conn,&id,&expected_revision,&name),
+        PartitionDelete {id,expected_revision} => crate::partitions::delete(conn,&id,&expected_revision),
+        PartitionReorder {ids,expected} => crate::partitions::reorder(conn,&ids,&expected),
+        PartitionMovePreview {item_ids,target_partition_id} => crate::partitions::preview(conn,&item_ids,&target_partition_id),
+        PartitionMoveApply {item_ids,target_partition_id,fingerprint} => crate::partitions::migrate(conn,&item_ids,&target_partition_id,&fingerprint),
+        GroupRename {id,name,expected_updated_at_ms} => {
+            crate::credential_groups::rename_credential_group_checked(conn,&id,&name,Some(expected_updated_at_ms))?;
+            Ok(json!({"renamed":true}))
+        }
         SshImport {
             label,
             pem,
@@ -932,6 +954,7 @@ pub fn export_logical_json(conn: &Connection) -> Result<String> {
     let tx = conn.unchecked_transaction()?;
     let mut tables = serde_json::Map::new();
     for table in [
+        "partitions",
         "items",
         "login_credentials",
         "password_history",

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_ui.dart';
 
-const appPageTitles = ['navigation.vault.title', 'navigation.credentials.title', 'navigation.browser.title', 'navigation.security.title', 'navigation.diagnostics.title', 'navigation.settings.title', 'navigation.shortcuts.title', 'navigation.sync.title'];
+const appPageTitles = ['navigation.vault.title', 'navigation.credentials.title', 'navigation.browser.title', 'navigation.security.title', 'navigation.diagnostics.title', 'navigation.settings.title', 'navigation.shortcuts.title', 'navigation.sync.title', 'partitions.manage'];
 const appPageDescriptions = [
   'navigation.vault.description',
   'navigation.credentials.description',
@@ -12,6 +12,7 @@ const appPageDescriptions = [
   'navigation.settings.description',
   'navigation.shortcuts.description',
   'navigation.sync.description',
+  'partitions.description',
 ];
 
 class AppSidebar extends StatelessWidget {
@@ -23,6 +24,9 @@ class AppSidebar extends StatelessWidget {
     required this.agentReady,
     required this.unlocked,
     required this.footer,
+    required this.partitions,
+    required this.selectedPartitionId,
+    required this.onPartitionSelected,
   });
 
   final int selectedIndex;
@@ -31,6 +35,9 @@ class AppSidebar extends StatelessWidget {
   final bool agentReady;
   final bool unlocked;
   final String footer;
+  final List<Map<String, dynamic>> partitions;
+  final String selectedPartitionId;
+  final ValueChanged<String> onPartitionSelected;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -79,6 +86,11 @@ class AppSidebar extends StatelessWidget {
               child: ListView(padding: EdgeInsets.zero, children: [
             _item(context, 0, Icons.grid_view_rounded),
             _item(context, 1, Icons.key_outlined),
+            for (final partition in partitions)
+              Padding(padding: EdgeInsets.only(left: compact ? 0 : 12), child: _item(context, 1, Icons.folder_outlined,
+                title: partition['name'].toString(), active: selectedIndex == 1 && selectedPartitionId == partition['id'],
+                onTap: () => onPartitionSelected(partition['id'].toString()))),
+            _item(context, 8, Icons.folder_copy_outlined),
             _item(context, 2, Icons.language_rounded),
             _item(context, 7, Icons.cloud_sync_outlined),
             const Padding(
@@ -133,12 +145,12 @@ class AppSidebar extends StatelessWidget {
         ]),
       );
 
-  Widget _item(BuildContext context, int index, IconData icon) {
-    final selected = selectedIndex == index;
+  Widget _item(BuildContext context, int index, IconData icon, {String? title, bool? active, VoidCallback? onTap}) {
+    final selected = active ?? (selectedIndex == index && (index != 1 || partitions.isEmpty));
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Tooltip(
-        message: compact ? tr(appPageTitles[index]) : '',
+        message: title ?? (compact ? tr(appPageTitles[index]) : ''),
         child: Semantics(
           selected: selected,
           child: AnimatedContainer(
@@ -153,7 +165,7 @@ class AppSidebar extends StatelessWidget {
               color: Colors.transparent,
               child: InkWell(
                 borderRadius: BorderRadius.circular(11),
-                onTap: () => onSelected(index),
+                onTap: onTap ?? () => onSelected(index),
                 child: Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
@@ -169,7 +181,7 @@ class AppSidebar extends StatelessWidget {
                         if (!compact) ...[
                           const SizedBox(width: 12),
                           Expanded(
-                              child: LText(appPageTitles[index],
+                              child: Text(title ?? tr(appPageTitles[index]), maxLines: 1, overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: selected

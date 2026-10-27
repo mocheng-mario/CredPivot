@@ -119,7 +119,7 @@ function renderAccounts() {
     const option = document.createElement("option");
     option.value = row.id;
     const filtered = !matches.includes(row) ? " · 当前已选" : "";
-    option.textContent = `${row.username || "（无用户名）"}${filtered}`;
+    option.textContent = `${row.partition_name ? `[${row.partition_name}] ` : ""}${row.username || "（无用户名）"}${filtered}`;
     accountEl.append(option);
   }
   accountEl.value = selected ? selectedId : "";
@@ -143,7 +143,7 @@ function renderMfas() {
     group.label = linked ? "当前账号关联" : "独立匹配网站";
     for (const row of rows) {
       const option = document.createElement("option"); option.value = row.id;
-      option.textContent = `${row.issuer || "MFA"} · ${row.account || "无账号标签"}（${["精确来源", "通配符", "正则"][row.match_rank] || "网站匹配"}）`;
+      option.textContent = `${row.partition_name ? `[${row.partition_name}] ` : ""}${row.issuer || "MFA"} · ${row.account || "无账号标签"}（${["精确来源", "通配符", "正则"][row.match_rank] || "网站匹配"}）`;
       group.append(option);
     }
     select.append(group);
