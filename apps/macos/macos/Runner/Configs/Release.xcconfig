@@ -1,3 +1,6 @@
 #include "../../Flutter/Flutter-Release.xcconfig"
 #include "Warnings.xcconfig"
 #include "RustFFI.xcconfig"
+
+// 首版只发布 Apple Silicon；Rust 静态库同为 arm64，不能由 Flutter 默认生成伪通用包。
+ARCHS = arm64

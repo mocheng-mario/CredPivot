@@ -562,7 +562,7 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
         if (!ctx.mounted || closing) return;
         if (isEdit) {
           await AgentBridge.updateServerProfile(
-            id: existing!['id'] as String,
+            id: existing['id'] as String,
             expectedRevision: existing['current_revision'] as String,
             label: labelCtl.text.trim(), host: hostCtl.text.trim(), port: port,
             manualUsername: noLinkedLogin ? manualUserCtl.text.trim() : '',

@@ -29,4 +29,4 @@ rust-core:
 	cd $(ROOT) && $(CARGO) build -p credpivot-core
 
 rust-cli:
-	cd $(ROOT) && $(CARGO) build -p credpivot-cli
+	cd $(ROOT) && $(CARGO) build $(CARGO_BUILD_FLAGS) -p credpivot-cli

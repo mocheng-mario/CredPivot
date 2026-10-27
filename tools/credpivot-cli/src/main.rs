@@ -8,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "credpivot-cli", about = "CredPivot vault inspect / verify / recover (M1)")]
+#[command(name = "credpivot-cli", version, about = "CredPivot vault inspect / verify / recover")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

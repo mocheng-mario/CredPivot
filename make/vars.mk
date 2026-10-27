@@ -8,8 +8,12 @@ CARGO ?= cargo
 FLUTTER ?= flutter
 CARGO_TARGET_DIR ?= $(ROOT)/target
 CARGO_PROFILE ?= release
+INSTALL_DEV_ARTIFACTS ?= 1
 
 MACOS_APP_DIR := $(ROOT)/apps/macos
+APP_VERSION := $(shell awk '/^version: / {print $$2; exit}' $(MACOS_APP_DIR)/pubspec.yaml)
+# CFBundleShortVersionString 使用数字版本，Beta 标识保留在下载文件名和 Cargo 版本中。
+MACOS_BUILD_NAME := $(firstword $(subst -, ,$(firstword $(subst +, ,$(APP_VERSION)))))
 MACOS_RUNNER := $(MACOS_APP_DIR)/macos/Runner
 CHROME_EXT_DIR := $(ROOT)/apps/chrome-extension
 

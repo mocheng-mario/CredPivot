@@ -71,7 +71,7 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
     var passwordActiveSince = DateTime.now().millisecondsSinceEpoch;
     if (isEdit) {
       try {
-        final result = await AgentBridge.manage({'action': 'login_website_rules', 'credential_id': existing!['id']});
+        final result = await AgentBridge.manage({'action': 'login_website_rules', 'credential_id': existing['id']});
         websiteRules = (result['rules'] as List).map((row) => Map<String, dynamic>.from(row as Map)).toList();
         linkedMfaIds = (result['linked_mfa_ids'] as List? ?? []).cast<String>();
       } on AgentException catch (e) {
@@ -187,7 +187,7 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
                 final displayName = nameCtl.text.trim();
                 if (isEdit) {
                   await AgentBridge.updateLogin(
-                    credentialId: existing!['id'] as String,
+                    credentialId: existing['id'] as String,
                     expectedRevision: existing['current_revision'] as String,
                     origin: origin,
                     websiteRules: websiteRules,
@@ -1238,31 +1238,6 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
     }
   }
 
-  Future<void> _securityRebuild() async {
-    if (!await requireTouchId(context, reason: tr('credentials.securityRebuild.reason'))) return;
-    try {
-      final result = await AgentBridge.securityRebuild(_rebuildPassword.text, _recoveryKey.text.trim());
-      _recoveryKey.text = result['new_recovery_key'] as String;
-      final warning = result['warning'] as String?;
-      setState(() => _log = warning ?? tr('credentials.securityRebuild.text'));
-      if (warning == null) await _loadAll();
-    } on AgentException catch (e) {
-      setState(() => _log = AgentBridge.diagnosticMessage(e));
-    }
-  }
-
-  Future<void> _verifyOvb() async {
-    final path = await AgentBridge.pickOpenFile();
-    if (path == null) return;
-    try {
-      await AgentBridge.verifyOvb(path, _rebuildPassword.text);
-      setState(() => _log = tr('credentials.verifyOvb.text'));
-      await _loadAll();
-    } on AgentException catch (e) {
-      setState(() => _log = AgentBridge.diagnosticMessage(e));
-    }
-  }
-
   Future<void> _openRecoveryCode(Map<String, dynamic> row) async {
     await manageRecoveryEntries(context, row);
     if (mounted) await _loadAll();
@@ -1284,16 +1259,6 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       await AgentBridge.vaultOpenDir(target);
       widget.onVaultSwitched?.call();
       setState(() => _log = tr('credentials.recoverOvbToEmptyDir.text', args: {'target': target}));
-    } on AgentException catch (e) {
-      setState(() => _log = AgentBridge.diagnosticMessage(e));
-    }
-  }
-
-  Future<void> _verifyRecoveryKey() async {
-    try {
-      await AgentBridge.verifyRecoveryKey(_recoveryKey.text.trim());
-      setState(() => _log = tr('credentials.verifyRecoveryKey.text'));
-      await _loadAll();
     } on AgentException catch (e) {
       setState(() => _log = AgentBridge.diagnosticMessage(e));
     }

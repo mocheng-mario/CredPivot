@@ -49,3 +49,6 @@ apps/macos/lib/build_stamp.dart
 
 # temp
 /temp
+
+# 本地发布归档与校验和
+/dist/

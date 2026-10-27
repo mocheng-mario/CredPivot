@@ -20,7 +20,7 @@ impl Default for PeerAuthConfig {
     fn default() -> Self {
         Self {
             expected_host_binary_name: "credpivot-native-host".into(),
-            dev_skip_peer_check: std::env::var("CREDPIVOT_DEV_SKIP_PEER_CHECK")
+            dev_skip_peer_check: cfg!(debug_assertions) && std::env::var("CREDPIVOT_DEV_SKIP_PEER_CHECK")
                 .map(|v| v == "1")
                 .unwrap_or(false),
         }
@@ -41,7 +41,8 @@ pub fn peer_is_askpass_executable(path: &Path) -> bool {
 }
 
 pub fn authorize_peer(pid: u32, cfg: &PeerAuthConfig) -> Result<()> {
-    if cfg.dev_skip_peer_check {
+    // Release 不接受环境变量或调用方构造配置绕过这道身份边界。
+    if cfg!(debug_assertions) && cfg.dev_skip_peer_check {
         return Ok(());
     }
     #[cfg(target_os = "macos")]
@@ -65,6 +66,19 @@ pub fn authorize_peer(pid: u32, cfg: &PeerAuthConfig) -> Result<()> {
         let _ = pid;
         let _ = cfg;
         Ok(())
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn peer_bypass_is_debug_only() {
+        let mut config = PeerAuthConfig::default();
+        config.dev_skip_peer_check = true;
+        // 不存在的 PID 只能被 Debug 绕过；Release 必须继续进入真实对端校验并拒绝。
+        assert_eq!(authorize_peer(u32::MAX, &config).is_ok(), cfg!(debug_assertions));
     }
 }
 

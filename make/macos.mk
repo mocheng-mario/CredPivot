@@ -23,6 +23,9 @@ macos-sync-artifacts: rust-ffi rust-host rust-askpass
 	chmod +x $(MACOS_RUNNER)/credpivot-askpass
 	rm -rf $(MACOS_RUNNER)/credpivot-chrome-extension
 	cp -R $(CHROME_EXT_DIR) $(MACOS_RUNNER)/credpivot-chrome-extension
+	cp $(ROOT)/assets/ssh-expect-pass.exp $(MACOS_RUNNER)/ssh-expect-pass.exp
+	chmod 755 $(MACOS_RUNNER)/ssh-expect-pass.exp
+ifeq ($(INSTALL_DEV_ARTIFACTS),1)
 	@mkdir -p $(HOME)/.credpivot
 	@echo "$(RUST_HOST_BIN)" > $(HOME)/.credpivot/native_host_binary.path
 	@echo "$(CHROME_EXT_DIR)" > $(HOME)/.credpivot/chrome_extension_dir.path
@@ -33,11 +36,10 @@ macos-sync-artifacts: rust-ffi rust-host rust-askpass
 	chmod 755 $(HOME)/.credpivot/credpivot-askpass
 	shasum -a 256 $(HOME)/.credpivot/credpivot-askpass | awk '{print $$1}' > $(HOME)/.credpivot/askpass.sha256
 	@echo "$(RUST_ASKPASS_BIN)" > $(HOME)/.credpivot/askpass_trusted.path
-	cp $(ROOT)/assets/ssh-expect-pass.exp $(MACOS_RUNNER)/ssh-expect-pass.exp
-	chmod 755 $(MACOS_RUNNER)/ssh-expect-pass.exp
 	cp $(ROOT)/assets/ssh-expect-pass.exp $(HOME)/.credpivot/ssh-expect-pass.exp
 	chmod 755 $(HOME)/.credpivot/ssh-expect-pass.exp
 	@echo "$(ROOT)/assets/ssh-expect-pass.exp" > $(HOME)/.credpivot/expect_script.source.path
+endif
 	@if [ -f $(MACOS_APP_DIR)/macos/Runner.xcodeproj/project.pbxproj ]; then \
 		$(ROOT)/scripts/patch-macos-xcode.sh; \
 	fi
@@ -52,7 +54,7 @@ macos-build-debug: macos-write-build-stamp
 	cd $(MACOS_APP_DIR) && $(FLUTTER) build macos --debug
 
 macos-build-release: macos-write-build-stamp
-	$(MAKE) CARGO_PROFILE=release macos-sync-artifacts
-	cd $(MACOS_APP_DIR) && $(FLUTTER) build macos --release
+	$(MAKE) CARGO_PROFILE=release INSTALL_DEV_ARTIFACTS=0 macos-sync-artifacts
+	cd $(MACOS_APP_DIR) && $(FLUTTER) build macos --release --build-name $(MACOS_BUILD_NAME)
 
 macos-build: macos-build-debug
