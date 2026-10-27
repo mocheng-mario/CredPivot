@@ -56,5 +56,7 @@ macos-build-debug: macos-write-build-stamp
 macos-build-release: macos-write-build-stamp
 	$(MAKE) CARGO_PROFILE=release INSTALL_DEV_ARTIFACTS=0 macos-sync-artifacts
 	cd $(MACOS_APP_DIR) && $(FLUTTER) build macos --release --build-name $(MACOS_BUILD_NAME)
+	@echo "Release: $(MACOS_APP_DIR)/build/macos/Build/Products/Release/credpivot_macos.app"
+	@echo "构建不会退出当前 App；若正在运行 Debug，请先用 Cmd+Q 退出，再打开上述 Release。"
 
 macos-build: macos-build-debug

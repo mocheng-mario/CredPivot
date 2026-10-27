@@ -118,40 +118,41 @@ async function originFromSender(sender, msg) {
   return null;
 }
 
-function rejectAllInflight(reason) {
-  for (const [id, entry] of inflight) {
-    clearTimeout(entry.timer);
-    nativePort?.onMessage.removeListener(entry.listener);
-    entry.reject(reason);
-    inflight.delete(id);
+// 每个请求绑定创建它的 Port，迟到的旧连接回调不能清理新连接。
+function closeNativePort(port, error, disconnect = true) {
+  if (nativePort === port) {
+    nativePort = null;
+    lastNativeError = error.message;
+    void clearMetadataCache();
   }
+  for (const [id, entry] of inflight) {
+    if (entry.port !== port) continue;
+    clearTimeout(entry.timer);
+    port.onMessage.removeListener(entry.listener);
+    inflight.delete(id);
+    entry.reject(error);
+  }
+  if (disconnect) { try { port.disconnect(); } catch (_) { /* 已断开。 */ } }
+}
+
+function connectionError(message) {
+  const error = new Error(message);
+  error.nativeConnection = true;
+  return error;
 }
 
 function connectNativeIfNeeded() {
   if (nativePort) return nativePort;
   lastNativeError = null;
-  try {
-    nativePort = chrome.runtime.connectNative(HOST_NAME);
-  } catch (e) {
-    lastNativeError = String(e);
-    nativePort = null;
-    throw e;
-  }
-  if (chrome.runtime.lastError) {
-    lastNativeError = chrome.runtime.lastError.message;
-    nativePort = null;
-    throw new Error(lastNativeError);
-  }
-  nativePort.onDisconnect.addListener(() => {
-    const msg = chrome.runtime.lastError?.message;
-    if (msg) {
-      lastNativeError = msg;
-    }
-    nativePort = null;
-    void clearMetadataCache();
-    rejectAllInflight(new Error(lastNativeError || "native host disconnected"));
+  let port;
+  try { port = chrome.runtime.connectNative(HOST_NAME); }
+  catch (_) { throw connectionError("无法启动本机连接，请在 App 中更新 Native Host 后重试"); }
+  nativePort = port;
+  port.onDisconnect.addListener(() => {
+    const message = chrome.runtime.lastError?.message || "native host disconnected";
+    closeNativePort(port, connectionError(message), false);
   });
-  return nativePort;
+  return port;
 }
 
 // session storage 跨后台休眠保留，浏览器退出、扩展重载或更新后自动失效。
@@ -166,39 +167,55 @@ function browserSessionId() {
   })().catch((error) => { browserSessionPromise = null; throw error; });
 }
 
-async function sendNative(message) {
-  message.browser_session_id = await browserSessionId();
+function sendNativeOnce(message) {
   return new Promise((resolve, reject) => {
-    try {
-      connectNativeIfNeeded();
-    } catch (e) {
-      reject(e);
-      return;
-    }
+    let port;
+    try { port = connectNativeIfNeeded(); }
+    catch (error) { reject(error); return; }
     const requestId = message.request_id || uuid();
-    message.request_id = requestId;
     const listener = (response) => {
-      if (!response?.request_id || response.request_id !== requestId) {
-        return;
-      }
+      if (response?.request_id !== requestId) return;
       const entry = inflight.get(requestId);
-      if (!entry) return;
+      if (!entry || entry.port !== port) return;
       clearTimeout(entry.timer);
-      nativePort.onMessage.removeListener(listener);
+      port.onMessage.removeListener(listener);
       inflight.delete(requestId);
       touchNativeActivity();
+      // 更新 App 后旧 Host 可能仍存活；释放它，下次由 Chrome 按新清单启动。
+      if (["peer_denied", "protocol_mismatch", "host_outdated", "browser_parent_denied"].includes(response.code)) {
+        closeNativePort(port, connectionError("本机组件已变化，请在 App 更新 Native Host 后重试"));
+      }
       resolve(response);
     };
     const timer = setTimeout(() => {
-      nativePort?.onMessage.removeListener(listener);
-      inflight.delete(requestId);
-      reject(new Error("native request timeout"));
+      closeNativePort(port, connectionError("本机连接超时，连接已重置，请重试"));
     }, NATIVE_REQUEST_TIMEOUT_MS);
-    inflight.set(requestId, { resolve, reject, listener, timer });
+    inflight.set(requestId, { resolve, reject, listener, timer, port });
     touchNativeActivity();
-    nativePort.postMessage(message);
-    nativePort.onMessage.addListener(listener);
+    port.onMessage.addListener(listener);
+    try { port.postMessage({...message, request_id: requestId}); }
+    catch (_) { closeNativePort(port, connectionError("本机连接已断开，请重试")); }
   });
+}
+
+async function sendNative(message) {
+  const session = await browserSessionId();
+  const request = {...message, browser_session_id: session};
+  // 只读/幂等握手可重试一次。保存、更新、取出秘密和签名绝不因响应丢失自动重放。
+  const retryable = ["status", "agent.status", "handshake", "extension.connect",
+    "credential.suggest_for_origin", "mfa.suggest_for_origin"].includes(message.action);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const response = await sendNativeOnce(request);
+      if (retryable && attempt === 0 && ["app_unreachable", "agent_unavailable", "agent_timeout", "host_outdated"].includes(response?.code)) {
+        if (nativePort) closeNativePort(nativePort, connectionError("正在重新连接本机 App"));
+        continue;
+      }
+      return response;
+    } catch (error) {
+      if (!retryable || attempt > 0 || !error.nativeConnection) throw error;
+    }
+  }
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -401,7 +418,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         ok: false,
         error: String(e),
         lastNativeError,
-        hint: "在 Mac App 填写扩展 ID 并点击「安装 Chrome Native Host」，然后完全退出 Chrome 再打开",
+        hint: "请确认正在运行所需版本的 App，在浏览器设置中更新 Native Host，然后点击插件「连接与验证」重试",
       });
     }
   })();
@@ -419,6 +436,5 @@ setInterval(() => {
   if (!nativePort) return;
   if (inflight.size > 0) return;
   if (Date.now() - lastNativeActivity < NATIVE_IDLE_DISCONNECT_MS) return;
-  nativePort.disconnect();
-  nativePort = null;
+  closeNativePort(nativePort, connectionError("本机连接空闲，已释放"));
 }, 60_000);

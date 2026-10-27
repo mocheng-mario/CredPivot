@@ -94,7 +94,7 @@ fn path_is_trusted_native_host(path: &Path, cfg: &PeerAuthConfig) -> Result<bool
     if file_name != cfg.expected_host_binary_name {
         return Ok(false);
     }
-    if paths_same_file(path, &materialized_native_host_path())? {
+    if installed_native_host(path)? {
         return Ok(true);
     }
     if let Ok(trusted) = std::env::var("CREDPIVOT_TRUSTED_NATIVE_HOST") {
@@ -227,8 +227,21 @@ pub fn bootstrap_trusted_askpass_env() {
 }
 
 #[cfg(target_os = "macos")]
+fn installed_native_host(path: &Path) -> Result<bool> {
+    if paths_same_file(path, &materialized_native_host_path())? { return Ok(true); }
+    let directory = crate::paths::runtime_dir().join("native-host");
+    if !directory.is_dir() { return Ok(false); }
+    let parent = fs::canonicalize(&directory)?;
+    let peer = fs::canonicalize(path)?;
+    // 只接受固定目录下的一层摘要子目录，不能借助路径前缀或符号链接逃逸。
+    Ok(peer.parent().and_then(Path::parent) == Some(parent.as_path())
+        && peer.parent().and_then(Path::file_name).and_then(|s|s.to_str())
+            .is_some_and(|s|s.len()==64 && s.bytes().all(|c|c.is_ascii_hexdigit())))
+}
+
+#[cfg(target_os = "macos")]
 fn verify_materialized_native_host_digest(peer_path: &Path) -> Result<()> {
-    if !paths_same_file(peer_path, &materialized_native_host_path())? {
+    if !installed_native_host(peer_path)? {
         return Ok(());
     }
     let trusted = std::env::var("CREDPIVOT_TRUSTED_NATIVE_HOST")
@@ -248,7 +261,7 @@ fn verify_materialized_native_host_digest(peer_path: &Path) -> Result<()> {
     let actual = sha256_file(peer_path)?;
     if expected != actual {
         return Err(AgentError::PeerDenied(
-            "materialized native-host does not match App bundle binary".into(),
+            "native-host is outdated; reconnect to the installed version".into(),
         ));
     }
     Ok(())
@@ -261,7 +274,7 @@ fn verify_peer_codesign_matches_self(peer_path: &Path) -> Result<()> {
     if paths_same_file(peer_path, &materialized_askpass_path())? {
         return verify_materialized_askpass_digest(peer_path);
     }
-    if paths_same_file(peer_path, &materialized_native_host_path())? {
+    if installed_native_host(peer_path)? {
         return verify_materialized_native_host_digest(peer_path);
     }
 

@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 KIND="${1:?用法: package-release.sh app|cli|extension path}"
 SOURCE="${2:?请传入构建产物路径}"
 VERSION="$(awk '/^version: / {print $2; exit}' "$ROOT/apps/macos/pubspec.yaml")"
+BUILD_NUMBER="${VERSION##*+}"
 VERSION="${VERSION%%+*}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]] || { echo "无效的发布版本" >&2; exit 1; }
 mkdir -p "$ROOT/dist"
@@ -28,12 +29,16 @@ case "$KIND" in
   app)
     [[ -d "$SOURCE/Contents" ]] || { echo "App 构建产物不存在" >&2; exit 1; }
     [[ "$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$SOURCE/Contents/Info.plist")" == "${VERSION%%-*}" ]] || { echo "App 版本与发布版本不一致" >&2; exit 1; }
+    [[ "$(/usr/bin/plutil -extract CFBundleVersion raw -o - "$SOURCE/Contents/Info.plist")" == "$BUILD_NUMBER" ]] || { echo "App 构建号不一致" >&2; exit 1; }
     # 独立发包必须携带 SSH 运行依赖，不能靠开发机 ~/.credpivot 中的旧文件兜底。
     for item in credpivot-native-host credpivot-askpass ssh-expect-pass.exp credpivot-chrome-extension/manifest.json; do
       [[ -f "$SOURCE/Contents/Resources/$item" ]] || { echo "App 缺少资源: $item" >&2; exit 1; }
     done
     [[ ! -e "$SOURCE/Contents/Resources/credpivot-cli" ]] || { echo "CLI 应独立分发" >&2; exit 1; }
     codesign --verify --deep --strict "$SOURCE"
+    # 签名检查通过并不代表动态库能加载；受控模式在启动 Agent 前退出，不访问用户保险库。
+    CHECK_OUTPUT="$(/usr/bin/perl -e 'alarm 25; exec @ARGV or die "startup check exec failed"' "$SOURCE/Contents/MacOS/credpivot_macos" --credpivot-startup-check)"
+    [[ "$CHECK_OUTPUT" == *"CredPivot startup check passed"* ]] || { echo "App 启动检查未通过" >&2; exit 1; }
     ARCH="$(lipo -archs "$SOURCE/Contents/MacOS/credpivot_macos")"
     [[ "$ARCH" == arm64 || "$ARCH" == x86_64 || "$ARCH" == 'x86_64 arm64' || "$ARCH" == 'arm64 x86_64' ]] || exit 1
     ARCH="${ARCH// /-}"

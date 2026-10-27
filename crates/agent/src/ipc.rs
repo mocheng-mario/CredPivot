@@ -158,9 +158,12 @@ async fn handle_ipc_connection(
     let mut peer = match peer_context_for_pid(peer_pid, &state).await {
         Ok(p) => p,
         Err(e) => {
+            let code = if matches!(&e, AgentError::PeerDenied(reason) if reason == "native-host is outdated; reconnect to the installed version") {
+                "host_outdated"
+            } else { "peer_denied" };
             return write_ipc_response(
                 stream,
-                AgentResponse::err("peer_denied", e.to_string()),
+                AgentResponse::err(code, e.to_string()),
             )
             .await;
         }

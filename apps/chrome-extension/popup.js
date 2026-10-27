@@ -38,6 +38,10 @@ function showError(result) {
   const messages = {
     extension_gate_required: "请点击「连接与验证」，完成指纹或 App 内的主密码验证。",
     locked: "保险库已锁定，请点击「连接与验证」解锁。",
+    browser_parent_denied: "浏览器身份验证未通过，请确认使用正式 Google Chrome 或 Canary；可在 App 诊断中查看失败分类。",
+    host_outdated: "本机组件已更新，请重新连接；保存、更新等操作不会自动重复。",
+    agent_timeout: "App 响应超时，请检查 App 后重试；刚才的写入操作不会自动重复。",
+    agent_unavailable: "App 连接已中断，请点击「连接与验证」重试。",
     peer_denied: "本机连接尚未授权，请在 App 的浏览器设置中检查 Native Host 配置。",
     no_login_fields: "当前页面未找到账号或密码输入框，请进入登录页面后重试。",
     no_otp_field: "当前页面未找到验证码输入框，请进入 MFA 验证页面后重试。",

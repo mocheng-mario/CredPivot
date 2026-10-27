@@ -224,6 +224,39 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
   private var cleanupReferences: [String: HistoryReference] = [:]
   private var cleanupDeleteVerified = false
   private var cleanupRequests = 0
+  // 仅记录本机生成的随机临时路径；不是用户配置，也不保存认证信息或文件内容。
+  private let probeJournalKey = "credpivot.webdav.pendingProbes"
+  private func probePath(_ path: String) -> Bool {
+    let prefix = ".credpivot-probe-"
+    return path.hasPrefix(prefix) && UUID(uuidString:String(path.dropFirst(prefix.count))) != nil
+  }
+  private func recordProbe(_ config: [String: Any], path: String, pending: Bool) {
+    guard probePath(path), let location = config["location"] as? String else { return }
+    var journal = UserDefaults.standard.dictionary(forKey:probeJournalKey) as? [String:[String:Double]] ?? [:]
+    var paths = journal[location] ?? [:]
+    if pending {
+      if paths[path] == nil { paths[path] = Date().timeIntervalSince1970 }
+      // 极端情况下退回远端 7 天孤立文件清理，避免本机重试账本无限增长。
+      while paths.count > 256, let oldest = paths.min(by: { $0.value < $1.value })?.key { paths.removeValue(forKey:oldest) }
+    } else { paths.removeValue(forKey:path) }
+    if paths.isEmpty { journal.removeValue(forKey:location) } else { journal[location] = paths }
+    UserDefaults.standard.set(journal,forKey:probeJournalKey)
+  }
+  private func retryProbeCleanup(_ config: [String: Any]) async {
+    guard let location = config["location"] as? String,
+          let journal = UserDefaults.standard.dictionary(forKey:probeJournalKey) as? [String:[String:Double]] else { return }
+    // 只清理本机精确记账的路径，并留出网络迟到窗口；其他设备的临时文件仍遵循 7 天规则。
+    let paths = (journal[location] ?? [:]).filter { probePath($0.key) && $0.value < Date().timeIntervalSince1970 - 600 }
+      .sorted { $0.value < $1.value }.prefix(8)
+    for (path, _) in paths {
+      do {
+        let removed = try await request(config,path,method:"DELETE",limit:1024)
+        guard [200,204,404].contains(removed.response.statusCode) else { break }
+        let missing = try await request(config,path,limit:1024)
+        guard missing.response.statusCode == 404 else { break }
+      } catch { break } // 锁定、取消及限流不能为了清理而绕过。
+    }
+  }
 
   func cancel(reason: String = "sync.errors.locked") {
     // 所有入口均在主线程；代理回调只操作单个传输对象的数据缓冲区。
@@ -390,6 +423,7 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
       target = page
     }
     var request = URLRequest(url:target, cachePolicy:.reloadIgnoringLocalCacheData, timeoutInterval:45)
+    if method == "PUT" { recordProbe(config,path:path,pending:true) }
     request.httpMethod = method; request.httpBody = data
     let secret: String
     if let draft = config["_password"] as? String { secret = draft }
@@ -412,6 +446,7 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
     guard unlocked() else { throw WebDAVFailure("sync.errors.locked") }
     guard currentGeneration == generation else { throw WebDAVFailure(cancellationKey) }
     try authorizePublish(config)
+    if (method == "GET" || method == "DELETE") && reply.response.statusCode == 404 { recordProbe(config,path:path,pending:false) }
     switch reply.response.statusCode {
     case 401: throw WebDAVFailure("sync.errors.unauthorized", status:401)
     case 403: throw WebDAVFailure("sync.errors.forbidden", status:403)
@@ -1193,6 +1228,7 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
             var draft = next
             draft["_transfer_generation"] = generation
             draft["_password"] = credential
+            await retryProbeCleanup(draft)
             try await probe(draft,onCheck:{ testChecks.append($0) })
             result(["ok":true,"checks":testChecks,"initial_creation":writeCapabilities?.initialCreation ?? ""])
             return
@@ -1201,6 +1237,7 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
             var draft = next
             draft["_transfer_generation"] = generation
             draft["_password"] = credential
+            await retryProbeCleanup(draft)
             try await probe(draft)
           }
           guard unlocked() else { throw WebDAVFailure("sync.errors.locked") }
@@ -1223,6 +1260,7 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
         }
         guard var config = settings() else { throw WebDAVFailure("sync.errors.configuration") }
         config["_transfer_generation"] = generation
+        await retryProbeCleanup(config)
         switch call.method {
         case "webdavProbe": try await probe(config); result(["ok":true])
         case "webdavRead": result(try await read(config,knownETag:args["etag"] as? String))
@@ -2175,7 +2213,15 @@ enum ChromeHostInstaller {
     FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".credpivot", isDirectory: true)
   }()
-  private static let installedHostPath: URL = credPivotDir.appendingPathComponent("credpivot-native-host")
+  // 按内容寻址安装：运行中的旧 Host 不会被原地覆盖，新连接读取新清单即可切换。
+  private static var installedHostPath: URL {
+    guard let bundled = Bundle.main.path(forResource: "credpivot-native-host", ofType: nil),
+          let data = try? Data(contentsOf: URL(fileURLWithPath: bundled)) else {
+      return credPivotDir.appendingPathComponent("credpivot-native-host")
+    }
+    let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    return credPivotDir.appendingPathComponent("native-host/\(digest)/credpivot-native-host")
+  }
   private static let manifestURL: URL = {
     FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(
@@ -2229,7 +2275,21 @@ enum ChromeHostInstaller {
     let manifestName = "manifest.json"
     if let bundled = Bundle.main.resourceURL?.appendingPathComponent("credpivot-chrome-extension", isDirectory: true) {
       if FileManager.default.fileExists(atPath: bundled.appendingPathComponent(manifestName).path) {
-        return bundled.path
+        // 开发者模式的 ID 与加载路径有关，固定目录避免 Debug/Release 切换改变扩展身份。
+        let cached = credPivotDir.appendingPathComponent("chrome-extension", isDirectory: true)
+        do {
+          let files = try FileManager.default.contentsOfDirectory(at: bundled, includingPropertiesForKeys:[.isRegularFileKey, .isSymbolicLinkKey])
+          try FileManager.default.createDirectory(at: cached, withIntermediateDirectories: true)
+          // 先写脚本，最后写清单；每个文件原子替换，不留下先删除再复制的空窗。
+          for file in files.sorted(by: { ($0.lastPathComponent == manifestName ? 1 : 0) < ($1.lastPathComponent == manifestName ? 1 : 0) }) {
+            let values = try file.resourceValues(forKeys:[.isRegularFileKey, .isSymbolicLinkKey])
+            guard values.isRegularFile == true, values.isSymbolicLink != true else { continue }
+            let target = cached.appendingPathComponent(file.lastPathComponent)
+            let data = try Data(contentsOf:file)
+            if (try? Data(contentsOf:target)) != data { try data.write(to:target,options:.atomic) }
+          }
+          return cached.path
+        } catch { return bundled.path }
       }
     }
     let cached = credPivotDir.appendingPathComponent("chrome-extension", isDirectory: true)
@@ -2306,12 +2366,18 @@ enum ChromeHostInstaller {
         userInfo: [NSLocalizedDescriptionKey: NativePresentation.tr("native.materializeHostBinary.text")]
       )
     }
-    try FileManager.default.createDirectory(at: credPivotDir, withIntermediateDirectories: true)
-    if FileManager.default.fileExists(atPath: installedHostPath.path) {
-      try FileManager.default.removeItem(at: installedHostPath)
+    let source = try Data(contentsOf: URL(fileURLWithPath: src))
+    let directory = installedHostPath.deletingLastPathComponent()
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    if (try? Data(contentsOf: installedHostPath)) != source {
+      let staged = directory.appendingPathComponent(UUID().uuidString + ".tmp")
+      defer { try? FileManager.default.removeItem(at: staged) }
+      try source.write(to: staged, options: .atomic)
+      try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staged.path)
+      guard Darwin.rename(staged.path, installedHostPath.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
     }
-    try FileManager.default.copyItem(atPath: src, toPath: installedHostPath.path)
-    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedHostPath.path)
+    // 冷启动绑定实际安装的 App 路径，避免 Launch Services 在 Debug/Release 同 Bundle ID 中任选。
+    try Bundle.main.bundleURL.path.write(to: credPivotDir.appendingPathComponent("native_host_app.path"), atomically: true, encoding: .utf8)
     try writeNativeHostDigest(sourcePath: src)
     return installedHostPath.path
   }
@@ -2372,7 +2438,7 @@ enum ChromeHostInstaller {
       let dir = manifestURL.deletingLastPathComponent()
       try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
       let data = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted])
-      try data.write(to: manifestURL)
+      try data.write(to: manifestURL, options: .atomic)
       applyTrustedNativeHostEnv()
       return [
         "ok": true,

@@ -12,12 +12,6 @@ use std::io::{self, Read, Write};
 const MAX_NATIVE_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 
 fn main() {
-    if verify_chrome_parent().is_err() {
-        diagnostics::error("native_host", "parent verification failed");
-        eprintln!("credpivot-native-host: parent verification failed");
-        std::process::exit(1);
-    }
-
     diagnostics::info("native_host", "started");
     if run_native_messaging_loop().is_err() {
         diagnostics::error("native_host", "messaging loop failed");
@@ -31,6 +25,10 @@ fn run_native_messaging_loop() -> Result<(), Box<dyn std::error::Error>> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     let mut handle = stdin.lock();
+    let parent = verify_chrome_parent();
+    if let Err(error) = &parent { diagnostics::error("native_host", error.event()); }
+    // 复用单线程运行时；中继逐个处理请求，不需要每条消息创建一组 Tokio 工作线程。
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 
     loop {
         let mut len_buf = [0u8; 4];
@@ -47,8 +45,11 @@ fn run_native_messaging_loop() -> Result<(), Box<dyn std::error::Error>> {
         }
         let value: Value = serde_json::from_slice(&msg)?;
         let request_id = value.get("request_id").cloned();
-        let response = tokio::runtime::Runtime::new()?
-            .block_on(async {
+        if let Err(error) = &parent {
+            write_native_message(&mut stdout, &error_envelope("browser_parent_denied", &error.to_string(), request_id))?;
+            continue;
+        }
+        let response = runtime.block_on(async {
                 match forward_to_agent(value).await {
                     Ok(v) => v,
                     Err(e) => {
@@ -80,8 +81,11 @@ fn read_exact_or_eof<R: Read>(r: &mut R, buf: &mut [u8]) -> Result<bool, io::Err
 async fn forward_to_agent(envelope: Value) -> Result<Value, Box<dyn std::error::Error>> {
     let request_id = envelope.get("request_id").cloned();
     let socket = agent_socket_path();
-    if !socket.exists() {
-        launch_credpivot_app();
+    // 文件存在也可能是崩溃遗留的 socket；以实际可连接性判断。
+    if !matches!(tokio::time::timeout(std::time::Duration::from_secs(1), tokio::net::UnixStream::connect(&socket)).await, Ok(Ok(_))) {
+        if !launch_credpivot_app() {
+            return Ok(error_envelope("app_unreachable", "请从目标版本 App 更新 Native Host 后重试", request_id));
+        }
         let ok = wait_for_agent_socket(&socket, 8_000).await;
         if !ok {
             return Ok(error_envelope(
@@ -102,9 +106,14 @@ async fn forward_to_agent(envelope: Value) -> Result<Value, Box<dyn std::error::
     if session_id.is_empty() {
         return Ok(error_envelope("protocol_mismatch", "请重新加载更新后的 CredPivot 扩展", request_id));
     }
-    let resp = call_agent(&socket, AgentRequest::BrowserRequest {
+    let response = tokio::time::timeout(std::time::Duration::from_secs(20), call_agent(&socket, AgentRequest::BrowserRequest {
         session_id: session_id.to_string(), request: Box::new(req),
-    }).await?;
+    })).await;
+    let resp = match response {
+        Ok(Ok(response)) => response,
+        Ok(Err(_)) => return Ok(error_envelope("agent_unavailable", "本机 Agent 连接已中断，请重试", request_id)),
+        Err(_) => return Ok(error_envelope("agent_timeout", "本机 Agent 响应超时；写入和签名不会自动重复，请检查后重试", request_id)),
+    };
     Ok(agent_to_extension(resp, request_id))
 }
 

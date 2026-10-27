@@ -16,6 +16,13 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   override func applicationDidFinishLaunching(_ notification: Notification) {
+    // 发包时实际验证 dyld/Flutter 可启动，且不启动 Agent、不触碰用户保险库或集成配置。
+    if ProcessInfo.processInfo.arguments.contains("--credpivot-startup-check") {
+      mainFlutterWindow?.orderOut(nil)
+      print("CredPivot startup check passed")
+      NSApp.terminate(nil)
+      return
+    }
     if Self.launchedForBrowser {
       mainFlutterWindow?.orderOut(nil)
       NSApp.setActivationPolicy(.accessory)
@@ -26,12 +33,14 @@ class AppDelegate: FlutterAppDelegate {
     if let controller = mainFlutterWindow?.contentViewController as? FlutterViewController {
       ChromeHostInstaller.applyTrustedNativeHostEnv()
       SshAskpassLauncher.applyTrustedAskpassEnv()
-      _ = try? SshAskpassLauncher.materializeInstalledBinary()
-      _ = try? SshAskpassLauncher.materializeExpectScript()
-      TerminalLauncher.purgeTerminalLaunchScripts()
       platform = CredPivotPlatform(messenger: controller.engine.binaryMessenger)
       let code = CredPivotRustFFI.start()
       if code == 0 {
+        // 只有持有 Agent 单写锁的实例才能更新共享集成，避免第二个 Debug/Release 实例覆盖它。
+        _ = try? SshAskpassLauncher.materializeInstalledBinary()
+        _ = try? SshAskpassLauncher.materializeExpectScript()
+        TerminalLauncher.purgeTerminalLaunchScripts()
+        _ = ChromeHostInstaller.applyPreference()
         _ = LoginItemRegistrar.applyPreference()
         ExtensionGateCoordinator.start()
       }
