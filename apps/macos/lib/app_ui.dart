@@ -12,22 +12,81 @@ double appEditDialogWidth(BuildContext context) {
 
 List<Widget> appFormFields(List<Widget> fields) => [
   for (var i = 0; i < fields.length; i++) ...[
-    if (i > 0 && fields[i] is! SizedBox && fields[i - 1] is! SizedBox)
+    if (i > 0 && fields[i] is AppFieldRow && fields[i - 1] is AppFieldRow)
+      const Divider(height: 1)
+    else if (i > 0 && fields[i] is! SizedBox && fields[i - 1] is! SizedBox &&
+        fields[i] is! AppFieldRow && fields[i - 1] is! AppFieldRow)
       const SizedBox(height: 16),
     fields[i],
   ],
 ];
 
+// 全应用统一名称列和控件列；窄窗口改为上下排列，避免压缩输入区域。
+class AppFieldRow extends StatelessWidget {
+  const AppFieldRow({super.key, required this.label, required this.child, this.help});
+  final String label;
+  final String? help;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final help = this.help;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: LayoutBuilder(builder: (context, constraints) {
+        final title = Row(children: [
+          Expanded(child: Text('$label：',
+              style: Theme.of(context).textTheme.titleSmall)),
+          if (help != null && help.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Tooltip(
+              message: help,
+              triggerMode: TooltipTriggerMode.tap,
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Icon(Icons.info_outline_rounded, size: 17,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+              ),
+            ),
+          ],
+        ]);
+        final input = Semantics(label: label, child: child);
+        if (constraints.maxWidth < 480) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [title, const SizedBox(height: 12), input],
+          );
+        }
+        return Row(children: [
+          SizedBox(width: 208, child: title),
+          const SizedBox(width: 24),
+          Expanded(child: input),
+        ]);
+      }),
+    );
+  }
+}
+
+Widget appFieldRows(List<Widget> rows) => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < rows.length; i++) ...[
+          if (i > 0) const Divider(height: 1),
+          rows[i],
+        ],
+      ],
+    );
 abstract final class AppColors {
   static bool get dark => AppPresentation.instance.dark;
   static Color get surface => dark ? const Color(0xFF202637) : Colors.white;
-  static Color get selected => dark ? const Color(0xFF303657) : const Color(0xFFF0F0FD);
+  static Color get selected => primary.withValues(alpha: dark ? .18 : .08);
   static Color get background => dark ? const Color(0xFF151A26) : const Color(0xFFF5F6FA);
   static Color get sidebar => dark ? const Color(0xFF1B2130) : const Color(0xFFEEF0F6);
   static Color get ink => dark ? const Color(0xFFE5E9F3) : const Color(0xFF20283F);
   static Color get muted => dark ? const Color(0xFFAAB5CC) : const Color(0xFF69748A);
   static Color get border => dark ? const Color(0xFF384057) : const Color(0xFFE5E8F0);
-  static Color get primary => dark ? const Color(0xFF9BA1FF) : const Color(0xFF565DD9);
+  static Color get primary => AppPresentation.instance
+      .schemeFor(dark ? Brightness.dark : Brightness.light).primary;
   static Color get green => dark ? const Color(0xFF66D3B4) : const Color(0xFF25856D);
 }
 
@@ -36,14 +95,11 @@ ThemeData buildAppTheme({Brightness? brightness}) {
   final surface = dark ? const Color(0xFF202637) : Colors.white;
   final ink = dark ? const Color(0xFFE5E9F3) : const Color(0xFF20283F);
   final muted = dark ? const Color(0xFFAAB5CC) : const Color(0xFF69748A);
-  final primary = dark ? const Color(0xFF9BA1FF) : const Color(0xFF565DD9);
+  final colors = AppPresentation.instance.schemeFor(dark ? Brightness.dark : Brightness.light);
+  final primary = colors.primary;
   final border = dark ? const Color(0xFF384057) : const Color(0xFFE5E8F0);
-  final scheme = ColorScheme.fromSeed(
-    seedColor: const Color(0xFF565DD9),
-    brightness: dark ? Brightness.dark : Brightness.light,
+  final scheme = colors.copyWith(
     surface: surface,
-  ).copyWith(
-    primary: dark ? const Color(0xFF9BA1FF) : const Color(0xFF565DD9),
     onSurface: ink,
     onSurfaceVariant: muted,
     outlineVariant: border,

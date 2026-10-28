@@ -10,6 +10,7 @@ mod limits;
 mod local_db;
 mod migrate;
 mod bitwarden_import;
+mod google_import;
 mod credential_groups;
 pub mod partitions;
 mod repo;

@@ -58,6 +58,7 @@ class AppDelegate: FlutterAppDelegate {
     NSApp.setActivationPolicy(.regular)
     mainFlutterWindow?.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
+    platform?.notifyAppForeground()
   }
 
   @objc func lockFromMenu() {

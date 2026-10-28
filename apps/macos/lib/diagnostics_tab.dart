@@ -235,13 +235,13 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                     children: [
                       SizedBox(
                         width: 250,
-                        child: DropdownButtonFormField<String>(
+                        child: AppFieldRow(label: tr('diagnostics.log.dateFile'), child: DropdownButtonFormField<String>(
                           key: ValueKey(_activeLog),
                           initialValue: _logFiles.contains(_activeLog) ? _activeLog : null,
                           isExpanded: true,
                           dropdownColor: AppColors.surface,
                           style: TextStyle(color: AppColors.ink, fontSize: 12),
-                          decoration: InputDecoration(labelText: tr('diagnostics.log.dateFile')),
+                          decoration: InputDecoration(),
                           items: _logFiles.map((file) => DropdownMenuItem(
                             value: file,
                             child: Text(_logFileLabel(file), maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -251,7 +251,7 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
                             _selectedLog = file;
                             _refresh();
                           },
-                        ),
+                        )),
                       ),
                       TextButton(
                         onPressed: _busy ? null : () {

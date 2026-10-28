@@ -66,8 +66,10 @@ class PasswordActiveDateField extends StatelessWidget {
   final bool enabled;
 
   @override
-  Widget build(BuildContext context) => InputDecorator(
-    decoration: InputDecoration(labelText: tr('vaultTools.build.text'), helperText: tr('vaultTools.build.text.item2'), helperMaxLines: 2),
+  Widget build(BuildContext context) => AppFieldRow(
+    label: tr('vaultTools.build.text'), help: tr('vaultTools.build.text.item2'),
+    child: InputDecorator(
+    decoration: const InputDecoration(),
     child: Row(children: [
       Expanded(child: Text(value > 0 ? vaultDate(value) : tr('common.unknown'))),
       TextButton(onPressed: !enabled ? null : () async {
@@ -81,7 +83,7 @@ class PasswordActiveDateField extends StatelessWidget {
       }, child: const LText('vaultTools.build.text.item3')),
       TextButton(onPressed: !enabled ? null : () => onChanged(0), child: const LText('common.unknown')),
     ]),
-  );
+  ));
 }
 
 Future<void> showPasswordVersions(
@@ -391,48 +393,47 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                       children: appFormFields([
                     LText('vaultTools.build.text.item9', style: Theme.of(context).textTheme.titleMedium),
                     if (widget.row['kind'] == 'secure_note')
-                      TextField(
+                      AppFieldRow(label: tr('common.title'), child: TextField(
                           controller: title,
-                          decoration: InputDecoration(labelText: tr('common.title'))),
-                    SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const LText('vaultTools.build.text.item10'),
+                          decoration: InputDecoration())),
+                    AppFieldRow(label: tr('vaultTools.build.text.item10'),
+                      child: Align(alignment: Alignment.centerLeft, child: Switch(
                         value: details['favorite'] == true,
                         onChanged: busy
                             ? null
-                            : (v) => setState(() => details['favorite'] = v)),
-                    TextField(
+                            : (v) => setState(() => details['favorite'] = v)))),
+                    AppFieldRow(label: tr('vaultTools.build.text.item11'), child: TextField(
                         controller: tags,
                         // 身份验证结束后重新建立编辑焦点和原生文本输入连接。
                         autofocus: true,
-                        decoration: InputDecoration(labelText: tr('vaultTools.build.text.item11'))),
-                    TextField(
+                        decoration: InputDecoration())),
+                    AppFieldRow(label: tr('vaultTools.build.text.item12'), child: TextField(
                         controller: category,
-                        decoration: InputDecoration(labelText: tr('vaultTools.build.text.item12'))),
-                    TextField(
+                        decoration: InputDecoration())),
+                    AppFieldRow(label: tr('vaultTools.build.text.item13'), child: TextField(
                         controller: notes,
                         minLines: 3,
                         maxLines: 8,
                         decoration:
-                            InputDecoration(labelText: tr('vaultTools.build.text.item13'))),
+                            InputDecoration())),
                     const SizedBox(height: 16),
                     LText('vaultTools.build.text.item14',
                         style: Theme.of(context).textTheme.titleMedium),
                     for (final f in fields)
                       Row(key: ObjectKey(f), children: [
                         Expanded(
-                            child: TextFormField(
+                            child: AppFieldRow(label: tr('vaultTools.build.text.item15'), child: TextFormField(
                                 initialValue: f['name']?.toString() ?? '',
                                 decoration:
-                                    InputDecoration(labelText: tr('vaultTools.build.text.item15')),
-                                onChanged: (v) => f['name'] = v)),
+                                    InputDecoration(),
+                                onChanged: (v) => f['name'] = v))),
                         const SizedBox(width: 8),
                         Expanded(
-                            child: TextFormField(
+                            child: AppFieldRow(label: tr('common.value'), child: TextFormField(
                                 initialValue: f['value']?.toString() ?? '',
                                 obscureText: f['secret'] == true,
-                                decoration: InputDecoration(labelText: tr('common.value')),
-                                onChanged: (v) => f['value'] = v)),
+                                decoration: InputDecoration(),
+                                onChanged: (v) => f['value'] = v))),
                         Checkbox(
                             value: f['secret'] == true,
                             onChanged: (v) async {
@@ -451,38 +452,34 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                         icon: const Icon(Icons.add),
                         label: const LText('vaultTools.build.text.item16')),
                     const SizedBox(height: 12),
-                    if (widget.row['kind'] == 'ssh_key') DropdownButtonFormField<String>(
+                    if (widget.row['kind'] == 'ssh_key') AppFieldRow(label: tr('vaultTools.build.text.item17'), child: DropdownButtonFormField<String>(isExpanded: true,
                       value: details['ssh_sign_policy']?.toString() ?? '',
-                      decoration: InputDecoration(labelText: tr('vaultTools.build.text.item17')),
+                      decoration: InputDecoration(),
                       items: const [DropdownMenuItem(value:'',child:LText('vaultTools.build.text.item18')),DropdownMenuItem(value:'session',child:LText('settings.build.text.item19')),DropdownMenuItem(value:'confirm',child:LText('settings.build.text.item20')),DropdownMenuItem(value:'biometric',child:LText('settings.build.text.item21'))],
-                      onChanged: busy ? null : (v) => setState(() => details['ssh_sign_policy'] = v)),
+                      onChanged: busy ? null : (v) => setState(() => details['ssh_sign_policy'] = v))),
                     if (isLogin) ...[
                     const Divider(),
                     LText('vaultTools.build.text.item19', style: Theme.of(context).textTheme.titleMedium),
                     PasswordActiveDateField(value: activeSince, enabled: !busy, onChanged: (v) => setState(() => activeSince = v)),
                     Row(children: [
                       Expanded(
-                          child: TextField(
+                          child: AppFieldRow(label: tr('vaultTools.build.text.item20'), help: tr('vaultTools.build.text.item21'), child: TextField(
                               controller: history,
                               keyboardType: TextInputType.number,
-                              decoration: InputDecoration(
-                                  labelText: tr('vaultTools.build.text.item20'),
-                                  helperText: tr('vaultTools.build.text.item21')))),
+                              decoration: InputDecoration()))),
                       const SizedBox(width: 12),
                       Expanded(
-                          child: TextField(
+                          child: AppFieldRow(label: tr('vaultTools.build.text.item22'), help: tr('vaultTools.build.text.item23'), child: TextField(
                               controller: reminder,
                               keyboardType: TextInputType.number,
-                              decoration: InputDecoration(
-                                  labelText: tr('vaultTools.build.text.item22'),
-                                  helperText: tr('vaultTools.build.text.item23'))))
+                              decoration: InputDecoration())))
                     ]),
-                    DropdownButtonFormField<String>(
+                    AppFieldRow(label: tr('vaultTools.build.text.item24'), help: tr('vaultTools.build.text.item25'), child: DropdownButtonFormField<String>(isExpanded: true,
                         value: ['enabled', 'disabled', 'unknown']
                                 .contains(details['mfa_state'])
                             ? details['mfa_state'] as String
                             : 'unknown',
-                        decoration: InputDecoration(labelText: tr('vaultTools.build.text.item24'), helperText: tr('vaultTools.build.text.item25'), helperMaxLines: 2),
+                        decoration: InputDecoration(),
                         items: const [
                           DropdownMenuItem(
                               value: 'unknown', child: LText('common.unknown')),
@@ -491,7 +488,7 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                           DropdownMenuItem(
                               value: 'disabled', child: LText('common.disabled.variant1'))
                         ],
-                        onChanged: busy ? null : (v) => setState(() => details['mfa_state'] = v)),
+                        onChanged: busy ? null : (v) => setState(() => details['mfa_state'] = v))),
                     ],
                     const Divider(),
                     LText('vaultTools.build.text.item26', style: Theme.of(context).textTheme.titleMedium),
@@ -687,11 +684,11 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
         if (mode == 'items')
           Row(children: [
             Expanded(
-                child: TextField(
+                child: AppFieldRow(label: tr('vaultTools.build.text.item35'), child: TextField(
                     decoration:
-                        InputDecoration(labelText: tr('vaultTools.build.text.item35')),
+                        InputDecoration(),
                     onChanged: (v) => query = v,
-                    onSubmitted: (_) => load())),
+                    onSubmitted: (_) => load()))),
             const SizedBox(width: 12),
             FilterChip(
                 label: const LText('vaultTools.build.text.item36'),
@@ -946,8 +943,8 @@ Future<void> _importBitwardenWithPreview(BuildContext context) async {
         title: const LText('vaultTools.importBitwardenWithPreview.text'),
         content: SizedBox(width: appEditDialogWidth(ctx), child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
           const LText('vaultTools.importBitwardenWithPreview.text.item2'),
-          TextField(controller: namespace, enabled: !busy, decoration: InputDecoration(labelText: tr('vaultTools.importBitwardenWithPreview.text.item3'))),
-          TextField(controller: password, enabled: !busy, obscureText: true, decoration: InputDecoration(labelText: tr('vaultTools.importBitwardenWithPreview.text.item4'))),
+          AppFieldRow(label: tr('vaultTools.importBitwardenWithPreview.text.item3'), child: TextField(controller: namespace, enabled: !busy, decoration: InputDecoration())),
+          AppFieldRow(label: tr('vaultTools.importBitwardenWithPreview.text.item4'), child: TextField(controller: password, enabled: !busy, obscureText: true, decoration: InputDecoration())),
           if (error.isNotEmpty) LText(error),
         ]))),
         actions: [
@@ -1074,16 +1071,14 @@ Future<void> transferSshKey(BuildContext context, {String? keyId}) async {
                           ? tr('vaultTools.save.text.item8')
                           : tr('vaultTools.save.text.item9')),
                       if (!exporting)
-                        TextField(
+                        AppFieldRow(label: tr('common.name'), child: TextField(
                             enabled: !busy, controller: label,
-                            decoration: InputDecoration(labelText: tr('common.name'))),
+                            decoration: InputDecoration())),
                       if (error.isNotEmpty) LText(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
-                      TextField(
+                      AppFieldRow(label: tr(exporting ? tr('vaultTools.save.text.item10') : tr('vaultTools.save.text.item11')), child: TextField(
                           enabled: !busy, controller: passphrase,
                           obscureText: true,
-                          decoration: InputDecoration(
-                              labelText:
-                                  tr(exporting ? tr('vaultTools.save.text.item10') : tr('vaultTools.save.text.item11'))))
+                          decoration: InputDecoration()))
                     ])))),
                 actions: [
                   TextButton(
@@ -1303,7 +1298,7 @@ class _PasswordGeneratorDialogState extends State<_PasswordGeneratorDialog> {
           title: const LText('vaultTools.build.text.item60'),
           content: SizedBox(
               width: appEditDialogWidth(context),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
+              child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
                 LText('passwordGenerator.length', args: {'length': length}),
                 Slider(
                     value: length.toDouble(),
@@ -1317,24 +1312,24 @@ class _PasswordGeneratorDialogState extends State<_PasswordGeneratorDialog> {
                               length = v.round();
                               password = '';
                             })),
-                SwitchListTile(
-                    title: const LText('vaultTools.build.text.item62'),
+                AppFieldRow(label: tr('vaultTools.build.text.item62'),
+                  child: Align(alignment: Alignment.centerLeft, child: Switch(
                     value: symbols,
                     onChanged: busy
                         ? null
                         : (v) => setState(() {
                               symbols = v;
                               password = '';
-                            })),
-                SwitchListTile(
-                    title: const LText('vaultTools.build.text.item63'),
+                            })))),
+                AppFieldRow(label: tr('vaultTools.build.text.item63'),
+                  child: Align(alignment: Alignment.centerLeft, child: Switch(
                     value: excludeAmbiguous,
                     onChanged: busy
                         ? null
                         : (v) => setState(() {
                               excludeAmbiguous = v;
                               password = '';
-                            })),
+                            })))),
                 if (password.isNotEmpty)
                   SelectableText(password,
                       style: const TextStyle(fontFamily: 'monospace')),
@@ -1342,7 +1337,7 @@ class _PasswordGeneratorDialogState extends State<_PasswordGeneratorDialog> {
                 FilledButton(
                     onPressed: busy ? null : generate,
                     child: const LText('credentials.cancel.text.item6'))
-              ])),
+              ]))),
           actions: [
             TextButton(
                 onPressed: busy ? null : () => Navigator.pop(context),
@@ -1524,8 +1519,8 @@ Future<bool> showNoteEditor(BuildContext context) async {
       return PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(ctx); }, child: StatefulBuilder(builder: (ctx, setLocal) => AlertDialog(
         title: const LText('vaultTools.build.text.item31'),
         content: SizedBox(width: appEditDialogWidth(ctx), child: AbsorbPointer(absorbing: saving, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
-          TextField(controller: title, decoration: InputDecoration(labelText: tr('common.title'))),
-          TextField(controller: text, minLines: 4, maxLines: 8, decoration: InputDecoration(labelText: tr('common.content'))),
+          AppFieldRow(label: tr('common.title'), child: TextField(controller: title, decoration: InputDecoration())),
+          AppFieldRow(label: tr('common.content'), child: TextField(controller: text, minLines: 4, maxLines: 8, decoration: InputDecoration())),
           if (error.isNotEmpty) Text(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
         ]))))),
         actions: [
@@ -1559,12 +1554,12 @@ Future<bool> showSshKeyGenerator(BuildContext context, {String? initialGroupId})
         title: const LText('vaultTools.showNewCredentialMenu.text'),
         content: SizedBox(width: appEditDialogWidth(ctx), child: AbsorbPointer(absorbing: busy, child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
-            TextField(controller: label, decoration: InputDecoration(labelText: tr('common.tags'))),
-            DropdownButtonFormField<String>(isExpanded: true, value: groupId,
-              decoration: InputDecoration(labelText: tr('common.group')),
+            AppFieldRow(label: tr('common.tags'), child: TextField(controller: label, decoration: InputDecoration())),
+            AppFieldRow(label: tr('common.group'), child: DropdownButtonFormField<String>(isExpanded: true, value: groupId,
+              decoration: InputDecoration(),
               items: [const DropdownMenuItem(value: null, child: LText('common.ungroupedOption')),
                 for (final group in groups) DropdownMenuItem(value: group['id'] as String, child: Text(group['name'].toString()))],
-              onChanged: (value) => update(() => groupId = value)),
+              onChanged: (value) => update(() => groupId = value))),
             CheckboxListTile(value: setDefault, title: const LText('vaultTools.showSshKeyGenerator.text'), contentPadding: EdgeInsets.zero,
               onChanged: (value) => update(() => setDefault = value ?? false)),
             if (error.isNotEmpty) LText(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
@@ -1599,9 +1594,9 @@ Future<bool> showRecoveryCodesEditor(BuildContext context) async {
         title: const LText('vaultTools.showRecoveryCodesEditor.text'),
         content: SizedBox(width: appEditDialogWidth(ctx), child: AbsorbPointer(absorbing: busy, child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
-            TextField(controller: service, decoration: InputDecoration(labelText: tr('credentials.build.text.item40'))),
-            TextField(controller: codes, minLines: 3, maxLines: 8,
-              decoration: InputDecoration(labelText: tr('credentials.recovery.title'), helperText: tr('credentials.build.text.item42'))),
+            AppFieldRow(label: tr('credentials.build.text.item40'), child: TextField(controller: service, decoration: InputDecoration())),
+            AppFieldRow(label: tr('credentials.recovery.title'), help: tr('credentials.build.text.item42'), child: TextField(controller: codes, minLines: 3, maxLines: 8,
+              decoration: InputDecoration())),
             if (error.isNotEmpty) LText(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
           ]))))),
         actions: [

@@ -80,6 +80,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
   bool _busy = false;
   bool _initializing = true;
   bool _bootstrapping = false;
+  bool _wakeUnlockInProgress = false;
   bool _showMasterPassword = false;
   String _unlockMessage = '';
   int _pageIndex = 0;
@@ -107,6 +108,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
     AppPresentation.instance.addListener(_onPresentationChanged);
     installVaultLockCoordinator(_onVaultLockedExternally);
     AgentBridge.onShortcut = _handleShortcut;
+    AgentBridge.onAppForeground = _onAppForeground;
     AgentBridge.installVaultLockHandler(notifyVaultLocked);
     _vaultLockPoll = Timer.periodic(const Duration(seconds: 2), (_) => _pollVaultLockGeneration());
     _bootstrap();
@@ -198,6 +200,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
     WebDavSync.instance.onFailure = null;
     WebDavSync.instance.stop();
     AgentBridge.onShortcut = null;
+    AgentBridge.onAppForeground = null;
     AppPresentation.instance.removeListener(_onPresentationChanged);
     _vaultLockPoll?.cancel();
     _password.dispose();
@@ -338,6 +341,35 @@ class _VaultHomePageState extends State<VaultHomePage> {
     }
   }
 
+  Future<void> _onAppForeground() async {
+    if (!mounted || _initializing || _busy || _wakeUnlockInProgress) return;
+    _wakeUnlockInProgress = true;
+    try {
+      final settings = await AgentBridge.fetchAppSettings();
+      final values = settings['settings'];
+      if (values is! Map || values['auto_unlock_on_wake'] != true) return;
+      await _refreshStatus();
+      // 设置和状态查询期间可能已切到后台，不能因此在其他应用前弹出验证。
+      final foreground = await AgentBridge.isMainWindowForeground();
+      if (!mounted || _busy || !foreground || !_vaultExists || _unlocked) return;
+      setState(() {
+        _showMasterPassword = false;
+        _unlockMessage = '';
+      });
+      if (_needsMasterPassword) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_unlocked) _passwordFocus.requestFocus();
+        });
+      } else {
+        await _unlockTouchId();
+      }
+    } catch (_) {
+      // 自动验证不可用时保留手动解锁入口，不放宽现有的解锁策略。
+    } finally {
+      _wakeUnlockInProgress = false;
+    }
+  }
+
   Future<void> _showAgentNotStartedHint() {
     if (!mounted) return Future.value();
     return showDialog<void>(
@@ -440,17 +472,14 @@ class _VaultHomePageState extends State<VaultHomePage> {
     var name = original;
     final value = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(
       title: const LText('vault.syncHost.title'),
-      content: SizedBox(width: appEditDialogWidth(ctx), child: TextFormField(
+      content: SizedBox(width: appEditDialogWidth(ctx), child: AppFieldRow(label: tr('vault.syncHost.label'), help: tr('vault.syncHost.help'), child: TextFormField(
         initialValue: original,
         autofocus: true,
         maxLength: 128,
-        decoration: InputDecoration(
-          labelText: tr('vault.syncHost.label'),
-          hintText: _status['computer_name']?.toString(),
-          helperText: tr('vault.syncHost.help'), helperMaxLines: 3),
+        decoration: InputDecoration(hintText: _status['computer_name']?.toString()),
         onChanged: (text) => name = text,
         onFieldSubmitted: (text) => Navigator.pop(ctx, text),
-      )),
+      ))),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.cancel')),
         FilledButton(onPressed: () => Navigator.pop(ctx, name), child: const LText('common.save')),
@@ -777,7 +806,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
                 ],
                 if (_unlockMessage.isNotEmpty) AppNotice(_unlockMessage),
                 if (_needsMasterPassword) ...[
-                  TextField(
+                  AppFieldRow(label: tr('vault.fields.masterPasswordLabel'), child: TextField(
                     controller: _password,
                     focusNode: _passwordFocus,
                     autofocus: true,
@@ -785,12 +814,9 @@ class _VaultHomePageState extends State<VaultHomePage> {
                     enabled: !_busy,
                     autocorrect: false,
                     enableSuggestions: false,
-                    decoration: InputDecoration(
-                        labelText: tr('vault.fields.masterPasswordLabel'),
-                        hintText: tr('vault.lockedView.text.item4'),
-                        prefixIcon: Icon(Icons.key_outlined)),
+                    decoration: InputDecoration(hintText: tr('vault.lockedView.text.item4'), prefixIcon: Icon(Icons.key_outlined)),
                     onSubmitted: (_) { if (!_busy) _unlock(); },
-                  ),
+                  )),
                   const SizedBox(height: 14),
                   FilledButton.icon(onPressed: _busy ? null : _unlock,
                       icon: const Icon(Icons.lock_open_rounded),
@@ -918,22 +944,17 @@ class _VaultHomePageState extends State<VaultHomePage> {
                   const SizedBox(height: 22),
                   if (!_unlocked) ...[
                     if (!_vaultExists) ...[
-                      TextField(
+                      AppFieldRow(label: tr('vault.syncHost.label'), help: tr('vault.syncHost.help'), child: TextField(
                         controller: _syncHostName,
                         maxLength: 128,
-                        decoration: InputDecoration(
-                          labelText: tr('vault.syncHost.label'),
-                          helperText: tr('vault.syncHost.help'), helperMaxLines: 3,
-                          prefixIcon: const Icon(Icons.computer_outlined)),
-                      ),
+                        decoration: InputDecoration(prefixIcon: const Icon(Icons.computer_outlined)),
+                      )),
                       const SizedBox(height: 14),
                     ],
-                    TextField(
+                    AppFieldRow(label: tr('vault.fields.masterPassword'), child: TextField(
                       controller: _password,
                       obscureText: true,
-                      decoration: InputDecoration(
-                          labelText: tr('vault.fields.masterPassword'),
-                          prefixIcon: Icon(Icons.key_outlined)),
+                      decoration: InputDecoration(prefixIcon: Icon(Icons.key_outlined)),
                       onSubmitted: (_) {
                         if (!_busy) {
                           if (_vaultExists) {
@@ -943,7 +964,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
                           }
                         }
                       },
-                    ),
+                    )),
                     const SizedBox(height: 14),
                     Wrap(spacing: 10, runSpacing: 10, children: [
                       FilledButton.icon(
@@ -1020,16 +1041,16 @@ class _VaultHomePageState extends State<VaultHomePage> {
               subtitle: tr('vault.vaultOverview.description'),
               icon: Icons.password_rounded,
               child: Column(children: [
-                TextField(
+                AppFieldRow(label: tr('vault.vaultOverview.text.item19'), child: TextField(
                     controller: _password,
                     obscureText: true,
-                    decoration: InputDecoration(labelText: tr('vault.vaultOverview.text.item19'))),
+                    decoration: InputDecoration())),
                 const SizedBox(height: 12),
-                TextField(
+                AppFieldRow(label: tr('vault.vaultOverview.text.item20'), child: TextField(
                     controller: _newPassword,
                     obscureText: true,
                     decoration:
-                        InputDecoration(labelText: tr('vault.vaultOverview.text.item20'))),
+                        InputDecoration())),
                 const SizedBox(height: 14),
                 Align(
                     alignment: Alignment.centerLeft,
@@ -1057,15 +1078,15 @@ class _VaultHomePageState extends State<VaultHomePage> {
             childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             children: [
               if (_unlocked) AppNotice(tr('vault.vaultOverview.text.item25')),
-              TextField(
+              AppFieldRow(label: tr('vault.vaultOverview.text.item26'), child: TextField(
                   controller: _recoveryPassword,
                   obscureText: true,
-                  decoration: InputDecoration(labelText: tr('vault.vaultOverview.text.item26'))),
+                  decoration: InputDecoration())),
               const SizedBox(height: 12),
-              TextField(
+              AppFieldRow(label: tr('vault.fields.recoveryKey'), child: TextField(
                   controller: _recoveryKey,
                   obscureText: true,
-                  decoration: InputDecoration(labelText: tr('vault.fields.recoveryKey'))),
+                  decoration: InputDecoration())),
               const SizedBox(height: 14),
               Align(
                   alignment: Alignment.centerLeft,

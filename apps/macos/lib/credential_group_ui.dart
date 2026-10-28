@@ -20,8 +20,8 @@ Future<bool> _renameGroup(BuildContext context, Map<String, dynamic> group) asyn
       builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
         title: const LText('groups.rename'),
         content: SizedBox(width: appEditDialogWidth(ctx), child: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: controller, autofocus: true, enabled: !busy, maxLength: 80,
-            decoration: InputDecoration(labelText: tr('common.name'))),
+          AppFieldRow(label: tr('common.name'), child: TextField(controller: controller, autofocus: true, enabled: !busy, maxLength: 80,
+            decoration: InputDecoration())),
           if (error.isNotEmpty) LText(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
         ])),
         actions: [
@@ -99,7 +99,7 @@ Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
                   builder: (d) => StatefulBuilder(builder: (d, update) => AlertDialog(
                     title: const LText('groups.showManageGroupsDialog.text.item3'),
                     content: SizedBox(width: appEditDialogWidth(d), child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      TextField(controller: nameCtl, enabled: !busy, decoration: InputDecoration(labelText: tr('groups.showManageGroupsDialog.text.item4'))),
+                      AppFieldRow(label: tr('groups.showManageGroupsDialog.text.item4'), child: TextField(controller: nameCtl, enabled: !busy, decoration: InputDecoration())),
                       if (error.isNotEmpty) LText(error),
                     ])),
                     actions: [
@@ -146,11 +146,11 @@ Future<void> showMoveItemToGroupDialog(
     builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
       title: const LText('credentials.build.text.item20'),
       content: SizedBox(width: appEditDialogWidth(ctx), child: Column(mainAxisSize: MainAxisSize.min, children: [
-        DropdownButtonFormField<String?>(isExpanded: true, value: selected,
-          decoration: InputDecoration(labelText: tr('groups.showMoveItemToGroupDialog.text')),
+        AppFieldRow(label: tr('groups.showMoveItemToGroupDialog.text'), child: DropdownButtonFormField<String?>(isExpanded: true, value: selected,
+          decoration: InputDecoration(),
           items: [const DropdownMenuItem(value: null, child: LText('common.ungroupedOption')),
             for (final group in groups) DropdownMenuItem(value: group['id'] as String, child: Text(group['name'].toString()))],
-          onChanged: busy ? null : (value) => update(() => selected = value)),
+          onChanged: busy ? null : (value) => update(() => selected = value))),
         if (error.isNotEmpty) LText(error),
       ])),
       actions: [
@@ -178,11 +178,10 @@ Widget buildGroupFilterBar({
     child: Row(
       children: [
         Expanded(
-          child: DropdownButtonFormField<String?>(
+          child: AppFieldRow(label: tr('common.group'), child: DropdownButtonFormField<String?>(
             value: dropdownValueIfPresent(selectedGroupId, groups),
             isExpanded: true,
-            decoration: InputDecoration(
-                labelText: tr('common.group'), prefixIcon: Icon(Icons.folder_outlined)),
+            decoration: InputDecoration(prefixIcon: Icon(Icons.folder_outlined)),
             items: [
               const DropdownMenuItem(value: null, child: LText('common.all')),
               ...groups.map(
@@ -197,7 +196,7 @@ Widget buildGroupFilterBar({
               ),
             ],
             onChanged: onChanged,
-          ),
+          )),
         ),
         const SizedBox(width: 8),
         IconButton(

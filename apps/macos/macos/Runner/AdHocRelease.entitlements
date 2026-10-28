@@ -4,11 +4,6 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
-	<key>com.apple.security.cs.allow-jit</key>
-	<true/>
-	<!-- 本地签名没有 Team ID；只为这种分发方式允许加载包内 Flutter 动态库。 -->
-	<key>com.apple.security.cs.disable-library-validation</key>
-	<true/>
 	<key>com.apple.security.get-task-allow</key>
 	<false/>
 </dict>

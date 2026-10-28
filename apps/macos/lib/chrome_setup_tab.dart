@@ -143,13 +143,11 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  TextField(
+                  AppFieldRow(label: tr('browser.build.text.item9'), child: TextField(
                     controller: widget.extensionIdController,
                     readOnly: true,
-                    decoration: InputDecoration(
-                        labelText: tr('browser.build.text.item9'),
-                        hintText: tr('browser.build.text.item10')),
-                  ),
+                    decoration: InputDecoration(hintText: tr('browser.build.text.item10')),
+                  )),
                   const SizedBox(height: 14),
                   Wrap(spacing: 10, runSpacing: 10, children: [
                     OutlinedButton.icon(

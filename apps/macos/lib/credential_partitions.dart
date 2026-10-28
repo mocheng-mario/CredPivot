@@ -79,8 +79,8 @@ class _PartitionManagementPageState extends State<PartitionManagementPage> {
         builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
           title: LText(row == null ? 'partitions.create' : 'partitions.rename'),
           content: SizedBox(width: appEditDialogWidth(ctx), child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: controller, autofocus: true, enabled: !saving,
-                maxLength: 80, decoration: InputDecoration(labelText: tr('common.name'))),
+            AppFieldRow(label: tr('common.name'), child: TextField(controller: controller, autofocus: true, enabled: !saving,
+                maxLength: 80, decoration: InputDecoration())),
             if (error.isNotEmpty) LText(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
           ])),
           actions: [
@@ -172,26 +172,47 @@ Future<void> showPartitionMigration(BuildContext context, String source) async {
     final selected = <String>{};
     final proceed = await showDialog<bool>(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, update) {
       final visible = items.where((r) => '${r['title']} ${r['account'] ?? ''}'.toLowerCase().contains(query.toLowerCase())).toList();
+      final visibleIds = visible.map((item) => item['id'].toString()).toSet();
+      final selectedVisible = visibleIds.where(selected.contains).length;
+      final allVisibleSelected = visibleIds.isNotEmpty && selectedVisible == visibleIds.length;
       return AlertDialog(title: const LText('partitions.move'),
         content: SizedBox(width: appEditDialogWidth(ctx), height: MediaQuery.sizeOf(ctx).height * .55,
-          child: Column(children: [
-            DropdownButtonFormField<String>(initialValue: target, isExpanded: true,
-              decoration: InputDecoration(labelText: tr('partitions.target')),
+          child: CustomScrollView(slivers: [
+            SliverToBoxAdapter(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            AppFieldRow(label: tr('partitions.target'), child: DropdownButtonFormField<String>(initialValue: target, isExpanded: true,
+              decoration: InputDecoration(),
               items: destinations.map((p) => DropdownMenuItem(value: p['id'].toString(), child: Text(p['name'].toString()))).toList(),
-              onChanged: (value) { if (value != null) update(() => target = value); }),
+              onChanged: (value) { if (value != null) update(() => target = value); })),
             const SizedBox(height: 12),
-            TextField(decoration: InputDecoration(labelText: tr('partitions.search')), onChanged: (value) => update(() => query = value)),
-            TextButton(onPressed: () => update(() {
-              final ids = visible.map((r) => r['id'].toString());
-              if (ids.every(selected.contains)) { selected.removeAll(ids); } else { selected.addAll(ids); }
-            }), child: LText('partitions.selectAll', args: {'count': selected.length})),
-            Expanded(child: ListView.builder(itemCount: visible.length, itemBuilder: (_, index) {
+            AppFieldRow(label: tr('partitions.search'), child: TextField(decoration: InputDecoration(), onChanged: (value) => update(() => query = value))),
+            Wrap(spacing: 12, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+              OutlinedButton.icon(
+                onPressed: visibleIds.isEmpty ? null : () => update(() {
+                  // 仅切换当前搜索结果，保留其他搜索中已经选择的凭据。
+                  if (allVisibleSelected) { selected.removeAll(visibleIds); }
+                  else { selected.addAll(visibleIds); }
+                }),
+                icon: Icon(allVisibleSelected ? Icons.deselect : Icons.select_all),
+                label: LText(allVisibleSelected ? 'partitions.deselectResults' : 'partitions.selectResults'),
+              ),
+              LText('partitions.selectionCount', args: {'count': visible.length, 'selected': selected.length}),
+            ]),
+            if (selected.length > selectedVisible) Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: LText('partitions.selectedOutside', args: {'count': selected.length - selectedVisible},
+                  style: Theme.of(ctx).textTheme.bodySmall)),
+            const Divider(),
+            ])),
+            if (visible.isEmpty) const SliverToBoxAdapter(
+              child: Padding(padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(child: LText('partitions.noSearchResults')))),
+            SliverList(delegate: SliverChildBuilderDelegate((_, index) {
               final item = visible[index];
               final id = item['id'].toString();
               return CheckboxListTile(value: selected.contains(id), title: Text(item['title']?.toString() ?? ''),
                 subtitle: Text('${item['kind']}${item['trashed_at_ms'] != null ? ' · ${tr('partitions.trashed')}' : ''}'),
                 onChanged: (value) => update(() { if (value == true) { selected.add(id); } else { selected.remove(id); } }));
-            })),
+            }, childCount: visible.length)),
           ])),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('common.cancel')),
           FilledButton(onPressed: selected.isEmpty ? null : () => Navigator.pop(ctx, true), child: const LText('partitions.preview'))],

@@ -173,18 +173,15 @@ class _ShortcutsPageState extends State<ShortcutsPage> {
         const SizedBox(height: 16),
         AppPanel(icon: Icons.keyboard_outlined, title: _dirty ? tr('settings.build.text.item3') : tr('shortcuts.build.text.item3'),
           subtitle: tr('shortcuts.build.description.item2'),
-          child: Column(children: [
-            for (final entry in _labels.entries) ...[
-              if (entry.key != _labels.keys.first) const Divider(height: 32),
-              Row(children: [
-                Expanded(child: LText(entry.value, style: Theme.of(context).textTheme.titleMedium)),
+          child: appFieldRows([
+            for (final entry in _labels.entries)
+              AppFieldRow(label: tr(entry.value), child: Row(children: [
                 OutlinedButton.icon(onPressed: () => _record(entry.key), icon: const Icon(Icons.keyboard, size: 18),
                   label: Text(_display(_bindings[entry.key] ?? ''), style: const TextStyle(fontSize: 16))),
                 const SizedBox(width: 8),
                 IconButton(tooltip: tr('shortcuts.build.text.item4'), onPressed: (_bindings[entry.key] ?? '').isEmpty ? null :
                   () => setState(() => _bindings[entry.key] = ''), icon: const Icon(Icons.close_rounded)),
-              ]),
-            ],
+              ])),
           ])),
         const SizedBox(height: 16),
         AppNotice(tr('shortcuts.build.text.item5')),

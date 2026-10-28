@@ -8,7 +8,16 @@ final class MenuBarController {
   init(appDelegate: AppDelegate) {
     self.appDelegate = appDelegate
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    statusItem?.button?.title = "CP"
+    if let image = NSImage(named: "CredPivotStatusColor") {
+      // 彩色资源必须保留原始颜色，模板模式会将其渲染成单色。
+      image.isTemplate = false
+      image.size = NSSize(width: 18, height: 18)
+      statusItem?.button?.image = image
+      statusItem?.button?.toolTip = "CredPivot"
+      statusItem?.button?.setAccessibilityLabel("CredPivot")
+    } else {
+      statusItem?.button?.title = "CP"
+    }
     let menu = NSMenu()
     let showItem = NSMenuItem(title: "显示 CredPivot", action: #selector(AppDelegate.showMainWindow), keyEquivalent: "")
     showItem.target = appDelegate

@@ -13,6 +13,7 @@ class AgentBridge {
   /// 接收菜单栏/系统触发的锁定通知。
   static void Function()? _onVaultLocked;
   static void Function(String)? onShortcut;
+  static void Function()? onAppForeground;
   static final vaultChanges = ValueNotifier<int>(0);
   static void notifyVaultChanged() => vaultChanges.value++;
 
@@ -25,6 +26,8 @@ class AgentBridge {
         onShortcut?.call(call.arguments as String);
       } else if (call.method == 'onVaultChanged') {
         notifyVaultChanged();
+      } else if (call.method == 'onAppForeground') {
+        onAppForeground?.call();
       }
       return null;
     });
@@ -221,6 +224,9 @@ class AgentBridge {
 
   static Future<Map<String, dynamic>> fetchAppSettings() async =>
       payloadOf(await request({'type': 'app_settings_get'}));
+
+  static Future<bool> isMainWindowForeground() async =>
+      await _channel.invokeMethod<bool>('isMainWindowForeground') == true;
 
   static Future<String?> backupAppSettings() async =>
       payloadOf(await request({'type': 'app_settings_backup'}))['path'] as String?;

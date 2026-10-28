@@ -1304,6 +1304,7 @@ final class CredPivotPlatform: NSObject {
   private var showingSshAuthorization = false
   private var showingPasskeyAuthorization = false
   private var shortcutController: CredPivotShortcuts?
+  private var foregroundUnlockArmed = true
 
   init(messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(name: "credpivot/agent", binaryMessenger: messenger)
@@ -1316,6 +1317,48 @@ final class CredPivotPlatform: NSObject {
       name: .credPivotVaultLocked,
       object: nil
     )
+    NotificationCenter.default.addObserver(self, selector: #selector(appBecameActive),
+      name: NSApplication.didBecomeActiveNotification, object: nil)
+    NotificationCenter.default.addObserver(self, selector: #selector(appResignedActive),
+      name: NSApplication.didResignActiveNotification, object: nil)
+    NotificationCenter.default.addObserver(self, selector: #selector(mainWindowBecameKey(_:)),
+      name: NSWindow.didBecomeKeyNotification, object: nil)
+    NotificationCenter.default.addObserver(self, selector: #selector(mainWindowResignedKey(_:)),
+      name: NSWindow.didResignKeyNotification, object: nil)
+  }
+
+  private var isMainWindowForeground: Bool {
+    guard let window = (NSApp.delegate as? AppDelegate)?.mainFlutterWindow else { return false }
+    return NSApp.isActive && window.isVisible && !window.isMiniaturized
+  }
+
+  @objc private func appResignedActive() {
+    // 验证弹窗和原生模态窗口也会暂时夺走焦点，返回时不能再次自动验证。
+    foregroundUnlockArmed = !TouchIdGate.isAuthenticating && NSApp.modalWindow == nil
+  }
+
+  @objc private func appBecameActive() {
+    guard foregroundUnlockArmed else { return }
+    notifyAppForeground()
+  }
+
+  @objc private func mainWindowBecameKey(_ notification: Notification) {
+    guard foregroundUnlockArmed,
+      let window = notification.object as? NSWindow,
+      window === (NSApp.delegate as? AppDelegate)?.mainFlutterWindow else { return }
+    notifyAppForeground()
+  }
+
+  @objc private func mainWindowResignedKey(_ notification: Notification) {
+    guard let window = notification.object as? NSWindow,
+      window === (NSApp.delegate as? AppDelegate)?.mainFlutterWindow else { return }
+    appResignedActive()
+  }
+
+  func notifyAppForeground() {
+    guard isMainWindowForeground, !TouchIdGate.isAuthenticating, NSApp.modalWindow == nil else { return }
+    foregroundUnlockArmed = false
+    channel.invokeMethod("onAppForeground", arguments: nil)
   }
 
   private func startInteractionServices() {
@@ -1441,7 +1484,10 @@ final class CredPivotPlatform: NSObject {
     return String(String.UnicodeScalarView(safe)).prefix(160).description
   }
 
-  deinit { sshAuthorizationTimer?.invalidate() }
+  deinit {
+    sshAuthorizationTimer?.invalidate()
+    NotificationCenter.default.removeObserver(self)
+  }
 
   @objc private func vaultLockedExternally() {
     DispatchQueue.main.async {
@@ -1461,6 +1507,8 @@ final class CredPivotPlatform: NSObject {
 
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
+    case "isMainWindowForeground":
+      result(isMainWindowForeground && !TouchIdGate.isAuthenticating && NSApp.modalWindow == nil)
     case "syncHostInfo":
       let status = LocalVaultUnlock.request(["type": "status"]) ?? [:]
       result(AppPreferences.syncHostInfo(vaultId: status["vault_id"] as? String ?? ""))

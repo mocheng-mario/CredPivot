@@ -131,6 +131,20 @@ pub enum VaultAction {
         choices: HashMap<String, String>,
         preview_token: String,
     },
+    GooglePreview {
+        path: String,
+        partition_id: String,
+        group_id: Option<String>,
+        new_group_name: String,
+    },
+    GoogleImport {
+        path: String,
+        partition_id: String,
+        group_id: Option<String>,
+        new_group_name: String,
+        selected_rows: Vec<usize>,
+        preview_token: String,
+    },
 }
 
 impl VaultAction {
@@ -545,7 +559,7 @@ pub fn manage_credentials(conn: &Connection, action: VaultAction) -> Result<Valu
             password,
             namespace,
         } => {
-            let json = read_import_file(&path)?;
+            let json = read_import_file(&path, "JSON")?;
             return crate::bitwarden_import::preview(conn, &json, &password, &namespace);
         }
         BitwardenImport {
@@ -555,7 +569,7 @@ pub fn manage_credentials(conn: &Connection, action: VaultAction) -> Result<Valu
             choices,
             preview_token,
         } => {
-            let json = read_import_file(&path)?;
+            let json = read_import_file(&path, "JSON")?;
             return crate::bitwarden_import::import_with_choices(
                 conn,
                 &json,
@@ -565,11 +579,20 @@ pub fn manage_credentials(conn: &Connection, action: VaultAction) -> Result<Valu
                 &preview_token,
             );
         }
+        GooglePreview { path, partition_id, group_id, new_group_name } => {
+            let csv = read_import_file(&path, "CSV")?;
+            return crate::google_import::preview(conn, &csv, &partition_id, group_id.as_deref(), &new_group_name);
+        }
+        GoogleImport { path, partition_id, group_id, new_group_name, selected_rows, preview_token } => {
+            let csv = read_import_file(&path, "CSV")?;
+            return crate::google_import::apply(conn, &csv, &partition_id, group_id.as_deref(), &new_group_name,
+                &selected_rows, &preview_token);
+        }
         other => return manage_local(conn, other),
     }
 }
 
-fn read_import_file(path: &str) -> Result<zeroize::Zeroizing<String>> {
+fn read_import_file(path: &str, format: &str) -> Result<zeroize::Zeroizing<String>> {
     use std::io::Read;
     // App-only 操作在验证后直接读取文件，避免把整份导出在 4MB IPC 请求中再次编码。
     let file = std::fs::File::open(path).map_err(|_| CoreError::io("无法读取导入文件"))?;
@@ -578,12 +601,12 @@ fn read_import_file(path: &str) -> Result<zeroize::Zeroizing<String>> {
         .map_err(|_| CoreError::io("无法读取导入文件"))?
         .is_file()
     {
-        return Err(CoreError::format("请选择普通 JSON 文件"));
+        return Err(CoreError::format(format!("请选择普通 {format} 文件")));
     }
     let mut input = zeroize::Zeroizing::new(String::new());
     file.take(32 * 1024 * 1024 + 1)
         .read_to_string(&mut input)
-        .map_err(|_| CoreError::format("导入文件须为 UTF-8 JSON"))?;
+        .map_err(|_| CoreError::format(format!("导入文件须为 UTF-8 {format}")))?;
     if input.len() > 32 * 1024 * 1024 {
         return Err(CoreError::limit("导入文件不能超过 32MB"));
     }

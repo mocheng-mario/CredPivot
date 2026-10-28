@@ -139,10 +139,9 @@ class _TotpEditorState extends State<_TotpEditor> {
     title: LText(widget.existing == null ? tr('mfa.build.text') : tr('mfa.build.text.item2')),
     content: SizedBox(width: appEditDialogWidth(context), child: SingleChildScrollView(child: Column(
       mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: appFormFields([
-        TextField(controller: input, enabled: !busy, obscureText: concealed,
-          decoration: InputDecoration(labelText: 'otpauth URI / Base32', helperText: tr('mfa.build.text.item3'), helperMaxLines: 2,
-            suffixIcon: IconButton(onPressed: () => setState(() => concealed = !concealed), icon: Icon(concealed ? Icons.visibility : Icons.visibility_off))),
-          onChanged: (_) { generation++; debounce?.cancel(); setState(() { parsed = null; parsing = false; }); debounce = Timer(const Duration(milliseconds: 400), () => parseInput()); }),
+        AppFieldRow(label: 'otpauth URI / Base32', help: tr('mfa.build.text.item3'), child: TextField(controller: input, enabled: !busy, obscureText: concealed,
+          decoration: InputDecoration(suffixIcon: IconButton(onPressed: () => setState(() => concealed = !concealed), icon: Icon(concealed ? Icons.visibility : Icons.visibility_off))),
+          onChanged: (_) { generation++; debounce?.cancel(); setState(() { parsed = null; parsing = false; }); debounce = Timer(const Duration(milliseconds: 400), () => parseInput()); })),
         Wrap(spacing: 12, children: [
           TextButton.icon(onPressed: busy || parsing ? null : () => parseInput(), icon: const Icon(Icons.manage_search), label: LText(parsing ? tr('mfa.build.text.item4') : tr('mfa.build.text.item5'))),
           TextButton.icon(onPressed: busy ? null : scan, icon: const Icon(Icons.qr_code_scanner), label: const LText('mfa.build.text.item6')),
@@ -150,12 +149,12 @@ class _TotpEditorState extends State<_TotpEditor> {
         if (parsed != null) LText('mfa.editor.parameters', args: {'algorithm': parsed!['algorithm'], 'digits': parsed!['digits'], 'period': parsed!['period']}),
         if (parsed != null && (parsed!['extra_parameters'] as Map).isNotEmpty) LText('mfa.editor.extraParameters', args: {'parameters': (parsed!['extra_parameters'] as Map).keys.join('、')}),
         if (parsed != null) for (final warning in parsed!['warnings'] as List) Text(warning.toString(), style: TextStyle(color: Theme.of(context).colorScheme.error)),
-        TextField(controller: issuer, enabled: !busy, decoration: InputDecoration(labelText: tr('mfa.fields.issuerLabel'))),
-        TextField(controller: account, enabled: !busy, decoration: InputDecoration(labelText: tr('mfa.fields.accountLabel'))),
-        if (widget.existing == null && widget.groups.isNotEmpty) DropdownButtonFormField<String>(
-          isExpanded: true, value: groupId, decoration: InputDecoration(labelText: tr('common.group')),
+        AppFieldRow(label: tr('mfa.fields.issuerLabel'), child: TextField(controller: issuer, enabled: !busy, decoration: InputDecoration())),
+        AppFieldRow(label: tr('mfa.fields.accountLabel'), child: TextField(controller: account, enabled: !busy, decoration: InputDecoration())),
+        if (widget.existing == null && widget.groups.isNotEmpty) AppFieldRow(label: tr('common.group'), child: DropdownButtonFormField<String>(
+          isExpanded: true, value: groupId, decoration: InputDecoration(),
           items: [const DropdownMenuItem<String>(value: null, child: LText('common.ungroupedOption')), for (final g in widget.groups) DropdownMenuItem(value: g['id'] as String, child: Text(g['name'].toString()))],
-          onChanged: busy ? null : (v) => setState(() => groupId = v)),
+          onChanged: busy ? null : (v) => setState(() => groupId = v))),
         const LText('mfa.build.text.item9'),
         if (pendingRules.isNotEmpty) ...[
           AppNotice(tr('mfa.build.text.item10')),

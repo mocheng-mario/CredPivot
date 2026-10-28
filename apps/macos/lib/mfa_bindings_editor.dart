@@ -73,13 +73,13 @@ class _MfaBindingsEditorState extends State<MfaBindingsEditor> {
       decoration: BoxDecoration(border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(12)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          Expanded(child: DropdownButtonFormField<String>(
+          Expanded(child: AppFieldRow(label: tr('mfa.links.index', args: {'index': index + 1}), child: DropdownButtonFormField<String>(
             isExpanded: true, value: selected == null ? null : id,
-            decoration: InputDecoration(labelText: tr('mfa.links.index', args: {'index': index + 1})),
+            decoration: InputDecoration(),
             items: [for (final m in options) DropdownMenuItem(value: m['id'].toString(),
               child: Tooltip(message: '${m['issuer']} · ${m['account']}',
                 child: Text('${m['issuer']} · ${m['account']}', maxLines: 1, overflow: TextOverflow.ellipsis)))],
-            onChanged: !widget.enabled ? null : (v) { if (v != null) setState(() => widget.linkedIds[index] = v); })),
+            onChanged: !widget.enabled ? null : (v) { if (v != null) setState(() => widget.linkedIds[index] = v); }))),
           IconButton(tooltip: tr('mfaLinks.card.text.item5'), onPressed: !widget.enabled ? null : () => setState(() => widget.linkedIds.removeAt(index)),
             icon: const Icon(Icons.link_off_rounded)),
         ]),

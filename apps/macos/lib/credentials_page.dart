@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import 'agent_bridge.dart';
 import 'vault_tools.dart';
+import 'google_password_import.dart';
 import 'website_rules_editor.dart';
 import 'mfa_bindings_editor.dart';
 import 'totp_editor.dart';
@@ -114,15 +115,15 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: appFormFields([
-              TextField(
+              AppFieldRow(label: tr('common.name'), child: TextField(
                 controller: nameCtl,
                 enabled: !validating,
-                decoration: InputDecoration(labelText: tr('common.name'), hintText: tr('credentials.cancel.text.item3')),
-              ),
-              DropdownButtonFormField<String?>(
+                decoration: InputDecoration(hintText: tr('credentials.cancel.text.item3')),
+              )),
+              AppFieldRow(label: tr('common.group'), child: DropdownButtonFormField<String?>(
                 isExpanded: true,
                 value: groupId,
-                decoration: InputDecoration(labelText: tr('common.group')),
+                decoration: InputDecoration(),
                 items: [
                   const DropdownMenuItem(value: null, child: LText('common.ungroupedOption')),
                   ...groups.map(
@@ -137,21 +138,17 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
                   ),
                 ],
                 onChanged: validating ? null : (v) => setLocal(() => groupId = v),
-              ),
-              TextField(enabled: !validating, controller: userCtl, decoration: InputDecoration(labelText: tr('common.username'))),
-              TextField(
+              )),
+              AppFieldRow(label: tr('common.username'), child: TextField(enabled: !validating, controller: userCtl, decoration: InputDecoration())),
+              AppFieldRow(label: tr(isEdit ? tr('credentials.cancel.text.item4') : tr('common.password')), help: isEdit ? tr('credentials.cancel.text.item5') : null, child: TextField(
                 controller: passCtl,
                 enabled: !validating,
                 obscureText: true,
-                decoration: InputDecoration(
-                  labelText: tr(isEdit ? tr('credentials.cancel.text.item4') : tr('common.password')),
-                  helperText: isEdit ? tr('credentials.cancel.text.item5') : null,
-                  suffixIcon: IconButton(tooltip: tr('credentials.cancel.text.item6'), icon: const Icon(Icons.auto_awesome), onPressed: validating ? null : () async {
+                decoration: InputDecoration(suffixIcon: IconButton(tooltip: tr('credentials.cancel.text.item6'), icon: const Icon(Icons.auto_awesome), onPressed: validating ? null : () async {
                     final generated = await generatePasswordDialog(ctx);
                     if (ctx.mounted && !closing && generated != null) passCtl.text = generated;
-                  }),
-                ),
-              ),
+                  })),
+              )),
               if (!isEdit) PasswordActiveDateField(value: passwordActiveSince, enabled: !validating,
                 onChanged: (v) => setLocal(() => passwordActiveSince = v)),
               WebsiteRulesEditor(rules: websiteRules, enabled: !validating),
@@ -390,10 +387,18 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
         AppSectionHeader(
           title: tr('credentials.login.title'),
           subtitle: tr('credentials.login.count', args: {'count': visibleItems.length}),
-          action: FilledButton.icon(
+          action: Wrap(spacing: 8, runSpacing: 8, children: [
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () async {
+                if (await importGooglePasswords(context) && mounted) await _refresh();
+              },
+              icon: const Icon(Icons.file_upload_outlined),
+              label: const LText('import.google.action')),
+            FilledButton.icon(
               onPressed: _busy ? null : () => _addOrEdit(),
               icon: const Icon(Icons.add_rounded),
               label: const LText('credentials.build.text')),
+          ]),
         ),
         Row(children: [
           Expanded(
@@ -1163,6 +1168,10 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
     if (mounted) await _loadAll();
   }
 
+  Future<void> _importGoogle() async {
+    if (await importGooglePasswords(context) && mounted) await _loadAll();
+  }
+
   Future<void> _addRecoveryCodes() async {
     final name = _serviceName.text.trim();
     final codes = _codesText.text
@@ -1197,8 +1206,8 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
             mainAxisSize: MainAxisSize.min,
             children: appFormFields([
               const LText('credentials.recoverPoint.text.item2'),
-              TextField(controller: controller, obscureText: true, autofocus: true,
-                decoration: InputDecoration(labelText: tr('credentials.recoverPoint.text.item3'))),
+              AppFieldRow(label: tr('credentials.recoverPoint.text.item3'), child: TextField(controller: controller, obscureText: true, autofocus: true,
+                decoration: InputDecoration())),
             ]),
           )),
           actions: [
@@ -1335,17 +1344,15 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
                   onTap: () => _openRecoveryCode(r),
                 )),
             const SizedBox(height: 12),
-            TextField(
+            AppFieldRow(label: tr('credentials.build.text.item40'), child: TextField(
                 controller: _serviceName,
-                decoration: InputDecoration(
-                    labelText: tr('credentials.build.text.item40'), hintText: tr('credentials.build.text.item41'))),
+                decoration: InputDecoration(hintText: tr('credentials.build.text.item41')))),
             const SizedBox(height: 12),
-            TextField(
+            AppFieldRow(label: tr('credentials.recovery.title'), child: TextField(
                 controller: _codesText,
                 minLines: 2,
                 maxLines: 4,
-                decoration: InputDecoration(
-                    labelText: tr('credentials.recovery.title'), hintText: tr('credentials.build.text.item42'))),
+                decoration: InputDecoration(hintText: tr('credentials.build.text.item42')))),
             const SizedBox(height: 14),
             Align(
                 alignment: Alignment.centerLeft,
@@ -1386,6 +1393,10 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
                 icon: const Icon(Icons.file_upload_outlined),
                 label: const LText('credentials.build.text.item45')),
             OutlinedButton.icon(
+                onPressed: _importGoogle,
+                icon: const Icon(Icons.file_upload_outlined),
+                label: const LText('import.google.action')),
+            OutlinedButton.icon(
                 onPressed: _migrateVault,
                 icon: const Icon(Icons.folder_outlined),
                 label: const LText('credentials.build.text.item46')),
@@ -1403,15 +1414,15 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
           childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
           children: [
             AppNotice(tr('credentials.build.text.item49')),
-            TextField(
+            AppFieldRow(label: tr('vault.vaultOverview.text.item26'), child: TextField(
                 controller: _rebuildPassword,
                 obscureText: true,
-                decoration: InputDecoration(labelText: tr('vault.vaultOverview.text.item26'))),
+                decoration: InputDecoration())),
             const SizedBox(height: 12),
-            TextField(
+            AppFieldRow(label: tr('vault.fields.recoveryKey'), child: TextField(
                 controller: _recoveryKey,
                 obscureText: true,
-                decoration: InputDecoration(labelText: tr('vault.fields.recoveryKey'))),
+                decoration: InputDecoration())),
             const SizedBox(height: 14),
             Align(
                 alignment: Alignment.centerLeft,

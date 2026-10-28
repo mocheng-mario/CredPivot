@@ -603,11 +603,11 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: appFormFields([
-                TextField(controller: labelCtl, decoration: InputDecoration(labelText: tr('common.name'))),
-                DropdownButtonFormField<String?>(
+                AppFieldRow(label: tr('common.name'), child: TextField(controller: labelCtl, decoration: InputDecoration())),
+                AppFieldRow(label: tr('common.group'), child: DropdownButtonFormField<String?>(
                   isExpanded: true,
                   value: groupId,
-                  decoration: InputDecoration(labelText: tr('common.group')),
+                  decoration: InputDecoration(),
                   items: [
                     const DropdownMenuItem(value: null, child: LText('common.ungroupedOption')),
                     for (final group in groups)
@@ -615,21 +615,21 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
                           child: Text(group['name'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis)),
                   ],
                   onChanged: (value) => setLocal(() => groupId = value),
-                ),
-                TextField(
+                )),
+                AppFieldRow(label: tr('server.save.text.item5'), child: TextField(
                   controller: hostCtl,
-                  decoration: InputDecoration(labelText: tr('server.save.text.item5')),
-                ),
-                TextField(
+                  decoration: InputDecoration(),
+                )),
+                AppFieldRow(label: tr('server.fields.port'), child: TextField(
                   controller: portCtl,
-                  decoration: InputDecoration(labelText: tr('server.fields.port')),
+                  decoration: InputDecoration(),
                   keyboardType: TextInputType.number,
-                ),
+                )),
                 const SizedBox(height: 8),
-                DropdownButtonFormField<String?>(
+                AppFieldRow(label: tr('server.save.text.item6'), child: DropdownButtonFormField<String?>(
                   isExpanded: true,
                   value: linkedLogin,
-                  decoration: InputDecoration(labelText: tr('server.save.text.item6')),
+                  decoration: InputDecoration(),
                   items: [
                     const DropdownMenuItem(value: null, child: LText('server.save.text.item7')),
                     ...logins.map(
@@ -657,24 +657,18 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
                       }
                     }
                   }),
-                ),
-                TextField(
+                )),
+                AppFieldRow(label: tr('server.save.text.item8'), child: TextField(
                   controller: manualUserCtl,
                   enabled: linkedLogin == null || (linkedLogin?.isEmpty ?? true),
-                  decoration: InputDecoration(
-                    labelText: tr('server.save.text.item8'),
-                    hintText: linkedLogin == null || (linkedLogin?.isEmpty ?? true)
+                  decoration: InputDecoration(hintText: linkedLogin == null || (linkedLogin?.isEmpty ?? true)
                         ? tr('server.save.text.item9')
-                        : tr('server.save.text.item10'),
-                  ),
-                ),
-                DropdownButtonFormField<String?>(
+                        : tr('server.save.text.item10')),
+                )),
+                AppFieldRow(label: tr('server.save.text.item11'), help: tr('server.save.text.item12'), child: DropdownButtonFormField<String?>(
                   isExpanded: true,
                   value: linkedTotp,
-                  decoration: InputDecoration(
-                    labelText: tr('server.save.text.item11'),
-                    helperText: tr('server.save.text.item12'),
-                  ),
+                  decoration: InputDecoration(),
                   items: [
                     const DropdownMenuItem(value: null, child: LText('server.save.text.item13')),
                     ...totps.map(
@@ -689,11 +683,11 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
                     ),
                   ],
                   onChanged: (v) => setLocal(() => linkedTotp = v),
-                ),
-                DropdownButtonFormField<String?>(
+                )),
+                AppFieldRow(label: tr('server.save.text.item14'), child: DropdownButtonFormField<String?>(
                   isExpanded: true,
                   value: linkedSsh,
-                  decoration: InputDecoration(labelText: tr('server.save.text.item14')),
+                  decoration: InputDecoration(),
                   items: [
                     const DropdownMenuItem(value: null, child: LText('server.save.text.item13')),
                     ...sshKeys.map(
@@ -708,7 +702,7 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
                     ),
                   ],
                   onChanged: (v) => setLocal(() => linkedSsh = v),
-                ),
+                )),
                 if (formError.isNotEmpty) LText(formError, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
               ]),
             ),

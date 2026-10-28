@@ -60,7 +60,7 @@ class AppSidebar extends StatelessWidget {
                       color: AppColors.primary,
                       borderRadius: BorderRadius.circular(12)),
                   child: Icon(Icons.shield_outlined,
-                      color: AppColors.surface, size: 23),
+                      color: Theme.of(context).colorScheme.onPrimary, size: 23),
                 ),
                 if (!compact) ...[
                   const SizedBox(width: 10),

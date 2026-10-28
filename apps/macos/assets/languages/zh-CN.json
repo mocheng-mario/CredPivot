@@ -12382,6 +12382,615 @@
         "partitions.rs",
         "sync.rs"
       ]
+    },
+    "settings.security.autoUnlockOnWake": {
+      "source": "唤醒时主动验证",
+      "translation": "唤醒时主动验证",
+      "description": "Automatically start unlock verification when the locked app returns to the foreground.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart"
+      ]
+    },
+    "settings.security.autoUnlockOnWakeHelp": {
+      "source": "从后台返回或重新显示窗口时，若保险库已锁定，优先发起指纹验证；需要主密码时聚焦输入框。取消后不会反复弹出。此设置不影响启动时验证。",
+      "translation": "从后台返回或重新显示窗口时，若保险库已锁定，优先发起指纹验证；需要主密码时聚焦输入框。取消后不会反复弹出。此设置不影响启动时验证。",
+      "description": "Explain foreground unlock verification, cancellation behavior, and the separate startup policy.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart"
+      ]
+    },
+    "settings.language.packActions": {
+      "source": "语言包",
+      "translation": "语言包",
+      "description": "Label for language pack import and export actions in settings.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart"
+      ]
+    },
+    "settings.ssh.identityAgent": {
+      "source": "SSH IdentityAgent",
+      "translation": "SSH IdentityAgent",
+      "description": "Label for SSH IdentityAgent status and configuration actions.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart"
+      ]
+    },
+    "theme.colors.title": {
+      "source": "主题色",
+      "translation": "主题色",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.help": {
+      "source": "选择推荐色或自行取色，保存后应用于整个 App；深浅色模式会自动调整对比度。",
+      "translation": "选择推荐色或自行取色，保存后应用于整个 App；深浅色模式会自动调整对比度。",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.recommended": {
+      "source": "推荐配色",
+      "translation": "推荐配色",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.custom": {
+      "source": "自定义颜色",
+      "translation": "自定义颜色",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.openPicker": {
+      "source": "打开取色板",
+      "translation": "打开取色板",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.preview": {
+      "source": "效果预览",
+      "translation": "效果预览",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.primaryAction": {
+      "source": "主要按钮",
+      "translation": "主要按钮",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.selectedItem": {
+      "source": "选中状态",
+      "translation": "选中状态",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.indigo": {
+      "source": "鸢尾紫",
+      "translation": "鸢尾紫",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.blue": {
+      "source": "晴空蓝",
+      "translation": "晴空蓝",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.teal": {
+      "source": "湖水青",
+      "translation": "湖水青",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.green": {
+      "source": "森林绿",
+      "translation": "森林绿",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.amber": {
+      "source": "琥珀金",
+      "translation": "琥珀金",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.rose": {
+      "source": "玫瑰红",
+      "translation": "玫瑰红",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.customTitle": {
+      "source": "自定义主题色",
+      "translation": "自定义主题色",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.hue": {
+      "source": "色相",
+      "translation": "色相",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.saturation": {
+      "source": "饱和度",
+      "translation": "饱和度",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.brightness": {
+      "source": "亮度",
+      "translation": "亮度",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.hex": {
+      "source": "HEX 色值",
+      "translation": "HEX 色值",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.invalidHex": {
+      "source": "请输入六位十六进制颜色，例如 #565DD9",
+      "translation": "请输入六位十六进制颜色，例如 #565DD9",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "theme.colors.useColor": {
+      "source": "使用此颜色",
+      "translation": "使用此颜色",
+      "description": "Theme color setting or custom color picker label.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "theme_color_picker.dart"
+      ]
+    },
+    "import.google.action": {
+      "source": "导入 Google 密码",
+      "translation": "导入 Google 密码",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.title": {
+      "source": "导入 Google / Chrome 密码",
+      "translation": "导入 Google / Chrome 密码",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.help": {
+      "source": "选择 Google 密码管理器导出的 UTF-8 CSV。支持网站、名称、账号、密码和备注。CSV 是明文文件，导入完成后请妥善处理原文件。此处只新增记录，不覆盖现有密码。",
+      "translation": "选择 Google 密码管理器导出的 UTF-8 CSV。支持网站、名称、账号、密码和备注。CSV 是明文文件，导入完成后请妥善处理原文件。此处只新增记录，不覆盖现有密码。",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.partition": {
+      "source": "目标分区",
+      "translation": "目标分区",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.newGroup": {
+      "source": "新建分组…",
+      "translation": "新建分组…",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.groupName": {
+      "source": "新分组名称",
+      "translation": "新分组名称",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.groupHint": {
+      "source": "例如：从 Chrome 导入",
+      "translation": "例如：从 Chrome 导入",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.groupRequired": {
+      "source": "请填写新分组名称。",
+      "translation": "请填写新分组名称。",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.failed": {
+      "source": "导入失败，请检查文件及当前保险库状态。",
+      "translation": "导入失败，请检查文件及当前保险库状态。",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.preview": {
+      "source": "生成导入预览",
+      "translation": "生成导入预览",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.previewHelp": {
+      "source": "相同网站、账号和密码的记录已跳过；密码不同的条目需要手动勾选，导入时会新增副本。预览不展示密码与备注。",
+      "translation": "相同网站、账号和密码的记录已跳过；密码不同的条目需要手动勾选，导入时会新增副本。预览不展示密码与备注。",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.selected": {
+      "source": "已选 {count} / {total} 条",
+      "translation": "已选 {count} / {total} 条",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {
+        "count": "Value displayed in the import dialog.",
+        "total": "Value displayed in the import dialog."
+      },
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.selectNew": {
+      "source": "选择全部新增",
+      "translation": "选择全部新增",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.clearSelection": {
+      "source": "取消所有选择",
+      "translation": "取消所有选择",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.line": {
+      "source": "CSV 第 {line} 行",
+      "translation": "CSV 第 {line} 行",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {
+        "line": "Value displayed in the import dialog."
+      },
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.new": {
+      "source": "新增记录",
+      "translation": "新增记录",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.duplicate": {
+      "source": "重复记录，跳过",
+      "translation": "重复记录，跳过",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.conflict": {
+      "source": "相同网站和账号的密码不同；勾选后新增副本",
+      "translation": "相同网站和账号的密码不同；勾选后新增副本",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.invalid": {
+      "source": "无法导入",
+      "translation": "无法导入",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.invalidWebsite": {
+      "source": "仅支持 HTTP / HTTPS 网站；应用凭据、含账号密码或无效的网站地址暂不支持。",
+      "translation": "仅支持 HTTP / HTTPS 网站；应用凭据、含账号密码或无效的网站地址暂不支持。",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.emptyPassword": {
+      "source": "密码为空。",
+      "translation": "密码为空。",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.fieldTooLong": {
+      "source": "名称、账号或密码长度超出允许范围。",
+      "translation": "名称、账号或密码长度超出允许范围。",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.complete": {
+      "source": "Google 密码导入完成",
+      "translation": "Google 密码导入完成",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.summary": {
+      "source": "已导入 {imported} 条，其中冲突副本 {copied} 条；跳过 {skipped} 条。\n目标分区：{partition}\n目标分组：{group}",
+      "translation": "已导入 {imported} 条，其中冲突副本 {copied} 条；跳过 {skipped} 条。\n目标分区：{partition}\n目标分组：{group}",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {
+        "imported": "Value displayed in the import dialog.",
+        "copied": "Value displayed in the import dialog.",
+        "skipped": "Value displayed in the import dialog.",
+        "partition": "Value displayed in the import dialog.",
+        "group": "Target credential group."
+      },
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.back": {
+      "source": "返回配置",
+      "translation": "返回配置",
+      "description": "Google CSV password import configuration, preview, or result message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart",
+        "credentials_page.dart",
+        "google_import.rs"
+      ]
+    },
+    "import.google.destination": {
+      "source": "目标：{partition} / {group}",
+      "translation": "目标：{partition} / {group}",
+      "description": "Google CSV import destination or stale preview message.",
+      "placeholders": {
+        "partition": "Target partition.",
+        "group": "Target credential group."
+      },
+      "locations": [
+        "google_password_import.dart"
+      ]
+    },
+    "import.google.previewChanged": {
+      "source": "文件或目标分区的记录已改变，请重新生成导入预览。",
+      "translation": "文件或目标分区的记录已改变，请重新生成导入预览。",
+      "description": "Google CSV import destination or stale preview message.",
+      "placeholders": {},
+      "locations": [
+        "google_password_import.dart"
+      ]
+    },
+    "partitions.selectResults": {
+      "source": "全选搜索结果",
+      "translation": "全选搜索结果",
+      "description": "Partition migration selection controls for the current filtered results.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart"
+      ]
+    },
+    "partitions.deselectResults": {
+      "source": "取消全选搜索结果",
+      "translation": "取消全选搜索结果",
+      "description": "Partition migration selection controls for the current filtered results.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart"
+      ]
+    },
+    "partitions.selectionCount": {
+      "source": "搜索结果 {count} 条 · 共选中 {selected} 条",
+      "translation": "搜索结果 {count} 条 · 共选中 {selected} 条",
+      "description": "Partition migration selection controls for the current filtered results.",
+      "placeholders": {
+        "count": {
+          "description": "Keep {count} unchanged."
+        },
+        "selected": {
+          "description": "Keep {selected} unchanged."
+        }
+      },
+      "locations": [
+        "credential_partitions.dart"
+      ]
+    },
+    "partitions.selectedOutside": {
+      "source": "另有 {count} 条已选记录不在当前搜索结果中，选择会继续保留。",
+      "translation": "另有 {count} 条已选记录不在当前搜索结果中，选择会继续保留。",
+      "description": "Partition migration selection controls for the current filtered results.",
+      "placeholders": {
+        "count": {
+          "description": "Keep {count} unchanged."
+        }
+      },
+      "locations": [
+        "credential_partitions.dart"
+      ]
+    },
+    "partitions.noSearchResults": {
+      "source": "没有匹配的凭据，请调整搜索内容。",
+      "translation": "没有匹配的凭据，请调整搜索内容。",
+      "description": "Partition migration selection controls for the current filtered results.",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart"
+      ]
     }
   }
 }

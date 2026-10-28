@@ -192,17 +192,11 @@ class CredentialDetails extends StatelessWidget {
         const SizedBox(height: 18),
         Text(title, style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
-        ...fields.entries.map((field) => Padding(
-              padding: const EdgeInsets.only(top: 18),
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    LText(field.key,
-                        style: Theme.of(context).textTheme.bodySmall),
-                    const SizedBox(height: 5),
-                    SelectableText(field.value.isEmpty ? tr('common.empty') : field.value,
-                        style: const TextStyle(fontSize: 13)),
-                  ]),
-            )),
+        appFieldRows([
+          for (final field in fields.entries)
+            AppFieldRow(label: tr(field.key),
+              child: SelectableText(field.value.isEmpty ? tr('common.empty') : field.value,
+                  style: Theme.of(context).textTheme.bodyMedium)),
+        ]),
       ]);
 }

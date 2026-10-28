@@ -87,16 +87,16 @@ class _WebsiteRulesEditorState extends State<WebsiteRulesEditor> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(children: [
               Expanded(child: LText('websiteRules.editor.index', args: {'index': index + 1}, style: const TextStyle(fontWeight: FontWeight.w600))),
-              SizedBox(width: 180, child: DropdownButtonFormField<String>(
+              SizedBox(width: 180, child: AppFieldRow(label: tr('websiteRules.fields.mode'), child: DropdownButtonFormField<String>(
                 isExpanded: true,
                 value: widget.rules[index]['match_mode']?.toString() ?? 'exact_origin',
-                decoration: InputDecoration(labelText: tr('websiteRules.fields.mode')),
+                decoration: InputDecoration(),
                 items: [
                   for (final entry in modes.entries) DropdownMenuItem(value: entry.key, child: LText(entry.value)),
                   if (!modes.containsKey(widget.rules[index]['match_mode'])) DropdownMenuItem(value: widget.rules[index]['match_mode']?.toString() ?? '', child: const LText('websiteRules.build.text.item3')),
                 ],
                 onChanged: !widget.enabled ? null : (value) { widget.rules[index]['match_mode'] = value; changed(); },
-              )),
+              ))),
               IconButton(tooltip: tr('websiteRules.build.text.item4'), onPressed: !widget.enabled ? null : () async {
                 final rule = widget.rules[index];
                 if (widget.onRemove != null && !await widget.onRemove!(rule['id'].toString())) return;
@@ -105,17 +105,12 @@ class _WebsiteRulesEditorState extends State<WebsiteRulesEditor> {
               }, icon: const Icon(Icons.close)),
             ]),
             const SizedBox(height: 12),
-            TextFormField(
+            AppFieldRow(label: tr(widget.rules[index]['match_mode'] == 'regex' ? tr('websiteRules.modes.regex') : tr('websiteRules.fields.address')), help: widget.rules[index]['match_mode'] == 'regex' ? tr('websiteRules.build.text.item5') : widget.rules[index]['match_mode'] == 'wildcard' ? tr('websiteRules.build.text.item6') : widget.rules[index]['match_mode'] == 'exact_origin' || widget.rules[index]['match_mode'] == 'bitwarden_default' ? tr('websiteRules.build.text.item7') : null, child: TextFormField(
               enabled: widget.enabled,
               initialValue: widget.rules[index]['uri']?.toString() ?? '',
-              decoration: InputDecoration(
-                labelText: tr(widget.rules[index]['match_mode'] == 'regex' ? tr('websiteRules.modes.regex') : tr('websiteRules.fields.address')),
-                hintText: widget.rules[index]['match_mode'] == 'regex' ? r'https://(login|sso)\.example\.com' : widget.rules[index]['match_mode'] == 'wildcard' ? 'https://*.example.com' : 'https://example.com',
-                helperText: widget.rules[index]['match_mode'] == 'regex' ? tr('websiteRules.build.text.item5') : widget.rules[index]['match_mode'] == 'wildcard' ? tr('websiteRules.build.text.item6') : widget.rules[index]['match_mode'] == 'exact_origin' || widget.rules[index]['match_mode'] == 'bitwarden_default' ? tr('websiteRules.build.text.item7') : null,
-                helperMaxLines: 3,
-              ),
+              decoration: InputDecoration(hintText: widget.rules[index]['match_mode'] == 'regex' ? r'https://(login|sso)\.example\.com' : widget.rules[index]['match_mode'] == 'wildcard' ? 'https://*.example.com' : 'https://example.com'),
               onChanged: (value) { widget.rules[index]['uri'] = value; changed(); },
-            ),
+            )),
             if (index < checks.length) Padding(padding: const EdgeInsets.only(top: 8), child: LText(
               checks[index]['error']?.toString() ?? (checks[index]['inactive'] == true ? tr('websiteRules.build.text.item8') : checks[index]['matched'] == true ? tr('websiteRules.match') : tr('websiteRules.noMatch')),
               style: TextStyle(fontSize: 12, color: checks[index]['error'] != null ? Theme.of(context).colorScheme.error : checks[index]['matched'] == true ? AppColors.green : AppColors.muted),
@@ -129,7 +124,7 @@ class _WebsiteRulesEditorState extends State<WebsiteRulesEditor> {
       )),
       const SizedBox(height: 12),
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(child: TextField(controller: target, enabled: widget.enabled, decoration: InputDecoration(labelText: tr('websiteRules.build.text.item10'), hintText: 'https://login.example.com'), onChanged: (_) => changed(), onSubmitted: (_) => test())),
+        Expanded(child: AppFieldRow(label: tr('websiteRules.build.text.item10'), child: TextField(controller: target, enabled: widget.enabled, decoration: InputDecoration(hintText: 'https://login.example.com'), onChanged: (_) => changed(), onSubmitted: (_) => test()))),
         const SizedBox(width: 12),
         OutlinedButton(onPressed: !widget.enabled || testing || target.text.trim().isEmpty ? null : test, child: LText(testing ? tr('websiteRules.build.text.item11') : tr('websiteRules.build.text.item12'))),
       ]),

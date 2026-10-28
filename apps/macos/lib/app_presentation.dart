@@ -12,6 +12,15 @@ class AppPresentation extends ChangeNotifier with WidgetsBindingObserver {
   static final _parameterPattern = RegExp(r'\{([a-zA-Z][a-zA-Z0-9_]*)\}');
   static const _maxBytes = 4 * 1024 * 1024;
   String theme = 'system', language = 'zh-CN';
+  static const defaultAccentColor = '#565DD9';
+  String accentColor = defaultAccentColor;
+  ColorScheme _lightScheme = ColorScheme.fromSeed(seedColor: const Color(0xFF565DD9));
+  ColorScheme _darkScheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF565DD9), brightness: Brightness.dark);
+
+  // 颜色方案在主题色变化时生成一次，避免每个列表项重建时重复计算调色板。
+  ColorScheme schemeFor(Brightness brightness) =>
+      brightness == Brightness.dark ? _darkScheme : _lightScheme;
   final Map<String, Map<String, dynamic>> _packs = {};
   final Map<String, String> names = {'zh-CN': '简体中文'};
   final List<String> loadWarnings = [];
@@ -88,6 +97,15 @@ class AppPresentation extends ChangeNotifier with WidgetsBindingObserver {
 
   void apply(Map<String, dynamic> settings) {
     theme = settings['theme']?.toString() ?? 'system';
+    final requested = settings['accent_color']?.toString() ?? defaultAccentColor;
+    final nextAccent = RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(requested)
+        ? requested.toUpperCase() : defaultAccentColor;
+    if (accentColor != nextAccent) {
+      accentColor = nextAccent;
+      final seed = Color(int.parse('FF${accentColor.substring(1)}', radix: 16));
+      _lightScheme = ColorScheme.fromSeed(seedColor: seed);
+      _darkScheme = ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark);
+    }
     language = settings['language']?.toString() ?? 'zh-CN';
     names.clear();
     for (final pack in _packs.values) {

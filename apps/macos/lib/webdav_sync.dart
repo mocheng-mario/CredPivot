@@ -664,12 +664,11 @@ class WebDavSyncPage extends StatelessWidget {
                                             const LText('sync.configure.help'),
                                             const SizedBox(height: 20),
                                           ],
-                                          DropdownButtonFormField<String>(
+                                          AppFieldRow(label: tr(
+                                                      'sync.configure.provider'), child: DropdownButtonFormField<String>(
                                               initialValue: provider,
                                               isExpanded: true,
-                                              decoration: InputDecoration(
-                                                  labelText: tr(
-                                                      'sync.configure.provider')),
+                                              decoration: InputDecoration(),
                                               items: providers
                                                   .map((v) => DropdownMenuItem(
                                                       value: v,
@@ -691,7 +690,7 @@ class WebDavSyncPage extends StatelessWidget {
                                                     }
                                                   });
                                                 }
-                                              }),
+                                              })),
                                           const SizedBox(height: 18),
                                           if (provider == 's3')
                                             AppNotice(tr(
@@ -701,47 +700,38 @@ class WebDavSyncPage extends StatelessWidget {
                                                 ? 'sync.configure.policyNutstore'
                                                 : 'sync.configure.policyStandard'),
                                             const SizedBox(height: 18),
-                                            TextFormField(
+                                            AppFieldRow(label: tr(
+                                                        'sync.configure.server'), help: tr(
+                                                        'sync.configure.serverHelp'), child: TextFormField(
                                                 controller: server,
                                                 autocorrect: false,
                                                 enableSuggestions: false,
                                                 validator: addressError,
                                                 onChanged: (_) =>
                                                     setLocal(clearTest),
-                                                decoration: InputDecoration(
-                                                    labelText: tr(
-                                                        'sync.configure.server'),
-                                                    helperText: tr(
-                                                        'sync.configure.serverHelp'),
-                                                    errorMaxLines: 3)),
+                                                decoration: InputDecoration(errorMaxLines: 3))),
                                             const SizedBox(height: 18),
-                                            TextFormField(
+                                            AppFieldRow(label: tr(
+                                                        'sync.configure.port'), help: tr(
+                                                        'sync.configure.portHelp'), child: TextFormField(
                                                 controller: port,
                                                 keyboardType:
                                                     TextInputType.number,
                                                 validator: portError,
                                                 onChanged: (_) =>
                                                     setLocal(clearTest),
-                                                decoration: InputDecoration(
-                                                    labelText: tr(
-                                                        'sync.configure.port'),
-                                                    helperText: tr(
-                                                        'sync.configure.portHelp'),
-                                                    errorMaxLines: 3)),
+                                                decoration: InputDecoration(errorMaxLines: 3))),
                                             const SizedBox(height: 18),
-                                            TextFormField(
+                                            AppFieldRow(label: tr(
+                                                        'sync.configure.directory'), help: tr(
+                                                        'sync.configure.directoryHelp'), child: TextFormField(
                                                 controller: directory,
                                                 autocorrect: false,
                                                 enableSuggestions: false,
                                                 validator: directoryError,
                                                 onChanged: (_) =>
                                                     setLocal(clearTest),
-                                                decoration: InputDecoration(
-                                                    labelText: tr(
-                                                        'sync.configure.directory'),
-                                                    helperText: tr(
-                                                        'sync.configure.directoryHelp'),
-                                                    errorMaxLines: 3)),
+                                                decoration: InputDecoration(errorMaxLines: 3))),
                                             if (previewUrl().isNotEmpty) ...[
                                               const SizedBox(height: 12),
                                               const LText(
@@ -750,7 +740,8 @@ class WebDavSyncPage extends StatelessWidget {
                                               SelectableText(previewUrl()),
                                             ],
                                             const SizedBox(height: 18),
-                                            TextFormField(
+                                            AppFieldRow(label: tr(
+                                                        'sync.configure.username'), child: TextFormField(
                                                 controller: username,
                                                 onChanged: (_) =>
                                                     setLocal(clearTest),
@@ -768,12 +759,11 @@ class WebDavSyncPage extends StatelessWidget {
                                                             .hasMatch(v)
                                                     ? tr('sync.errors.username')
                                                     : null,
-                                                decoration: InputDecoration(
-                                                    labelText: tr(
-                                                        'sync.configure.username'),
-                                                    errorMaxLines: 3)),
+                                                decoration: InputDecoration(errorMaxLines: 3))),
                                             const SizedBox(height: 18),
-                                            TextFormField(
+                                            AppFieldRow(label: tr(
+                                                        'sync.configure.password'), help: tr(
+                                                        'sync.configure.passwordHelp'), child: TextFormField(
                                                 controller: password,
                                                 onChanged: (_) =>
                                                     setLocal(clearTest),
@@ -794,18 +784,12 @@ class WebDavSyncPage extends StatelessWidget {
                                                     ? tr(
                                                         'sync.errors.passwordMissing')
                                                     : null,
-                                                decoration: InputDecoration(
-                                                    labelText: tr(
-                                                        'sync.configure.password'),
-                                                    helperText: tr(
-                                                        'sync.configure.passwordHelp'),
-                                                    errorMaxLines: 3)),
+                                                decoration: InputDecoration(errorMaxLines: 3))),
                                             const SizedBox(height: 18),
-                                            DropdownButtonFormField<int>(
+                                            AppFieldRow(label: tr(
+                                                        'sync.configure.interval'), child: DropdownButtonFormField<int>(isExpanded: true,
                                                 initialValue: interval,
-                                                decoration: InputDecoration(
-                                                    labelText: tr(
-                                                        'sync.configure.interval')),
+                                                decoration: InputDecoration(),
                                                 items: intervals
                                                     .map((v) => DropdownMenuItem(
                                                         value: v,
@@ -829,34 +813,29 @@ class WebDavSyncPage extends StatelessWidget {
                                                       interval = value;
                                                     });
                                                   }
-                                                }),
+                                                })),
                                             const SizedBox(height: 18),
-                                            TextFormField(
+                                            AppFieldRow(label: tr('sync.configure.dailyHistoryCount'), help: tr('sync.configure.dailyHistoryHelp'), child: TextFormField(
                                                 controller: dailyHistoryCount,
                                                 keyboardType: TextInputType.number,
                                                 inputFormatters: [
                                                   FilteringTextInputFormatter.digitsOnly,
                                                 ],
-                                                decoration: InputDecoration(
-                                                    labelText: tr('sync.configure.dailyHistoryCount'),
-                                                    helperText: tr('sync.configure.dailyHistoryHelp'),
-                                                    helperMaxLines: 4),
+                                                decoration: InputDecoration(),
                                                 validator: (value) {
                                                   final count = int.tryParse(value?.trim() ?? '');
                                                   return count == null || count < 3 || count > 99
                                                       ? tr('sync.errors.dailyHistoryCount') : null;
                                                 },
-                                                onChanged: (_) => setLocal(clearTest)),
-                                            SwitchListTile(
-                                                contentPadding: EdgeInsets.zero,
-                                                title: const LText(
-                                                    'sync.configure.automatic'),
+                                                onChanged: (_) => setLocal(clearTest))),
+                                            AppFieldRow(label: tr('sync.configure.automatic'),
+                                              child: Align(alignment: Alignment.centerLeft, child: Switch(
                                                 value: automatic,
                                                 onChanged: (value) =>
                                                     setLocal(() {
                                                       clearTest();
                                                       automatic = value;
-                                                    })),
+                                                    })))),
                                             const SizedBox(height: 16),
                                             const LText('sync.test.help'),
                                             if (testing) ...[
@@ -1078,16 +1057,13 @@ class WebDavSyncPage extends StatelessWidget {
                                     ],
                                   ])),
                               const SizedBox(height: 12),
-                              TextField(
+                              AppFieldRow(label: tr('sync.initial.remotePassword'), help: tr(
+                                          'sync.initial.remotePasswordHelp'), child: TextField(
                                   controller: password,
                                   obscureText: true,
                                   autocorrect: false,
                                   enableSuggestions: false,
-                                  decoration: InputDecoration(
-                                      labelText:
-                                          tr('sync.initial.remotePassword'),
-                                      helperText: tr(
-                                          'sync.initial.remotePasswordHelp'))),
+                                  decoration: InputDecoration())),
                             ]))),
                     actions: [
                       TextButton(

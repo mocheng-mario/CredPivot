@@ -7,6 +7,7 @@ import 'agent_bridge.dart';
 import 'app_ui.dart';
 import 'terminal_settings.dart';
 import 'touch_id_gate.dart';
+import 'theme_color_picker.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage(
@@ -71,6 +72,76 @@ class _SettingsPageState extends State<SettingsPage> {
     'password_history_limit',
     'password_reminder_days',
   ];
+
+  static const _accentPresets = {
+    '#565DD9': 'theme.colors.indigo',
+    '#2563EB': 'theme.colors.blue',
+    '#0F766E': 'theme.colors.teal',
+    '#15803D': 'theme.colors.green',
+    '#B45309': 'theme.colors.amber',
+    '#BE185D': 'theme.colors.rose',
+  };
+
+  Future<void> _pickAccentColor() async {
+    final picked = await showThemeColorPicker(context,
+        _draft['accent_color']?.toString() ?? AppPresentation.defaultAccentColor);
+    if (!mounted || picked == null) return;
+    setState(() {
+      _draft['accent_color'] = picked;
+      _dirty = true;
+    });
+  }
+
+  Widget _themeColors() {
+    final hex = _draft['accent_color']?.toString().toUpperCase() ?? AppPresentation.defaultAccentColor;
+    final seed = Color(int.parse('FF${hex.substring(1)}', radix: 16));
+    final scheme = ColorScheme.fromSeed(seedColor: seed,
+        brightness: Theme.of(context).brightness);
+    return AppPanel(
+      title: tr('theme.colors.title'),
+      subtitle: tr('theme.colors.help'),
+      icon: Icons.palette_outlined,
+      child: appFieldRows([
+        AppFieldRow(label: tr('theme.colors.recommended'), child: Wrap(
+          spacing: 10, runSpacing: 10,
+          children: _accentPresets.entries.map((entry) {
+            final color = Color(int.parse('FF${entry.key.substring(1)}', radix: 16));
+            return Tooltip(message: entry.key, child: ChoiceChip(
+              avatar: CircleAvatar(backgroundColor: color, radius: 9),
+              label: LText(entry.value),
+              selected: hex == entry.key,
+              checkmarkColor: color.computeLuminance() > .5 ? Colors.black : Colors.white,
+              onSelected: (_) => setState(() {
+                _draft['accent_color'] = entry.key;
+                _dirty = true;
+              }),
+            ));
+          }).toList(),
+        )),
+        AppFieldRow(label: tr('theme.colors.custom'), child: Wrap(
+          spacing: 12, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            OutlinedButton.icon(onPressed: _pickAccentColor,
+                icon: const Icon(Icons.colorize_rounded),
+                label: const LText('theme.colors.openPicker')),
+            SelectableText(hex, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        )),
+        AppFieldRow(label: tr('theme.colors.preview'), child: Wrap(
+          spacing: 12, runSpacing: 8,
+          children: [
+            Chip(label: const LText('theme.colors.primaryAction'),
+                backgroundColor: scheme.primary,
+                labelStyle: TextStyle(color: scheme.onPrimary), side: BorderSide.none),
+            Chip(label: const LText('theme.colors.selectedItem'),
+                avatar: Icon(Icons.check_rounded, size: 16, color: scheme.onPrimaryContainer),
+                backgroundColor: scheme.primaryContainer,
+                labelStyle: TextStyle(color: scheme.onPrimaryContainer), side: BorderSide.none),
+          ],
+        )),
+      ]),
+    );
+  }
 
   @override
   void initState() {
@@ -332,16 +403,14 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _number(String key, String label, String hint, String unit, int min,
           int max) =>
-      Padding(
-        padding: const EdgeInsets.only(bottom: 16),
+      AppFieldRow(label: label,
+        help: hint,
         child: TextFormField(
           controller: _numbers[key],
           keyboardType: TextInputType.number,
           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           decoration: InputDecoration(
-              labelText: tr(label),
-              helperText: tr(hint),
-              helperMaxLines: 3,
+              hintText: tr('settings.number.text', args: {'min': min, 'max': max}),
               suffixText: tr(unit)),
           onChanged: (_) => setState(() => _dirty = true),
           validator: (text) {
@@ -364,6 +433,20 @@ class _SettingsPageState extends State<SettingsPage> {
                   TextButton(onPressed: _load, child: const LText('common.retry')),
                 ]));
     }
+    final actions = Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        TextButton(onPressed: _reload, child: const LText('common.reload')),
+        TextButton(onPressed: _restoreDefaults,
+            child: const LText('common.restoreDefaults')),
+        FilledButton.icon(
+          onPressed: _dirty || _warning.isNotEmpty || _loginNeedsApply ? _save : null,
+          icon: const Icon(Icons.check_rounded),
+          label: LText(_saving ? tr('common.saving') : tr('settings.build.text.item5')),
+        ),
+      ],
+    );
     return AbsorbPointer(
         absorbing: _busy,
         child: Form(
@@ -371,28 +454,22 @@ class _SettingsPageState extends State<SettingsPage> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(24, 6, 24, 24),
               children: [
-                Row(children: [
-                  Expanded(
-                      child: LText(
-                          _warning.isNotEmpty
-                              ? tr('settings.build.text.item2')
-                              : _dirty
-                                  ? tr('settings.build.text.item3')
-                                  : tr('settings.build.text.item4'),
-                          style: Theme.of(context).textTheme.bodySmall)),
-                  TextButton(onPressed: _reload, child: const LText('common.reload')),
-                  TextButton(
-                      onPressed: _restoreDefaults,
-                      child: const LText('common.restoreDefaults')),
-                  const SizedBox(width: 8),
-                  FilledButton.icon(
-                      onPressed:
-                          _dirty || _warning.isNotEmpty || _loginNeedsApply
-                              ? _save
-                              : null,
-                      icon: const Icon(Icons.check_rounded),
-                      label: LText(_saving ? tr('common.saving') : tr('settings.build.text.item5'))),
-                ]),
+                LayoutBuilder(builder: (context, constraints) {
+                  final status = LText(
+                      _warning.isNotEmpty
+                          ? tr('settings.build.text.item2')
+                          : _dirty
+                              ? tr('settings.build.text.item3')
+                              : tr('settings.build.text.item4'),
+                      style: Theme.of(context).textTheme.bodySmall);
+                  if (constraints.maxWidth < 600) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [status, const SizedBox(height: 12), actions],
+                    );
+                  }
+                  return Row(children: [Expanded(child: status), actions]);
+                }),
                 if (_busy) const LinearProgressIndicator(),
                 if (_warning.isNotEmpty) AppNotice(_warning),
                 if (_message.isNotEmpty)
@@ -407,7 +484,20 @@ class _SettingsPageState extends State<SettingsPage> {
                     title: tr('settings.build.title.item2'),
                     subtitle: tr('settings.build.description'),
                     icon: Icons.lock_outline_rounded,
-                    child: Column(children: [
+                    child: appFieldRows([
+                      AppFieldRow(label: tr('settings.security.autoUnlockOnWake'),
+                        help: tr('settings.security.autoUnlockOnWakeHelp'),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Switch(
+                            value: _draft['auto_unlock_on_wake'] == true,
+                            onChanged: (value) => setState(() {
+                              _draft['auto_unlock_on_wake'] = value;
+                              _dirty = true;
+                            }),
+                          ),
+                        ),
+                      ),
                       _number('vault_idle_seconds', tr('settings.build.text.item6'),
                           tr('settings.build.text.item7'), tr('common.units.minutes'), 1, 30),
                       _number('sensitive_auth_seconds', tr('settings.build.text.item8'),
@@ -422,40 +512,94 @@ class _SettingsPageState extends State<SettingsPage> {
                           tr('settings.build.text.item17'), tr('common.units.hours'), 1, 24),
                     ])),
                 const SizedBox(height: 16),
-                AppPanel(title: tr('settings.build.title.item3'), icon: Icons.security_outlined, child: Column(children: [
-                  DropdownButtonFormField<String>(
-                    value: _draft['ssh_sign_policy']?.toString() ?? 'session',
-                    decoration: InputDecoration(labelText: tr('settings.build.text.item18')),
-                    items: const [DropdownMenuItem(value:'session',child:LText('settings.build.text.item19')),DropdownMenuItem(value:'confirm',child:LText('settings.build.text.item20')),DropdownMenuItem(value:'biometric',child:LText('settings.build.text.item21'))],
-                    onChanged: (v) => setState(() { _draft['ssh_sign_policy'] = v; _dirty = true; })),
-                  const SizedBox(height: 12),
-                  const LText('settings.build.text.item22'),
-                ])),
+                AppPanel(
+                    title: tr('settings.build.title.item3'),
+                    icon: Icons.security_outlined,
+                    child: appFieldRows([
+                      AppFieldRow(label: tr('settings.build.text.item18'),
+                        help: tr('settings.build.text.item22'),
+                        child: DropdownButtonFormField<String>(
+                          value: _draft['ssh_sign_policy']?.toString() ?? 'session',
+                          isExpanded: true,
+                          items: const [
+                            DropdownMenuItem(value: 'session', child: LText('settings.build.text.item19')),
+                            DropdownMenuItem(value: 'confirm', child: LText('settings.build.text.item20')),
+                            DropdownMenuItem(value: 'biometric', child: LText('settings.build.text.item21')),
+                          ],
+                          onChanged: (value) => setState(() {
+                            _draft['ssh_sign_policy'] = value;
+                            _dirty = true;
+                          }),
+                        ),
+                      ),
+                    ])),
                 const SizedBox(height: 16),
-                AppPanel(title: tr('settings.build.title.item4'), icon: Icons.tune_rounded, child: Column(children: [
-                  _number('password_history_limit', tr('settings.build.text.item23'), tr('settings.build.text.item24'), tr('common.units.items'), 0, 50),
-                  _number('password_reminder_days', tr('settings.build.text.item25'), tr('settings.build.text.item26'), tr('common.units.days'), 0, 3650),
-                  DropdownButtonFormField<String>(value: _draft['theme']?.toString() ?? 'system', decoration: InputDecoration(labelText: tr('settings.theme.label')), items: const [DropdownMenuItem(value:'system',child:LText('settings.theme.system')),DropdownMenuItem(value:'light',child:LText('settings.theme.light')),DropdownMenuItem(value:'dark',child:LText('settings.theme.dark'))],onChanged:(v)=>setState((){_draft['theme']=v;_dirty=true;})),
-                  const SizedBox(height:16),
-                  DropdownButtonFormField<String>(key:ValueKey(_draft['language']),value:AppPresentation.instance.names.containsKey(_draft['language'])?_draft['language'].toString():'zh-CN',decoration:InputDecoration(labelText: tr('settings.language.label')),items:AppPresentation.instance.names.entries.map((v)=>DropdownMenuItem(value:v.key,child:Text(v.value))).toList(),onChanged:(v)=>setState((){_draft['language']=v;_dirty=true;})),
-                  const SizedBox(height:8),
-                  const LText('language.help'),
-                  Text(AppPresentation.instance.coverage(_draft['language']?.toString() ?? 'zh-CN')),
-                  for (final warning in AppPresentation.instance.loadWarnings) AppNotice(warning),
-                  Wrap(spacing: 8, runSpacing: 8, children: [
-                    TextButton.icon(onPressed: _importLanguage,
-                      icon: const Icon(Icons.file_upload_outlined), label: const LText('language.actions.import')),
-                    TextButton.icon(onPressed: () => _exportLanguage(template: true),
-                      icon: const Icon(Icons.translate), label: const LText('language.actions.exportTemplate')),
-                    TextButton.icon(onPressed: () => _exportLanguage(template: false),
-                      icon: const Icon(Icons.file_download_outlined), label: const LText('language.actions.exportCurrent')),
-                  ]),
-                ])),
-                const SizedBox(height:16),
+                AppPanel(
+                    title: tr('settings.build.title.item4'),
+                    icon: Icons.tune_rounded,
+                    child: appFieldRows([
+                      _number('password_history_limit', tr('settings.build.text.item23'),
+                          tr('settings.build.text.item24'), tr('common.units.items'), 0, 50),
+                      _number('password_reminder_days', tr('settings.build.text.item25'),
+                          tr('settings.build.text.item26'), tr('common.units.days'), 0, 3650),
+                      AppFieldRow(label: tr('settings.theme.label'),
+                        child: DropdownButtonFormField<String>(
+                          value: _draft['theme']?.toString() ?? 'system',
+                          isExpanded: true,
+                          items: const [
+                            DropdownMenuItem(value: 'system', child: LText('settings.theme.system')),
+                            DropdownMenuItem(value: 'light', child: LText('settings.theme.light')),
+                            DropdownMenuItem(value: 'dark', child: LText('settings.theme.dark')),
+                          ],
+                          onChanged: (value) => setState(() {
+                            _draft['theme'] = value;
+                            _dirty = true;
+                          }),
+                        ),
+                      ),
+                      AppFieldRow(label: tr('settings.language.label'),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            DropdownButtonFormField<String>(
+                              key: ValueKey(_draft['language']),
+                              value: AppPresentation.instance.names.containsKey(_draft['language'])
+                                  ? _draft['language'].toString() : 'zh-CN',
+                              isExpanded: true,
+                              items: AppPresentation.instance.names.entries
+                                  .map((entry) => DropdownMenuItem(value: entry.key, child: Text(entry.value)))
+                                  .toList(),
+                              onChanged: (value) => setState(() {
+                                _draft['language'] = value;
+                                _dirty = true;
+                              }),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(AppPresentation.instance.coverage(_draft['language']?.toString() ?? 'zh-CN'),
+                                style: Theme.of(context).textTheme.bodySmall),
+                          ],
+                        ),
+                      ),
+                      AppFieldRow(label: tr('settings.language.packActions'),
+                        help: tr('language.help'),
+                        child: Wrap(spacing: 8, runSpacing: 8, children: [
+                          TextButton.icon(onPressed: _importLanguage,
+                            icon: const Icon(Icons.file_upload_outlined), label: const LText('language.actions.import')),
+                          TextButton.icon(onPressed: () => _exportLanguage(template: true),
+                            icon: const Icon(Icons.translate), label: const LText('language.actions.exportTemplate')),
+                          TextButton.icon(onPressed: () => _exportLanguage(template: false),
+                            icon: const Icon(Icons.file_download_outlined), label: const LText('language.actions.exportCurrent')),
+                        ]),
+                      ),
+                      for (final warning in AppPresentation.instance.loadWarnings) AppNotice(warning),
+                    ])),
+                const SizedBox(height: 16),
+                _themeColors(),
+                const SizedBox(height: 16),
                 AppPanel(
                     title: tr('settings.build.title.item5'),
                     icon: Icons.history_rounded,
-                    child: Column(children: [
+                    child: appFieldRows([
                       _number('restore_interval_hours', tr('settings.build.text.item28'),
                           tr('settings.build.text.item29'), tr('common.units.hours'), 1, 24),
                       _number('restore_keep_count', tr('settings.build.text.item30'),
@@ -466,28 +610,27 @@ class _SettingsPageState extends State<SettingsPage> {
                     title: tr('diagnostics.build.title'),
                     subtitle: tr('settings.build.description.item2'),
                     icon: Icons.article_outlined,
-                    child: Column(children: [
-                      DropdownButtonFormField<String>(
-                        key: ValueKey(_draft['log_level']),
-                        value: _draft['log_level'] as String,
-                        isExpanded: true,
-                        decoration: InputDecoration(
-                            labelText: tr('settings.build.text.item32'),
-                            helperText: tr('settings.build.text.item33'),
-                            helperMaxLines: 2),
-                        items: ['debug', 'info', 'warn', 'error']
-                            .map((level) => DropdownMenuItem(
-                                value: level, child: Text(level.toUpperCase())))
-                            .toList(),
-                        onChanged: (value) {
-                          if (value != null)
-                            setState(() {
-                              _draft['log_level'] = value;
-                              _dirty = true;
-                            });
-                        },
+                    child: appFieldRows([
+                      AppFieldRow(label: tr('settings.build.text.item32'),
+                        help: tr('settings.build.text.item33'),
+                        child: DropdownButtonFormField<String>(
+                          key: ValueKey(_draft['log_level']),
+                          value: _draft['log_level'] as String,
+                          isExpanded: true,
+                          items: ['debug', 'info', 'warn', 'error']
+                              .map((level) => DropdownMenuItem(
+                                  value: level, child: Text(level.toUpperCase())))
+                              .toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              setState(() {
+                                _draft['log_level'] = value;
+                                _dirty = true;
+                              });
+                            }
+                          },
+                        ),
                       ),
-                      const SizedBox(height: 16),
                       _number('log_max_mb', tr('settings.build.text.item34'),
                           tr('settings.build.text.item35'), 'MB', 1, 100),
                       _number('log_backup_count', tr('settings.build.text.item36'),
@@ -497,49 +640,57 @@ class _SettingsPageState extends State<SettingsPage> {
                 AppPanel(
                     title: tr('settings.build.title.item6'),
                     icon: Icons.folder_outlined,
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          LText('settings.build.text.item38',
-                              style: Theme.of(context).textTheme.titleSmall),
-                          const SizedBox(height: 6),
-                          SelectableText(_vaultPath,
-                              style: Theme.of(context).textTheme.bodySmall),
-                          Align(
+                    child: appFieldRows([
+                      AppFieldRow(label: tr('settings.build.text.item38'),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SelectableText(_vaultPath,
+                                style: Theme.of(context).textTheme.bodySmall),
+                            const SizedBox(height: 8),
+                            Align(
                               alignment: Alignment.centerLeft,
                               child: TextButton.icon(
-                                onPressed: _dirty
-                                    ? null
-                                    : () async {
-                                        await widget.onOpenVault();
-                                        if (mounted) await _load();
-                                      },
+                                onPressed: _dirty ? null : () async {
+                                  await widget.onOpenVault();
+                                  if (mounted) await _load();
+                                },
                                 icon: const Icon(Icons.folder_open_outlined),
                                 label: const LText('settings.build.text.item39'),
-                              )),
-                        ])),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ])),
                 const SizedBox(height: 16),
                 AppPanel(
                     title: tr('settings.build.title.item7'),
                     icon: Icons.desktop_mac_outlined,
-                    child: Column(children: [
-                      SwitchListTile.adaptive(
-                        contentPadding: EdgeInsets.zero,
-                        title: const LText('settings.build.text.item40'),
-                        subtitle: LText(_login['supported'] != true
-                            ? tr('settings.build.text.item41')
-                            : _login['requires_approval'] == true
-                                ? tr('settings.build.text.item42')
-                                : _login['enabled'] == true
-                                    ? tr('settings.build.text.item43')
-                                    : tr('settings.build.text.item44')),
-                        value: _draft['launch_at_login'] == true,
-                        onChanged: _login['supported'] == true
-                            ? (value) => setState(() {
-                                  _draft['launch_at_login'] = value;
-                                  _dirty = true;
-                                })
-                            : null,
+                    child: appFieldRows([
+                      AppFieldRow(label: tr('settings.build.text.item40'),
+                        child: Row(children: [
+                          Switch(
+                            value: _draft['launch_at_login'] == true,
+                            onChanged: _login['supported'] == true
+                                ? (value) => setState(() {
+                                      _draft['launch_at_login'] = value;
+                                      _dirty = true;
+                                    })
+                                : null,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(child: LText(
+                            _login['supported'] != true
+                                ? 'settings.build.text.item41'
+                                : _login['requires_approval'] == true
+                                    ? 'settings.build.text.item42'
+                                    : _login['enabled'] == true
+                                        ? 'settings.build.text.item43'
+                                        : 'settings.build.text.item44',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          )),
+                        ]),
                       ),
                     ])),
                 const SizedBox(height: 16),
@@ -547,71 +698,81 @@ class _SettingsPageState extends State<SettingsPage> {
                     title: tr('settings.build.title.item8'),
                     subtitle: tr('settings.build.description.item3'),
                     icon: Icons.terminal_rounded,
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(children: [
-                            Expanded(
-                              child: Tooltip(
-                                message: _terminal.text.isEmpty ? tr('settings.build.text.item45') : _terminal.text,
-                                child: InputDecorator(
-                                  decoration: InputDecoration(labelText: tr('settings.build.text.item46')),
-                                  child: Text(
-                                    terminalDisplayName({'path': _terminal.text}),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis)))),
-                            const SizedBox(width: 12),
-                            OutlinedButton.icon(
-                                  onPressed: _pickTerminal,
-                                  icon: const Icon(Icons.folder_open_outlined),
-                                  label: const LText('settings.build.text.item47')),
-                          ]),
-                          const SizedBox(height: 16),
-                          Row(children: [
-                            Expanded(child: Text(_sshMessage,
-                                style: Theme.of(context).textTheme.bodySmall)),
-                            IconButton(
+                    child: appFieldRows([
+                      AppFieldRow(label: tr('settings.build.text.item46'),
+                        child: LayoutBuilder(builder: (context, constraints) {
+                          final name = Tooltip(
+                              message: _terminal.text.isEmpty ? tr('settings.build.text.item45') : _terminal.text,
+                              child: InputDecorator(
+                                decoration: const InputDecoration(),
+                                child: Text(terminalDisplayName({'path': _terminal.text}),
+                                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                              ),
+                          );
+                          final pick = OutlinedButton.icon(
+                            onPressed: _pickTerminal,
+                            icon: const Icon(Icons.folder_open_outlined),
+                            label: const LText('settings.build.text.item47'));
+                          if (constraints.maxWidth < 320) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [name, const SizedBox(height: 8), pick],
+                            );
+                          }
+                          return Row(children: [Expanded(child: name), const SizedBox(width: 12), pick]);
+                        }),
+                      ),
+                      AppFieldRow(label: tr('settings.ssh.identityAgent'),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(children: [
+                              Expanded(child: Text(_sshMessage,
+                                  style: Theme.of(context).textTheme.bodySmall)),
+                              IconButton(
                                 onPressed: _busy ? null : _refreshSshStatus,
                                 tooltip: tr('settings.build.text.item48'),
                                 icon: const Icon(Icons.refresh_rounded)),
-                          ]),
-                          Wrap(spacing: 10, runSpacing: 10, children: [
-                            OutlinedButton(
+                            ]),
+                            const SizedBox(height: 8),
+                            Wrap(spacing: 10, runSpacing: 10, children: [
+                              OutlinedButton(
                                 onPressed: _sshConfigured == false && widget.onConfigureSsh != null
                                     ? () => _changeSshConfiguration(remove: false) : null,
                                 child: const LText('settings.build.text.item49')),
-                            OutlinedButton(
+                              OutlinedButton(
                                 onPressed: _sshConfigured == true
                                     ? () => _changeSshConfiguration(remove: true) : null,
                                 child: const LText('settings.build.text.item50')),
-                          ]),
-                        ])),
+                            ]),
+                          ],
+                        ),
+                      ),
+                    ])),
                 const SizedBox(height: 16),
                 AppPanel(
                     title: tr('settings.build.title.item9'),
                     subtitle: tr('settings.build.description.item4'),
                     icon: Icons.language_rounded,
-                    child: Column(children: [
-                      TextFormField(
-                        controller: _extensionId,
-                        decoration: InputDecoration(
-                            labelText: tr('browser.build.text.item9'),
-                            helperText: tr('settings.build.text.item51'),
-                            helperMaxLines: 3),
-                        onChanged: (_) => setState(() => _dirty = true),
-                        validator: (value) =>
-                            (value ?? '').trim().isEmpty ||
-                                    RegExp(r'^[a-p]{32}$')
-                                        .hasMatch(value!.trim())
-                                ? null
-                                : tr('settings.build.text.item52'),
+                    child: appFieldRows([
+                      AppFieldRow(label: tr('browser.build.text.item9'),
+                        help: tr('settings.build.text.item51'),
+                        child: TextFormField(
+                          controller: _extensionId,
+                          decoration: InputDecoration(
+                              hintText: tr('settings.build.text.item51'), hintMaxLines: 2),
+                          onChanged: (_) => setState(() => _dirty = true),
+                          validator: (value) =>
+                              (value ?? '').trim().isEmpty ||
+                                      RegExp(r'^[a-p]{32}$').hasMatch(value!.trim())
+                                  ? null : tr('settings.build.text.item52'),
+                        ),
                       ),
                     ])),
                 const SizedBox(height: 16),
                 AppPanel(
                     title: tr('settings.build.title.item10'),
-                    subtitle:
-                        tr('settings.build.description.item5'),
+                    subtitle: tr('settings.build.description.item5'),
                     icon: Icons.data_object_rounded,
                     child: SelectableText(_path,
                         style: Theme.of(context).textTheme.bodySmall)),

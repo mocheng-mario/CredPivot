@@ -12,6 +12,7 @@ static SETTINGS_WRITE_LOCK: Mutex<()> = Mutex::new(());
 pub struct AppSettings {
     pub version: u32,
     pub vault_idle_seconds: u64,
+    pub auto_unlock_on_wake: bool,
     pub sensitive_auth_seconds: u64,
     pub browser_idle_seconds: u64,
     pub clipboard_clear_seconds: u64,
@@ -29,6 +30,7 @@ pub struct AppSettings {
     pub shortcut_copy: String,
     pub shortcut_new: String,
     pub theme: String,
+    pub accent_color: String,
     pub language: String,
     pub log_level: String,
     pub log_max_mb: u64,
@@ -48,6 +50,7 @@ impl Default for AppSettings {
         Self {
             version: 1,
             vault_idle_seconds: 300,
+            auto_unlock_on_wake: true,
             sensitive_auth_seconds: 120,
             browser_idle_seconds: 300,
             clipboard_clear_seconds: 30,
@@ -63,6 +66,7 @@ impl Default for AppSettings {
             shortcut_copy: String::new(),
             shortcut_new: "command+n".into(),
             theme: "system".into(),
+            accent_color: "#565DD9".into(),
             language: "zh-CN".into(),
             log_level: "info".into(),
             log_max_mb: 2,
@@ -95,6 +99,9 @@ impl AppSettings {
             && self.password_history_limit <= 50
             && self.password_reminder_days <= 3650
             && matches!(self.theme.as_str(), "system" | "light" | "dark")
+            && self.accent_color.len() == 7
+            && self.accent_color.starts_with('#')
+            && self.accent_color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
             && !self.language.is_empty() && self.language.len() <= 64
             && self.language.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
             && self.webdav.as_ref().is_none_or(|s| s.valid())
