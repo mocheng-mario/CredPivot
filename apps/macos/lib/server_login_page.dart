@@ -283,13 +283,18 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
       setState(() => _status = tr('server.copyPassword.text'));
       return;
     }
-    if (!await requireTouchId(context, reason: tr('server.copyPassword.reason'))) return;
-    final detail = await AgentBridge.getCredential(loginId);
-    await AgentBridge.copyConcealed(detail['password'] as String? ?? '');
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: LText('server.copyPassword.text.item2')),
-      );
+    try {
+      final session = await AgentBridge.clipboardSession();
+      if (!mounted || !await requireTouchId(context, reason: tr('server.copyPassword.reason'))) return;
+      final detail = await AgentBridge.getCredential(loginId);
+      await AgentBridge.copyConcealed(detail['password'] as String? ?? '', session: session);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: LText('server.copyPassword.text.item2')),
+        );
+      }
+    } on AgentException catch (e) {
+      if (mounted) setState(() => _status = AgentBridge.friendlyMessage(e));
     }
   }
 
@@ -301,17 +306,18 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
       setState(() => _status = tr('server.copyMfa.text'));
       return;
     }
-    if (!await requireTouchId(context, reason: tr('server.copyMfa.reason'))) return;
     try {
+      final session = await AgentBridge.clipboardSession();
+      if (!mounted || !await requireTouchId(context, reason: tr('server.copyMfa.reason'))) return;
       final code = await AgentBridge.totpCode(totpId);
-      await AgentBridge.copyConcealed(code);
+      await AgentBridge.copyConcealed(code, session: session);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: LText('server.copyMfa.text.item2', args: {'code': code})),
         );
       }
     } on AgentException catch (e) {
-      setState(() => _status = AgentBridge.friendlyMessage(e));
+      if (mounted) setState(() => _status = AgentBridge.friendlyMessage(e));
     }
   }
 

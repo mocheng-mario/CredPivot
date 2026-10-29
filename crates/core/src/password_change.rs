@@ -9,6 +9,8 @@ pub fn change_master_password(
     new_password: &str,
 ) -> Result<CpvcConfig> {
     let vmk = config.unlock_master(old_password)?;
+    // 解出主密码槽不能证明恢复槽未被篡改，必须先验证整个控制配置再沿用它。
+    config.verify_mac(&vmk)?;
     let recovery = config
         .key_slots
         .iter()

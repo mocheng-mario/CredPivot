@@ -18,7 +18,15 @@ private func credpivot_agent_request_json(_ request: UnsafePointer<CChar>) -> Un
 @_silgen_name("credpivot_string_free")
 private func credpivot_string_free(_ ptr: UnsafeMutablePointer<CChar>)
 
+@_silgen_name("credpivot_browser_auth_event")
+private func credpivot_browser_auth_event(_ stage: UInt32, _ elapsedMs: UInt64)
+
 enum CredPivotRustFFI {
+  static func logBrowserAuth(_ stage: UInt32, since started: TimeInterval) {
+    let elapsed = UInt64(max(0, (ProcessInfo.processInfo.systemUptime - started) * 1000))
+    // 日志文件锁和磁盘写入也不能占用负责展示/关闭系统验证窗口的主线程。
+    DispatchQueue.global(qos: .utility).async { credpivot_browser_auth_event(stage, elapsed) }
+  }
   static func start() -> Int32 {
     let code = credpivot_agent_start()
     if code == 0 {

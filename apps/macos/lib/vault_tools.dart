@@ -205,10 +205,12 @@ class _PasswordVersionsState extends State<_PasswordVersions> {
                                 ? null
                                 : () async {
                                     try {
+                                      final session = await AgentBridge.clipboardSession();
+                                      if (!mounted) return;
                                       if (await requireTouchId(context,
                                           reason: tr('server.build.text.item11')))
                                         await AgentBridge.copyConcealed(
-                                            v['secret'].toString());
+                                            v['secret'].toString(), session: session);
                                     } catch (e) {
                                       vaultMessage(context, e);
                                     }
@@ -893,10 +895,12 @@ class _RecoveryEntriesDialogState extends State<_RecoveryEntriesDialog> {
                                         ? null
                                         : () async {
                                             try {
+                                              final session = await AgentBridge.clipboardSession();
+                                              if (!mounted) return;
                                               if (await requireTouchId(context,
                                                   reason: tr('vaultTools.build.reason.item3'))) {
                                                 await AgentBridge.copyConcealed(
-                                                    row['code'].toString());
+                                                    row['code'].toString(), session: session);
                                               }
                                             } catch (e) {
                                               vaultMessage(context, e);
@@ -1187,6 +1191,8 @@ class _TotpStatusDialogState extends State<_TotpStatusDialog> {
 
   Future<void> copy() async {
     try {
+      final session = await AgentBridge.clipboardSession();
+      if (!mounted) return;
       var result = await vaultAction(context,
           {'action': 'totp_status', 'id': widget.id, 'min_valid_seconds': 5});
       final wait = (result['wait_seconds'] as num?)?.toInt();
@@ -1199,7 +1205,7 @@ class _TotpStatusDialogState extends State<_TotpStatusDialog> {
       }
       final nextCode = result['code']?.toString() ?? '';
       if (mounted && nextCode.isNotEmpty)
-        await AgentBridge.copyConcealed(nextCode);
+        await AgentBridge.copyConcealed(nextCode, session: session);
     } catch (e) {
       vaultMessage(context, e);
     }
@@ -1236,6 +1242,8 @@ class _TotpStatusDialogState extends State<_TotpStatusDialog> {
 
 Future<void> copyTotpCode(BuildContext context, String id) async {
   try {
+    final session = await AgentBridge.clipboardSession();
+    if (!context.mounted) return;
     var result = await vaultAction(
         context, {'action': 'totp_status', 'id': id, 'min_valid_seconds': 5});
     final wait = (result['wait_seconds'] as num?)?.toInt();
@@ -1250,7 +1258,7 @@ Future<void> copyTotpCode(BuildContext context, String id) async {
     }
     final code = result['code']?.toString() ?? '';
     if (code.isNotEmpty && context.mounted) {
-      await AgentBridge.copyConcealed(code);
+      await AgentBridge.copyConcealed(code, session: session);
       if (context.mounted)
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: LText('vaultTools.copyTotpCode.text')));
@@ -1346,8 +1354,12 @@ class _PasswordGeneratorDialogState extends State<_PasswordGeneratorDialog> {
                 onPressed: password.isEmpty || busy
                     ? null
                     : () async {
-                        if (await requireTouchId(context, reason: tr('vaultTools.build.reason.item4')))
-                          await AgentBridge.copyConcealed(password);
+                        try {
+                          final session = await AgentBridge.clipboardSession();
+                          if (!mounted) return;
+                          if (await requireTouchId(context, reason: tr('vaultTools.build.reason.item4')))
+                            await AgentBridge.copyConcealed(password, session: session);
+                        } catch (error) { vaultMessage(context, error); }
                       },
                 child: const LText('common.copy')),
             FilledButton(
@@ -1362,11 +1374,13 @@ Future<void> copySelectedCredential(BuildContext context, Map<String, dynamic> r
   try {
     final kind = row['kind'];
     if (kind == 'totp') { await copyTotpCode(context, row['id'].toString()); return; }
-    if (kind == 'ssh_key') { await AgentBridge.copyConcealed(row['public_openssh']?.toString() ?? ''); return; }
-    if (kind != 'login') return;
+    if (kind != 'login' && kind != 'ssh_key') return;
+    final session = await AgentBridge.clipboardSession();
+    if (!context.mounted) return;
+    if (kind == 'ssh_key') { await AgentBridge.copyConcealed(row['public_openssh']?.toString() ?? '', session: session); return; }
     if (!await requireTouchId(context, reason: tr('vaultTools.copySelectedCredential.reason'))) return;
     final detail = await AgentBridge.getCredential(row['id'].toString());
-    await AgentBridge.copyConcealed(detail['password']?.toString() ?? '');
+    await AgentBridge.copyConcealed(detail['password']?.toString() ?? '', session: session);
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: LText('vaultTools.copySelectedCredential.text')));
   } catch (e) { vaultMessage(context, e); }
 }

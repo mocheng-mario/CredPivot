@@ -50,12 +50,13 @@ proc fetch_secret {kind} {
     }
     # expect 下 `set env(...)` 对 `exec` 子进程不一定生效，用 env 显式传入。
     if {[catch {
-        exec /usr/bin/env CREDPIVOT_SESSION_ID=$session_id CREDPIVOT_FORCE_KIND=$kind $askpass_bin
+        exec -keepnewline /usr/bin/env CREDPIVOT_SESSION_ID=$session_id CREDPIVOT_FORCE_KIND=$kind $askpass_bin
     } result]} {
         send_user "\r\nCredPivot: 无法从 Agent 获取 $kind（$result）。\r\n"
         return ""
     }
-    return [string trim $result "\t\n\r "]
+    # askpass 不追加换行；密码的首尾空白也是密码的一部分，exec 也不得去掉尾部换行。
+    return $result
 }
 
 set timeout 45

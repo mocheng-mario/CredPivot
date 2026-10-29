@@ -320,8 +320,27 @@ class AgentBridge {
   static Future<void> writeTextFile(String path, String text) =>
       _channel.invokeMethod('writeTextFile', {'path': path, 'text': text});
 
-  static Future<void> copyConcealed(String secret) =>
-      _channel.invokeMethod('copyConcealed', secret);
+  /// 在验证/取密之前记录代次；不能在复制时重新获取，否则锁定后重解锁会放行旧结果。
+  static Future<int> clipboardSession() async {
+    final status = payloadOf(await request({'type': 'status'}));
+    final generation = status['vault_lock_generation'];
+    if (status['unlocked'] != true || generation is! num) {
+      _onVaultLocked?.call();
+      throw AgentException('locked', tr('common.unlockFirst'));
+    }
+    return generation.toInt();
+  }
+
+  static Future<void> copyConcealed(String secret, {required int session}) async {
+    try {
+      await _channel.invokeMethod('copyConcealed', {
+        'secret': secret, 'vault_lock_generation': session,
+      });
+    } on PlatformException catch (error) {
+      if (error.code == 'locked') _onVaultLocked?.call();
+      throw AgentException(error.code, error.message ?? tr('common.operationFailed'));
+    }
+  }
 
   static Future<List<Map<String, dynamic>>> listCredentialGroups(String scope, {String? partitionId}) async {
     final resp = await request({'type': 'credential_group_list', 'scope': scope}, partitionId: partitionId);

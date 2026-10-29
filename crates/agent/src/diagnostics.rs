@@ -75,7 +75,12 @@ pub fn error(target: &'static str, event: &'static str) {
     log(LogLevel::Error, target, event);
 }
 
-fn log(level: LogLevel, target: &'static str, event: &'static str) {
+/// 浏览器验证只记录固定阶段与耗时，禁止传入请求内容、网站、账户或异常原文。
+pub fn browser_auth_event(event: &'static str, elapsed_ms: u64) {
+    log(LogLevel::Info, "browser_auth", &format!("{event}; elapsed_ms={elapsed_ms}"));
+}
+
+fn log(level: LogLevel, target: &'static str, event: &str) {
     if level < self::level() {
         return;
     }

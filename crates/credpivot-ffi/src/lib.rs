@@ -12,6 +12,24 @@ struct FfiState {
 
 static STATE: Mutex<Option<FfiState>> = Mutex::new(None);
 
+/// 原生验证阶段日志不经过 Agent 状态锁，否则排队本身会掩盖实际延迟。
+#[no_mangle]
+pub extern "C" fn credpivot_browser_auth_event(stage: u32, elapsed_ms: u64) {
+    let event = match stage {
+        1 => "request observed by App",
+        2 => "App preflight completed",
+        3 => "authentication dispatch returned",
+        4 => "authentication succeeded",
+        5 => "authentication cancelled or failed",
+        6 => "request invalidated",
+        7 => "request rejected: busy or expired",
+        8 => "browser authorization granted",
+        9 => "browser authorization not granted",
+        _ => return,
+    };
+    credpivot_agent::diagnostics::browser_auth_event(event, elapsed_ms);
+}
+
 fn with_state<F, T>(f: F) -> Result<T, String>
 where
     F: FnOnce(&mut FfiState) -> Result<T, String>,

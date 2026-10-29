@@ -30,6 +30,12 @@
         <select id="account" aria-describedby="selectionNote" disabled><option>连接后加载账号</option></select>
         <p id="selectionNote" class="muted">账号和 MFA 可分别选择；没有登录记录也可以填充 MFA。</p>
       </section>
+      <section class="account-panel" aria-labelledby="inlineTitle">
+        <div class="section-heading"><h2 id="inlineTitle">网页内填充</h2></div>
+        <button id="inlineToggle" class="secondary-button" disabled>读取网站设置…</button>
+        <p id="inlineStatus" class="muted" role="status"></p>
+        <p class="muted">在登录或验证码输入框旁显示填充入口。隐藏后，仍可通过输入框右键菜单或此面板填充。</p>
+      </section>
       <section class="account-panel" aria-labelledby="otpTitle">
         <div class="section-heading"><h2 id="otpTitle">MFA 验证码</h2><span id="otpCount">未加载</span></div>
         <label class="sr-only" for="otp">选择当前网站的 MFA</label>
@@ -55,7 +61,7 @@
         </button>
       </div>
       <div id="status" role="status" aria-live="polite" data-state="pending">正在连接本机保险库…</div>
-      <button id="stopWaiting" class="text-button" hidden>停止等待验证</button>
+      <button id="stopWaiting" class="text-button" hidden>取消本次验证</button>
       <details id="errorDetails" class="error-details" hidden><summary>技术信息</summary><pre id="errorDetail"></pre></details>
       <details class="save-panel">
         <summary>保存当前网页 <span class="muted">添加 / 更新账号</span></summary>

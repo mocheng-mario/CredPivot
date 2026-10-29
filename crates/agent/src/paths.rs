@@ -28,7 +28,7 @@ pub fn materialized_askpass_trusted_ref_path() -> PathBuf {
     runtime_dir().join("askpass_trusted.path")
 }
 
-/// Chrome 扩展连接时由 native-host 写入，App 前台后触发指纹门槛。
+/// Agent 写入浏览器验证请求标识，App 消费后唤起身份验证。
 pub fn extension_gate_pending_path() -> PathBuf {
     runtime_dir().join("extension_gate.pending")
 }

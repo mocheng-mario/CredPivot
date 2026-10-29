@@ -16,7 +16,9 @@ let captured = null;
 let ready = false;
 let busy = false;
 let stopWaiting = false;
+let gateRequestId = null;
 let passkeyEnabled = false;
+let inlineHidden = false;
 
 $("ver").textContent = `v${chrome.runtime.getManifest().version}`;
 
@@ -37,6 +39,8 @@ function showError(result) {
   const reason = result?.deliver?.reason || result?.error;
   const messages = {
     extension_gate_required: "请点击「连接与验证」，完成指纹或 App 内的主密码验证。",
+    extension_gate_cancelled: "验证已取消。需要继续时，请点击「连接与验证」。",
+    extension_gate_paused: "自动验证已暂停，请点击「连接与验证」手动继续。",
     locked: "保险库已锁定，请点击「连接与验证」解锁。",
     browser_parent_denied: "浏览器身份验证未通过，请确认使用正式 Google Chrome 或 Canary；可在 App 诊断中查看失败分类。",
     host_outdated: "本机组件已更新，请重新连接；保存、更新等操作不会自动重复。",
@@ -48,7 +52,7 @@ function showError(result) {
     document_mismatch: "页面已跳转，请在新页面重新填充。",
     origin_mismatch: "网站已发生变化，请重新打开插件面板。",
   };
-  const gated = result?.needs_gate || code === "extension_gate_required" || code === "locked";
+  const gated = result?.needs_gate || ['extension_gate_required','extension_gate_cancelled','extension_gate_not_started','extension_gate_paused','locked'].includes(code);
   if (gated || result?.lastNativeError) {
     ready = false;
     candidates = [];
@@ -73,7 +77,7 @@ function updateControls() {
   const row = selectedAccount();
   accountEl.title = row?.username || "选择登录账号";
   $("connect").disabled = busy;
-  accountEl.disabled = busy || !ready || candidates.length < 2;
+  accountEl.disabled = busy || !ready || !candidates.length;
   $("accountSearch").disabled = busy || !ready;
   $("fillLogin").disabled = busy || !ready || !row;
   $("fillOtp").disabled = busy || !ready || !mfaCandidates.some((m) => m.id === selectedTotpId);
@@ -112,8 +116,8 @@ function renderAccounts() {
   accountEl.replaceChildren();
   const placeholder = document.createElement("option");
   placeholder.value = "";
-  placeholder.textContent = !ready ? "连接后加载账号" : !candidates.length ? "此网站暂无已保存账号" : !matches.length ? "未找到匹配账号" : "请选择登录账号";
-  placeholder.disabled = true;
+  placeholder.textContent = !ready ? "连接后加载账号" : "不关联登录账号，选择独立 MFA";
+  placeholder.disabled = !ready;
   accountEl.append(placeholder);
   // 搜索只过滤列表，不清空已选账号，避免后续 MFA 填充丢失选择。
   const rows = [...matches];
@@ -195,13 +199,15 @@ async function refreshAccounts() {
   candidates = response.payload?.candidates ?? [];
   const previous = candidates.find((row) => row.id === selectedId);
   const remembered = candidates.find((row) => row.id === response.payload?.selected_credential_id);
-  selectedId = previous?.id || remembered?.id || (candidates.length === 1 ? candidates[0].id : "");
+  const independent = (selectionSource === "manual" && selectedId === "") ||
+    (response.payload?.account_selection_set === true && response.payload?.selected_credential_id === "");
+  selectedId = independent ? "" : previous?.id || remembered?.id || (candidates.length === 1 ? candidates[0].id : "");
   selectionSource = !previous && remembered ? "remembered" : selectionSource;
   renderAccounts();
   return await refreshMfas();
 }
 
-async function handshake() {
+async function handshake(verify = false) {
   if (busy) return;
   stopWaiting = false;
   ready = false;
@@ -213,20 +219,33 @@ async function handshake() {
   $("connectionState").textContent = "连接中…";
   $("connectionState").dataset.state = "pending";
   setStatus("正在连接本机保险库…", "pending");
+  const requestId = verify ? crypto.randomUUID() : null;
+  gateRequestId = requestId;
+  $("stopWaiting").hidden = !verify;
   try {
     await getTargetTab();
-    let response = await chrome.runtime.sendMessage({ type: "handshake" });
+    if (stopWaiting) { showError({code:'extension_gate_cancelled'}); return; }
+    // 首次打开可自动验证一次；取消后的自动抑制由后台统一管理，手动点击始终可重试。
+    let response = await chrome.runtime.sendMessage(verify
+      ? {type:"handshake",gate_request_id:requestId,automatic:verify === 'automatic'} : {type:"agent_status"});
+    if (stopWaiting) { showError({code:'extension_gate_cancelled'}); return; }
     if (!response?.ok && response?.code === "extension_gate_required") {
       setStatus("请完成系统指纹验证；如需主密码，请在 App 中输入。完成后会自动继续。", "pending");
       $("stopWaiting").hidden = false;
-      for (let i = 0; i < 90; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+      for (let i = 0; i < 120; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
         if (stopWaiting) {
-          setStatus("已停止等待。完成验证后，可点击「连接与验证」重新连接。");
+          showError({code:'extension_gate_cancelled'});
           return;
         }
         const state = await chrome.runtime.sendMessage({ type: "agent_status" });
+        if (stopWaiting) { showError({code:'extension_gate_cancelled'}); return; }
+        if (!state?.ok) { showError(state); return; }
         if (state?.payload?.extension_gate_active === true) { response = { ok: true, payload: state.payload }; break; }
+        if (state.payload?.extension_gate_pending !== true ||
+            (state.payload?.extension_gate_request_id && state.payload.extension_gate_request_id !== requestId)) {
+          showError({code:'extension_gate_not_started',message:'验证已取消或未能启动。请确认 App 没有其他验证窗口，再点击「连接与验证」。'}); return;
+        }
       }
     }
     if (!response?.ok) { showError(response); return; }
@@ -253,6 +272,10 @@ async function handshake() {
     renderAccounts();
     showError({ error: e.message });
   } finally {
+    if (requestId) {
+      try { await chrome.runtime.sendMessage({type:'cancel_verification',gate_request_id:requestId}); } catch (_) { /* 本机断开时不重发验证。 */ }
+    }
+    if (gateRequestId === requestId) gateRequestId = null;
     $("stopWaiting").hidden = true;
     if (!ready) {
       $("connectionState").textContent = "尚未连接";
@@ -268,7 +291,7 @@ accountEl.addEventListener("change", async () => {
   selectedId = accountEl.value;
   selectedTotpId = ""; mfaCandidates = []; renderMfas();
   selectionSource = "manual";
-  setStatus("已切换账号，密码和 MFA 将使用当前选择。");
+  setStatus(selectedId ? "已切换账号，密码和 MFA 将使用当前选择。" : "已切换为独立 MFA，按当前网站匹配各分区的验证器。");
   setBusy(true);
   try {
     const tab = await getTargetTab();
@@ -322,9 +345,10 @@ async function fill(mode) {
 
 $("fillLogin").addEventListener("click", () => fill("login"));
 $("fillOtp").addEventListener("click", () => fill("otp"));
-$("connect").addEventListener("click", handshake);
+$("connect").addEventListener("click", () => void handshake(true));
 $("stopWaiting").addEventListener("click", () => {
   stopWaiting = true;
+  if (gateRequestId) void chrome.runtime.sendMessage({type:'cancel_verification',gate_request_id:gateRequestId,explicit:true}).catch(() => {});
   $("stopWaiting").hidden = true;
   setStatus("正在停止等待…", "pending");
 });
@@ -405,7 +429,38 @@ async function init() {
     $("site").textContent = "请选择普通网页";
   }
   renderAccounts();
+  if (targetOrigin) {
+    try { await refreshInlinePreference(); }
+    catch (_) { $('inlineToggle').textContent = '网站设置暂不可用'; }
+  }
   await refreshPasskeyState();
-  await handshake();
+  await handshake('automatic');
 }
+async function refreshInlinePreference() {
+  const response = await chrome.runtime.sendMessage({type:'inline_site_state',tab_id:targetTab.id,origin:targetOrigin});
+  if (!response?.ok) throw new Error(response?.message || '读取网站设置失败');
+  inlineHidden = response.hidden === true;
+  $('inlineToggle').textContent = inlineHidden ? '恢复此网站的填充图标' : '隐藏此网站的填充图标';
+  $('inlineToggle').disabled = false;
+  try {
+    const page = await requestPageContext(targetTab.id);
+    const state = page?.inline_status;
+    const kinds = {username:'用户名',password:'密码',otp:'验证码'};
+    const detail = state?.error || (inlineHidden ? '此网站已隐藏页面入口' :
+      state?.target_kind ? `已识别${kinds[state.target_kind] || '登录'}输入框` : '点击账号、密码或验证码输入框显示 CP 图标');
+    $('inlineStatus').textContent = `页面脚本 ${page?.content_version || '未知版本'} · ${detail}`;
+  } catch (_) {
+    $('inlineStatus').textContent = '无法连接页面入口，请检查扩展的网站访问权限；仍可尝试工具栏填充。';
+  }
+}
+$('inlineToggle').addEventListener('click',async () => {
+  $('inlineToggle').disabled = true;
+  try {
+    const tab = await getTargetTab();
+    const response = await chrome.runtime.sendMessage({type:'inline_site_set',tab_id:tab.id,origin:targetOrigin,hidden:!inlineHidden});
+    if (!response?.ok) throw new Error(response?.message || '设置失败');
+    await refreshInlinePreference();
+  } catch (error) { setStatus(error.message,'error'); }
+  finally { $('inlineToggle').disabled = !targetOrigin; }
+});
 init().catch((e) => showError({ error: e.message }));

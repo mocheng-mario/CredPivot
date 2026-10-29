@@ -58,12 +58,22 @@ pub fn revoke_extension_gate(st: &mut IpcState) {
     let _ = crate::paths::clear_extension_gate_pending();
 }
 
-fn request_extension_gate(st: &mut IpcState, session: uuid::Uuid) {
-    if st.extension_gate_pending_session != Some(session) || !crate::paths::extension_gate_pending_path().exists() {
-        st.extension_gate_pending_session = Some(session);
-        let _ = crate::paths::ensure_runtime_dir();
-        let _ = std::fs::write(crate::paths::extension_gate_pending_path(), session.to_string());
-    }
+fn extension_gate_pending_request(st: &IpcState) -> Option<(uuid::Uuid, uuid::Uuid)> {
+    let data = std::fs::read(crate::paths::extension_gate_pending_path()).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&data).ok()?;
+    let session = uuid::Uuid::parse_str(value["session_id"].as_str()?).ok()?;
+    let request = uuid::Uuid::parse_str(value["request_id"].as_str()?).ok()?;
+    (st.extension_gate_pending_session == Some(session)).then_some((session, request))
+}
+
+fn request_extension_gate(st: &mut IpcState, session: uuid::Uuid, request: uuid::Uuid) -> std::io::Result<()> {
+    if extension_gate_pending_request(st) == Some((session, request)) { return Ok(()); }
+    crate::paths::ensure_runtime_dir()?;
+    // 请求标识防止迟到的取消或验证结果影响同一浏览器刚发起的新请求。
+    std::fs::write(crate::paths::extension_gate_pending_path(),
+        json!({"session_id":session.to_string(),"request_id":request.to_string(),"created_ms":now_ms()}).to_string())?;
+    st.extension_gate_pending_session = Some(session);
+    Ok(())
 }
 
 fn maybe_expire_extension_gate_idle(st: &mut IpcState) {
@@ -105,7 +115,8 @@ pub fn load_extension_gate_into_state(st: &mut IpcState) {
 
 /// Chrome Native Host 不得直接调用的高危/旁路接口。
 fn native_host_request_forbidden(req: &AgentRequest) -> bool {
-    !matches!(req, AgentRequest::Ping | AgentRequest::Status | AgentRequest::ExtensionConnect
+    !matches!(req, AgentRequest::Ping | AgentRequest::Status | AgentRequest::ExtensionConnect { .. }
+        | AgentRequest::ExtensionGateCancel { .. }
         | AgentRequest::CredentialSave { .. } | AgentRequest::CredentialSuggest { .. }
         | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::BrowserTotpCode { .. } | AgentRequest::BrowserMfaSuggest { .. }
         | AgentRequest::CredentialFillPrepare { .. } | AgentRequest::CredentialFillConsume { .. }
@@ -373,7 +384,14 @@ async fn handle_request_inner(
         | AgentRequest::UnlockPassword { .. } | AgentRequest::VaultCreate { .. }) && !peer.from_app {
         return AgentResponse::err("forbidden", "authentication control is App-only");
     }
-    {
+    // 连接、取消及周期状态查询必须保持轻量；恢复点已有独立定时任务，不能挡住验证弹窗。
+    if !matches!(&req, AgentRequest::Ping | AgentRequest::Status | AgentRequest::SyncStatus | AgentRequest::AppSettingsGet
+        | AgentRequest::ExtensionConnect { .. } | AgentRequest::ExtensionGateCancel { .. }
+        | AgentRequest::ExtensionGateGrant { .. } | AgentRequest::SensitiveAuthGrant
+        | AgentRequest::LocalUnlockPolicySet { .. } | AgentRequest::LocalUnlockMaterial
+        | AgentRequest::UnlockLocal { .. } | AgentRequest::UnlockPassword { .. }
+        | AgentRequest::VerifyMasterPassword { .. }
+        | AgentRequest::SshAuthorizationsPending | AgentRequest::PasskeyRequestsPending) {
         let mut v = st.vault.lock().await;
         if v.unlocked {
             let _ = v.try_restore_point_if_due();
@@ -393,9 +411,13 @@ async fn handle_request_inner(
     }
     if peer.from_native_host && req_requires_extension_gate(&req) {
         if !extension_gate_active(st) || st.extension_gate_session != peer.browser_session {
-            // 已开始的通行密钥请求失去授权时终止，不再触发新一轮解锁。
-            if !matches!(&req, AgentRequest::PasskeyPoll { .. }) {
-                if let Some(session) = peer.browser_session { request_extension_gate(st, session); }
+            // 读取列表、轮询和取密失败都不能重新唤起指纹；只有显式连接或新建通行密钥请求可以。
+            if let AgentRequest::PasskeyBegin { request_id, .. } = &req {
+                if let (Some(session), Ok(request)) = (peer.browser_session, uuid::Uuid::parse_str(request_id)) {
+                    if request_extension_gate(st, session, request).is_err() {
+                        return AgentResponse::err("auth_request_failed", "无法建立浏览器验证请求，请重试");
+                    }
+                }
             }
             return AgentResponse::err(
                 "extension_gate_required",
@@ -585,13 +607,20 @@ async fn handle_request_inner(
             crate::diagnostics::info("settings", "application settings updated");
             AgentResponse::ok(json!({ "settings": settings }))
         }
-        AgentRequest::ExtensionConnect => {
+        AgentRequest::ExtensionConnect { request_id } => {
+            let Ok(request) = uuid::Uuid::parse_str(&request_id) else {
+                return AgentResponse::err("invalid_request", "browser verification request is invalid");
+            };
             let v = st.vault.lock().await;
             let gate = extension_gate_active(st) && st.extension_gate_session == peer.browser_session;
             let mut payload = v.vault_status_json();
             drop(v);
             if !gate {
-                if let Some(session) = peer.browser_session { request_extension_gate(st, session); }
+                if let Some(session) = peer.browser_session {
+                    if request_extension_gate(st, session, request).is_err() {
+                        return AgentResponse::err("auth_request_failed", "无法建立浏览器验证请求，请重试");
+                    }
+                }
                 return AgentResponse::err("extension_gate_required", "请在 CredPivot App 中完成指纹或主密码确认");
             }
             payload["connected"] = json!(true);
@@ -599,9 +628,22 @@ async fn handle_request_inner(
             payload["extension_gate_idle_secs"] = json!(extension_gate_idle_secs());
             AgentResponse::ok(payload)
         }
-        AgentRequest::ExtensionGateGrant { session_id, ttl_secs } => {
+        AgentRequest::ExtensionGateCancel { request_id } => {
+            let request = uuid::Uuid::parse_str(&request_id).ok();
+            if let Some((session, pending)) = extension_gate_pending_request(st) {
+                if (peer.from_app || peer.browser_session == Some(session)) && request == Some(pending) {
+                    if crate::paths::clear_extension_gate_pending().is_err() {
+                        return AgentResponse::err("auth_cancel_failed", "无法取消浏览器验证请求，请重试");
+                    }
+                    st.extension_gate_pending_session = None;
+                }
+            }
+            AgentResponse::ok(json!({"cancelled":true}))
+        }
+        AgentRequest::ExtensionGateGrant { session_id, request_id, ttl_secs } => {
             let session = uuid::Uuid::parse_str(&session_id).ok();
-            if session.is_none() || session != st.extension_gate_pending_session {
+            let request = uuid::Uuid::parse_str(&request_id).ok();
+            if session.zip(request).is_none() || session.zip(request) != extension_gate_pending_request(st) {
                 return AgentResponse::err("conflict", "browser request changed; retry connection");
             }
             if !st.vault.lock().await.authorize_sensitive_operation() { return AgentResponse::err("auth_required", "identity verification required"); }
@@ -642,6 +684,11 @@ async fn handle_request_inner(
                     "extension_gate_idle_secs".into(),
                     json!(extension_gate_idle_secs()),
                 );
+                // 只读状态供页面填充等待验证；取消后不重新发起握手或误续上其他请求。
+                let pending = extension_gate_pending_request(st).filter(|(session, _)|
+                    !peer.from_native_host || Some(*session) == peer.browser_session);
+                obj.insert("extension_gate_pending".into(), json!(pending.is_some()));
+                obj.insert("extension_gate_request_id".into(), json!(pending.map(|(_, request)| request.to_string())));
             }
             AgentResponse::ok(payload)
         }

@@ -79,6 +79,17 @@ fn read_exact_or_eof<R: Read>(r: &mut R, buf: &mut [u8]) -> Result<bool, io::Err
 }
 
 async fn forward_to_agent(envelope: Value) -> Result<Value, Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let action = envelope.get("action").and_then(Value::as_str).unwrap_or("unknown");
+    let verification = matches!(action, "handshake" | "extension.connect" | "extension.cancel" | "passkey.begin");
+    if verification {
+        let queued_ms = envelope.get("verification_started_ms").and_then(Value::as_u64).map(|sent| {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64).unwrap_or(sent);
+            now.saturating_sub(sent)
+        }).unwrap_or(0);
+        diagnostics::browser_auth_event("native received verification command", queued_ms);
+    }
     let request_id = envelope.get("request_id").cloned();
     let socket = agent_socket_path();
     // 文件存在也可能是崩溃遗留的 socket；以实际可连接性判断。
@@ -96,10 +107,6 @@ async fn forward_to_agent(envelope: Value) -> Result<Value, Box<dyn std::error::
         }
     }
 
-    let action = envelope
-        .get("action")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown");
     // 待确认会话由 Agent 写入，App 的协调器负责唤起身份验证。
     let req = map_extension_to_agent(&envelope, action)?;
     let session_id = envelope.get("browser_session_id").and_then(Value::as_str).unwrap_or("");
@@ -109,12 +116,35 @@ async fn forward_to_agent(envelope: Value) -> Result<Value, Box<dyn std::error::
     let response = tokio::time::timeout(std::time::Duration::from_secs(20), call_agent(&socket, AgentRequest::BrowserRequest {
         session_id: session_id.to_string(), request: Box::new(req),
     })).await;
+    if verification {
+        diagnostics::browser_auth_event("Agent verification command returned", started.elapsed().as_millis() as u64);
+    }
     let resp = match response {
         Ok(Ok(response)) => response,
         Ok(Err(_)) => return Ok(error_envelope("agent_unavailable", "本机 Agent 连接已中断，请重试", request_id)),
         Err(_) => return Ok(error_envelope("agent_timeout", "本机 Agent 响应超时；写入和签名不会自动重复，请检查后重试", request_id)),
     };
+    // 唤醒后台 App 检查标记，避免仅靠定时器发现请求。通知本身不携带或授予授权。
+    if (matches!(&resp, AgentResponse::Err { code, .. } if code == "extension_gate_required")
+        && matches!(action, "handshake" | "extension.connect" | "passkey.begin"))
+        || action == "extension.cancel"
+    {
+        notify_browser_verification();
+    }
     Ok(agent_to_extension(resp, request_id))
+}
+
+fn notify_browser_verification() {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe extern "C" {
+            fn notify_post(name: *const std::ffi::c_char) -> u32;
+        }
+        // Darwin 通知只提示 App 重新读取经过 Agent 校验的待验证请求。
+        if unsafe { notify_post(b"com.credpivot.browser-verification\0".as_ptr().cast()) } != 0 {
+            diagnostics::warn("native_host", "browser verification notification failed");
+        }
+    }
 }
 
 fn map_extension_to_agent(
@@ -122,7 +152,12 @@ fn map_extension_to_agent(
     action: &str,
 ) -> Result<AgentRequest, Box<dyn std::error::Error>> {
     match action {
-        "handshake" | "extension.connect" => Ok(AgentRequest::ExtensionConnect),
+        "handshake" | "extension.connect" => Ok(AgentRequest::ExtensionConnect {
+            request_id: envelope["request_id"].as_str().unwrap_or("").into(),
+        }),
+        "extension.cancel" => Ok(AgentRequest::ExtensionGateCancel {
+            request_id: envelope["gate_request_id"].as_str().unwrap_or("").into(),
+        }),
         "status" | "agent.status" => Ok(AgentRequest::Status),
         "passkey.begin" => Ok(AgentRequest::PasskeyBegin {
             request_id: envelope["passkey_request_id"].as_str().unwrap_or("").into(),

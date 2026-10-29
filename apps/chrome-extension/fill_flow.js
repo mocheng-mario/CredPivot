@@ -9,9 +9,14 @@ function gateHint(resp) {
   return null;
 }
 
-export async function requestPageContext(tabId) {
+export async function requestPageContext(tabId, targetId) {
+  const message = {type:"fill_context", ...(targetId ? {target_id:targetId} : {})};
   try {
-    return await chrome.tabs.sendMessage(tabId, { type: "fill_context" }, { frameId: 0 });
+    const context = await chrome.tabs.sendMessage(tabId, message, {frameId:0});
+    if (context?.content_version === chrome.runtime.getManifest().version) return context;
+    // 新版页面入口需要新的目标输入框绑定；旧标签页只升级脚本，不重放秘密投递。
+    await chrome.scripting.executeScript({target:{tabId,frameIds:[0]},files:["content.js"],world:"ISOLATED"});
+    return await chrome.tabs.sendMessage(tabId,message,{frameId:0});
   } catch (e) {
     // 扩展重载后，已打开的标签页可能没有接收端；只重试不含秘密的上下文请求。
     if (!String(e).includes("Receiving end does not exist")) throw e;
@@ -21,17 +26,18 @@ export async function requestPageContext(tabId) {
         files: ["content.js"],
         world: "ISOLATED",
       });
-      return await chrome.tabs.sendMessage(tabId, { type: "fill_context" }, { frameId: 0 });
+      return await chrome.tabs.sendMessage(tabId, message, { frameId: 0 });
     } catch (_) {
       throw new Error("无法连接页面，请确认已允许扩展访问此网站；浏览器限制页面不支持填充。若页面正在跳转，请加载完成后重试。");
     }
   }
 }
 
-async function loadPageContext(tabId, origin) {
+async function loadPageContext(tabId, origin, binding) {
   let ctx;
   try {
-    ctx = await requestPageContext(tabId);
+    if (binding?.validate) await binding.validate();
+    ctx = await requestPageContext(tabId,binding?.targetId);
   } catch (e) {
     return {
       error: {
@@ -46,6 +52,10 @@ async function loadPageContext(tabId, origin) {
   }
   if (ctx.origin !== origin) {
     return { error: { ok: false, error: "页面 origin 不一致" } };
+  }
+  if (binding && (ctx.documentId !== binding.documentId || ctx.url !== binding.url ||
+      ctx.targetId !== binding.targetId || ctx.targetValid !== true)) {
+    return {error:{ok:false,error:"页面或目标输入框已改变，请重新填充"}};
   }
   return { ctx };
 }
@@ -83,7 +93,8 @@ async function suggestFirstCredential(origin, sendNative, selectedId) {
   return { credentialId: selected.id, candidate: selected, candidates };
 }
 
-async function consumeLoginSecrets(tabId, ctx, credentialId, sendNative) {
+async function consumeLoginSecrets(tabId, ctx, credentialId, sendNative, binding) {
+  if (binding?.validate) await binding.validate();
   const prep = await sendNative({
     action: "credential.fill_prepare",
     credential_id: credentialId,
@@ -102,6 +113,10 @@ async function consumeLoginSecrets(tabId, ctx, credentialId, sendNative) {
     };
   }
   const requestId = prep.payload?.request_id || prep.request_id;
+  if (binding) {
+    const current = await loadPageContext(tabId,ctx.origin,binding);
+    if (current.error) return current;
+  }
   const consume = await sendNative({
     action: "credential.fill_consume",
     request_id: requestId,
@@ -121,19 +136,19 @@ async function consumeLoginSecrets(tabId, ctx, credentialId, sendNative) {
   return { secrets: consume.payload ?? consume };
 }
 
-export async function runFillLoginOnTab(tabId, sendNative, selectedId) {
+export async function runFillLoginOnTab(tabId, sendNative, selectedId, binding) {
   const tab = await chrome.tabs.get(tabId);
   if (!tab?.url || !tab.url.startsWith("http")) {
     return { ok: false, error: "请在普通 http(s) 网页标签页中使用填充" };
   }
   const origin = new URL(tab.url).origin;
-  const { ctx, error } = await loadPageContext(tabId, origin);
+  const { ctx, error } = await loadPageContext(tabId, origin,binding);
   if (error) return error;
 
   const suggested = await suggestFirstCredential(ctx.origin, sendNative, selectedId);
   if (suggested.error) return suggested.error;
 
-  const consumed = await consumeLoginSecrets(tabId, ctx, suggested.credentialId, sendNative);
+  const consumed = await consumeLoginSecrets(tabId, ctx, suggested.credentialId, sendNative,binding);
   if (consumed.error) return consumed.error;
   const secrets = consumed.secrets;
   if (!secrets?.username && !secrets?.password) {
@@ -142,6 +157,10 @@ export async function runFillLoginOnTab(tabId, sendNative, selectedId) {
 
   let deliver;
   try {
+    if (binding) {
+      const current = await loadPageContext(tabId,origin,binding);
+      if (current.error) return current.error;
+    }
     deliver = await chrome.tabs.sendMessage(
       tabId,
       {
@@ -149,6 +168,8 @@ export async function runFillLoginOnTab(tabId, sendNative, selectedId) {
         mode: "login",
         document_id: ctx.documentId,
         origin: ctx.origin,
+        url: ctx.url,
+        target_id: ["username","password"].includes(ctx.targetKind) ? ctx.targetId : undefined,
         username: secrets.username,
         password: secrets.password,
       },
@@ -168,13 +189,13 @@ export async function runFillLoginOnTab(tabId, sendNative, selectedId) {
     partial: deliver.partial === true, username_filled: deliver.username_filled, password_filled: deliver.password_filled };
 }
 
-export async function runFillOtpFromVaultOnTab(tabId, sendNative, selectedId, totpId) {
+export async function runFillOtpFromVaultOnTab(tabId, sendNative, selectedId, totpId, binding) {
   const tab = await chrome.tabs.get(tabId);
   if (!tab?.url || !tab.url.startsWith("http")) {
     return { ok: false, error: "请在普通 http(s) 网页标签页中使用填充" };
   }
   const origin = new URL(tab.url).origin;
-  const { ctx, error } = await loadPageContext(tabId, origin);
+  const { ctx, error } = await loadPageContext(tabId, origin,binding);
   if (error) return error;
 
   if (!totpId) return {ok:false,error:"请先选择当前网站的 MFA"};
@@ -183,7 +204,7 @@ export async function runFillOtpFromVaultOnTab(tabId, sendNative, selectedId, to
   if (codeResp?.ok && codeResp.payload?.wait_seconds != null) {
     await new Promise((resolve) => setTimeout(resolve, (codeResp.payload.wait_seconds + 1) * 1000));
     // 等待新一组验证码后再次获取页面上下文，防止跳转后向旧页面投递。
-    const current = await loadPageContext(tabId, origin);
+    const current = await loadPageContext(tabId, origin,binding);
     if (current.error || current.ctx.documentId !== ctx.documentId) return {ok:false,error:"页面已改变，请重新填充"};
     codeResp = await sendNative({...request});
   }
@@ -205,6 +226,10 @@ export async function runFillOtpFromVaultOnTab(tabId, sendNative, selectedId, to
 
   let deliver;
   try {
+    if (binding) {
+      const current = await loadPageContext(tabId,origin,binding);
+      if (current.error) return current.error;
+    }
     deliver = await chrome.tabs.sendMessage(
       tabId,
       {
@@ -212,6 +237,8 @@ export async function runFillOtpFromVaultOnTab(tabId, sendNative, selectedId, to
         mode: "otp",
         document_id: ctx.documentId,
         origin: ctx.origin,
+        url: ctx.url,
+        target_id: ctx.targetKind === "otp" ? ctx.targetId : undefined,
         totp_code: code,
       },
       { frameId: ctx.frameId ?? 0 }
@@ -249,6 +276,8 @@ export async function runOtpFillOnTab(tabId, totpCode, sendNative) {
       mode: "otp",
       document_id: ctx.documentId,
       origin: ctx.origin,
+      url: ctx.url,
+      target_id: ctx.targetKind === "otp" ? ctx.targetId : undefined,
       totp_code: totpCode,
     },
     { frameId: ctx.frameId ?? 0 }

@@ -1,132 +1,338 @@
 (() => {
-  // 静态注入和按需注入可能同时发生，避免重复监听和重置文档标识。
-  if (globalThis.__credpivotContentReady) return;
-  const fillDocumentId =
-    globalThis.crypto?.randomUUID?.() ?? `doc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  if (window !== window.top || !/^https?:$/.test(location.protocol)) return;
+  const version = chrome.runtime.getManifest().version;
+  if (globalThis.__credpivotContentVersion === version) return;
+  try { globalThis.__credpivotContentCleanup?.(); } catch (_) { /* 旧扩展上下文可能已失效。 */ }
+  // 普通 HTTP 页面没有 randomUUID，但仍提供 getRandomValues；文档与输入框绑定不能因此失效。
+  function randomId() {
+    return crypto.randomUUID?.() ?? [...crypto.getRandomValues(new Uint8Array(16))]
+      .map((value) => value.toString(16).padStart(2, '0')).join('');
+  }
+  const documentId = randomId();
+  const targets = new Map();
+  const inputIds = new WeakMap();
+  const listeners = [];
+  let lastInput = null, contextInput = null, anchor = null, panel = null, token = null;
+  let hidden = false, opening = false, delivering = false, generation = 0, frame = 0;
+  let host = null, shadow = null, badge = null, observer = null, panelTimer = null;
+  let inlineFailure = '';
 
-  function usableInput(el) {
-    if (el.disabled || el.type === "hidden" || !el.getClientRects().length) return false;
+  function runtimeMessage(message) {
+    try { return chrome.runtime.sendMessage(message); }
+    catch (error) { return Promise.reject(error); }
+  }
+
+  function listen(object, type, callback, options) {
+    object.addEventListener(type, callback, options);
+    listeners.push(() => object.removeEventListener(type, callback, options));
+  }
+  function usable(el, readable = false) {
+    if (!(el instanceof HTMLInputElement) || !el.isConnected || el.disabled || (!readable && el.readOnly) || el.type === 'hidden' || !el.getClientRects().length) return false;
     const style = getComputedStyle(el);
-    return style.visibility !== "hidden" && style.visibility !== "collapse";
+    return style.visibility !== 'hidden' && style.visibility !== 'collapse' && Number(style.opacity) !== 0;
   }
-
-  function findLoginFields(capture = false) {
-    const passwords = [...document.querySelectorAll('input[type="password"]')].filter(usableInput);
-    const pass = (capture && passwords.find((el) => el.autocomplete === "new-password")) ||
-      passwords.find((el) => el.autocomplete === "current-password") ||
-      passwords.find((el) => el.autocomplete !== "new-password");
-    // 同页可能有订阅邮箱或其他表单，优先在密码框所属表单中寻找账号。
-    const scope = pass?.form ?? document;
-    // Jenkins / Spring Security 使用 j_username，且可能显式关闭 autocomplete。
-    let user = [...scope.querySelectorAll(
-      'input[type="email"], input[type="text"][autocomplete="username"], input[name="username"], input[name="j_username"], input[name="login"], input[name="email"], input[id="username"], input[id="j_username"], input[id="email"]'
-    )].find(usableInput);
-    if (!user && pass?.form) {
-      // 缺少语义属性时，只回退到同一表单中位于密码框之前的文本框。
-      user = [...pass.form.querySelectorAll('input[type="text"], input:not([type])')]
-        .filter((el) => usableInput(el) && el.autocomplete !== "one-time-code" &&
-          !/otp|totp|mfa|captcha|search/i.test(`${el.name} ${el.id}`) &&
-          (el.compareDocumentPosition(pass) & Node.DOCUMENT_POSITION_FOLLOWING))
-        .at(-1);
+  function hint(el) {
+    return `${el.name} ${el.id} ${el.autocomplete} ${el.getAttribute('aria-label') || ''} ${el.placeholder || ''}`;
+  }
+  function otpHint(value) {
+    return /(?:otp|totp|mfa|2fa|one.?time|verification.?code|auth.?code|验证码|动态码)/i.test(value);
+  }
+  function excluded(el) {
+    return /captcha|recaptcha|search|cvv|cvc|card.?number/i.test(hint(el)) || el.autocomplete.startsWith('cc-');
+  }
+  function namedUsername(el) {
+    return el.type === 'email' || el.autocomplete === 'username' || /username|j_username|identifier|user.?id|login/i.test(hint(el));
+  }
+  function scopeFor(el) {
+    return el?.form || el?.closest('[role="form"]') || el?.parentElement?.parentElement || document;
+  }
+  function inputs(root, readable = false) { return [...root.querySelectorAll('input')].filter((input) => usable(input,readable)); }
+  function role(el, manual = '') {
+    if (!usable(el) || excluded(el)) return null;
+    if (manual === 'otp') return ['text', 'tel', 'number'].includes(el.type) ||
+      (el.type === 'password' && (el.autocomplete === 'one-time-code' || otpHint(hint(el)))) ? 'otp' : null;
+    if (manual === 'login' && (el.autocomplete === 'one-time-code' || otpHint(hint(el)))) return null;
+    if (el.autocomplete === 'one-time-code' || otpHint(hint(el))) return 'otp';
+    if (el.maxLength === 1) {
+      for (let root = el.parentElement, depth = 0; root && depth < 3; root = root.parentElement, depth++) {
+        if (otpHint(`${root.id} ${root.className} ${root.getAttribute('aria-label') || ''}`)) return 'otp';
+      }
     }
-    return { user, pass };
+    if (el.type === 'password' && el.autocomplete !== 'new-password') return 'password';
+    if (!['text', 'email', 'tel'].includes(el.type)) return null;
+    if (manual === 'login' || el.autocomplete === 'username' || /username|j_username|identifier|user.?id|login/i.test(hint(el))) return 'username';
+    const nearby = inputs(scopeFor(el));
+    const password = nearby.find((input) => input.type === 'password' && input.autocomplete !== 'new-password' && !otpHint(hint(input)));
+    if (password) {
+      const eligible = nearby.filter((input) => ['text','email','tel'].includes(input.type) && !excluded(input) && !otpHint(hint(input)));
+      const preferred = eligible.find(namedUsername);
+      const fallback = eligible.filter((input) => Boolean(input.compareDocumentPosition(password) & Node.DOCUMENT_POSITION_FOLLOWING)).at(-1);
+      return (preferred || fallback) === el ? 'username' : null;
+    }
+    if (el.type === 'email' && /login|signin|sign-in|登录/i.test(`${el.form?.action || ''} ${el.form?.id || ''}`)) return 'username';
+    return null;
   }
-
-  function findOtpField() {
-    const explicit = [...document.querySelectorAll(
-      'input[autocomplete="one-time-code"], input[name*="otp" i], input[name*="totp" i], input[id*="otp" i], input[id*="mfa" i]'
-    )].find((el) => usableInput(el) && !el.readOnly);
-    if (explicit) return explicit;
-    const numeric = [...document.querySelectorAll('input[inputmode="numeric"]')]
-      .filter((el) => usableInput(el) && !el.readOnly && ["text", "tel", "number"].includes(el.type));
-    // 不能因前面有任意数字输入框，就忽略后面明确标记的验证码框。
-    return numeric.length === 1 ? numeric[0] : null;
+  function bind(el, manual = '') {
+    const kind = role(el, manual);
+    if (!kind) return null;
+    const old = targets.get(inputIds.get(el));
+    if (old && old.kind === kind && old.url === location.href && old.form === el.form) return old;
+    const target = {id: randomId(), el, kind, manual, form: el.form, url: location.href};
+    targets.set(target.id, target); inputIds.set(el, target.id);
+    while (targets.size > 32) targets.delete(targets.keys().next().value);
+    return target;
   }
-
+  function valid(target) {
+    return target && target.url === location.href && target.el.form === target.form && role(target.el, target.manual) === target.kind;
+  }
+  function loginFields(capture = false, target = null) {
+    const focused = valid(target) && target.kind !== 'otp' ? target.el : null;
+    let candidates = inputs(focused ? scopeFor(focused) : document,capture);
+    const passwords = candidates.filter((input) => input.type === 'password' && !otpHint(hint(input)));
+    const pass = (capture && passwords.find((input) => input.autocomplete === 'new-password')) ||
+      (focused?.type === 'password' ? focused : null) ||
+      passwords.find((input) => input.autocomplete === 'current-password') || passwords.find((input) => input.autocomplete !== 'new-password');
+    if (!focused && pass) candidates = inputs(scopeFor(pass),capture);
+    let user = focused && target.kind === 'username' ? focused : candidates.find((input) =>
+      ['text','email','tel'].includes(input.type) && namedUsername(input) && !excluded(input) && !otpHint(hint(input)));
+    if (!user && pass) user = candidates.filter((input) => ['text', 'email', 'tel'].includes(input.type) && !excluded(input) &&
+      !otpHint(hint(input)) && Boolean(input.compareDocumentPosition(pass) & Node.DOCUMENT_POSITION_FOLLOWING)).at(-1);
+    return {user, pass};
+  }
   function setValue(el, value) {
-    if (!el || el.readOnly || !usableInput(el) || value == null || value === "") return false;
+    if (!usable(el) || typeof value !== 'string' || !value) return false;
     el.focus();
-    // 绕过框架在元素上包装的 setter，让 input 事件能同步到受控表单状态。
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-    setter.call(el, value);
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, value);
+    el.dispatchEvent(new Event('input', {bubbles: true, composed: true}));
+    el.dispatchEvent(new Event('change', {bubbles: true, composed: true}));
     return el.value === value;
   }
+  function fillOtp(code, target) {
+    if (typeof code !== 'string' || !/^\d+$/.test(code)) return false;
+    const el = valid(target) && target.kind === 'otp' ? target.el : inputs(document).find((input) => role(input) === 'otp');
+    if (!el) return false;
+    if (el.maxLength !== 1) return (el.maxLength <= 0 || el.maxLength >= code.length) && setValue(el, code);
+    // 分格验证码只能在同一表单/容器内填满整组，不把完整验证码塞进第一格。
+    for (let root = el.parentElement, depth = 0; root && depth < 4; root = root.parentElement, depth++) {
+      const pieces = inputs(root).filter((input) => input.form === el.form && input.maxLength === 1 &&
+        ['text', 'tel', 'number', 'password'].includes(input.type) && !excluded(input));
+      if (pieces.length === code.length) return pieces.every((input, index) => setValue(input, code[index]));
+      if (pieces.length > code.length || root === el.form) break;
+    }
+    return false;
+  }
 
-  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (msg.type === "capture_login") {
-      if (window !== window.top) return;
-      const {user, pass} = findLoginFields(true);
-      // 仅在用户点击扩展中的读取表单按钮后响应，不监听提交，也不持久化密码。
-      sendResponse({documentId:fillDocumentId,origin:location.origin,username:user?.value ?? "",password:pass?.value ?? ""});
-      return;
+  function closePanel(cancel = true) {
+    generation++; opening = false;
+    clearTimeout(panelTimer); panelTimer = null;
+    const current = token; token = null;
+    panel?.remove(); panel = null;
+    if (cancel && current) void runtimeMessage({type:'inline_cancel', token:current, document_id:documentId}).catch(() => {});
+  }
+  function hideBadge() {
+    if (badge) badge.hidden = true;
+    anchor = null;
+    observer?.disconnect();
+  }
+  function schedulePosition() {
+    if (frame) return;
+    frame = requestAnimationFrame(() => { frame = 0; position(); });
+  }
+  function position() {
+    for (const [id,target] of targets) if (!target.el.isConnected) targets.delete(id);
+    if (lastInput && !lastInput.isConnected) lastInput = null;
+    if (contextInput && !contextInput.isConnected) contextInput = null;
+    if (!anchor) return;
+    if (!valid(anchor) || !host?.isConnected || (panel && !panel.isConnected)) {
+      closePanel(); hideBadge(); return;
     }
-    if (msg.type === "fill_context") {
-      if (window !== window.top) {
-        return;
+    const rect = anchor.el.getBoundingClientRect();
+    const outside = rect.bottom <= 0 || rect.top >= innerHeight || rect.right <= 0 || rect.left >= innerWidth;
+    badge.hidden = hidden || outside;
+    badge.style.left = `${Math.max(4, Math.min(rect.right + 5, innerWidth - 34))}px`;
+    badge.style.top = `${Math.max(4, Math.min(rect.top + (rect.height - 26) / 2, innerHeight - 30))}px`;
+    if (!badge.hidden) {
+      const style = getComputedStyle(badge);
+      inlineFailure = !badge.getClientRects().length || style.visibility === 'hidden' ||
+        style.visibility === 'collapse' || Number(style.opacity) === 0
+        ? '页面样式阻止了填充入口显示，请使用工具栏填充' : '';
+    }
+    if (panel) {
+      const width = Math.max(220, Math.min(360, innerWidth - 16));
+      const height = Math.max(150, Math.min(360, innerHeight - 24));
+      panel.style.width = `${width}px`; panel.style.height = `${height}px`;
+      panel.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - width - 8))}px`;
+      panel.style.top = `${Math.max(8, Math.min(rect.bottom + 6, innerHeight - height - 8))}px`;
+      panel.hidden = outside;
+    }
+  }
+  function ensureHost() {
+    if (host?.isConnected) return;
+    host = document.createElement('div');
+    // Shadow DOM 只隔离内部样式，宿主仍会命中网页的 div / 通配选择器。
+    host.style.setProperty('all','initial','important');
+    host.style.setProperty('display','block','important');
+    host.style.setProperty('visibility','visible','important');
+    host.style.setProperty('opacity','1','important');
+    host.style.setProperty('position','fixed','important');
+    host.style.setProperty('z-index','2147483647','important');
+    host.style.setProperty('inset','0','important');
+    host.style.setProperty('pointer-events','none','important');
+    shadow = host.attachShadow({mode:'closed'});
+    const styles = 'button{position:fixed;width:26px;height:26px;border:1px solid #d8dafa;border-radius:8px;background:#565dd9;color:white;font:600 10px system-ui;box-shadow:0 2px 8px #0002;cursor:pointer;pointer-events:auto}button:focus-visible{outline:2px solid #565dd9;outline-offset:2px}button[hidden],iframe[hidden]{display:none}iframe{position:fixed;border:1px solid #dce0eb;border-radius:12px;background:white;box-shadow:0 8px 32px #0003;pointer-events:auto}';
+    try {
+      const sheet = new CSSStyleSheet(); sheet.replaceSync(styles); shadow.adoptedStyleSheets = [sheet];
+    } catch (_) {
+      // 样式表 API 不可用时仍创建入口，避免显示层异常同时中断整个点击处理。
+      const style = document.createElement('style'); style.textContent = styles; shadow.append(style);
+    }
+    badge = document.createElement('button'); badge.textContent = 'CP'; badge.type = 'button'; badge.hidden = true;
+    badge.setAttribute('aria-label','使用 CredPivot 填充'); badge.title = 'CredPivot：填充账号或验证码';
+    badge.addEventListener('mousedown', (event) => event.preventDefault());
+    badge.addEventListener('click', (event) => {
+      if (!event.isTrusted || !anchor) return;
+      if (panel || opening) closePanel();
+      else void open(anchor);
+    });
+    shadow.append(badge); document.documentElement.append(host);
+    observer ??= new MutationObserver(schedulePosition);
+  }
+  function showBadge(target) {
+    if (hidden || !valid(target)) return;
+    if (anchor?.id !== target.id) closePanel();
+    try {
+      ensureHost(); anchor = target; badge.hidden = false;
+      observer.observe(document.documentElement, {childList:true,subtree:true});
+      position();
+    } catch (_) {
+      inlineFailure = '页面填充入口创建失败，请使用工具栏填充';
+      closePanel(); hideBadge();
+    }
+  }
+  async function open(target, forced = false) {
+    if (!valid(target) || opening || (hidden && !forced)) return {ok:false};
+    closePanel(); opening = true;
+    const current = ++generation;
+    try {
+      ensureHost(); anchor = target;
+      badge.textContent = 'CP'; badge.title = 'CredPivot：正在打开填充面板';
+      const response = await runtimeMessage({type:'inline_open', document_id:documentId, target_id:target.id});
+      if (generation !== current || !valid(target)) {
+        if (response?.token) void runtimeMessage({type:'inline_cancel',token:response.token,document_id:documentId}).catch(() => {});
+        return {ok:false};
       }
-      sendResponse({
-        documentId: fillDocumentId,
-        origin: location.origin,
-        frameId: 0,
-      });
-      return;
+      if (!response?.ok) { badge.title = response?.message || '连接失败，请在插件中检查连接'; return response; }
+      token = response.token;
+      panel = document.createElement('iframe');
+      panel.title = 'CredPivot 填充'; panel.referrerPolicy = 'no-referrer';
+      // 账号候选属于扩展源，网页不能读取面板 DOM；地址中只有短期、绑定文档的操作标识。
+      panel.src = `${chrome.runtime.getURL('inline.html')}#${token}`;
+      shadow.append(panel);
+      observer.observe(document.documentElement,{childList:true,subtree:true});
+      position();
+      panelTimer = setTimeout(() => {
+        if (!token) return;
+        closePanel(); badge.textContent = '!';
+        badge.title = '此网站未能显示页面填充面板，请使用浏览器工具栏中的 CredPivot 插件';
+      },5000);
+      return {ok:true};
+    } catch (_) {
+      inlineFailure = '页面填充面板未能打开，请使用工具栏填充';
+      if (badge) badge.title = inlineFailure;
+      return {ok:false,message:inlineFailure};
     }
-    if (msg.type !== "deliver_secret") return;
-    if (msg.document_id && msg.document_id !== fillDocumentId) {
-      sendResponse({ filled: false, reason: "document_mismatch" });
-      return;
+    finally { if (generation === current) opening = false; }
+  }
+  function context(message) {
+    const target = message.target_id ? targets.get(message.target_id) : bind(lastInput);
+    return {documentId, origin:location.origin, url:location.href, frameId:0, content_version:version,
+      // 仅报告入口状态，不包含输入值、账号信息或网页异常原文。
+      inline_status:{hidden, error:inlineFailure, target_kind:valid(target) ? target.kind : null},
+      targetId:valid(target) ? target.id : null, targetKind:valid(target) ? target.kind : null,
+      targetValid:message.target_id ? Boolean(valid(target)) : true};
+  }
+  function onMessage(msg, _sender, respond) {
+    if (msg.type === 'fill_context') { respond(context(msg)); return; }
+    if (msg.type === 'inline_menu_context') {
+      const target = bind(contextInput, msg.mode);
+      respond({...context({target_id:target?.id}), menuTarget:target?.id || null}); return;
     }
-    if (msg.origin && msg.origin !== location.origin) {
-      sendResponse({ filled: false, reason: "origin_mismatch" });
-      return;
+    if (msg.type === 'inline_show' && msg.document_id === documentId) {
+      const target = targets.get(msg.target_id);
+      if (!valid(target)) { respond({ok:false}); return; }
+      open(target, true).then(respond); return true;
     }
-
-    const mode = msg.mode || "all";
-    const { user, pass } = findLoginFields();
-    let loginFilled = false;
-    let usernameFilled = false;
-    let passwordFilled = false;
-    let otpFilled = false;
-
-    if (mode === "login" || mode === "all") {
-      usernameFilled = Boolean(msg.username && setValue(user, msg.username));
-      passwordFilled = Boolean(msg.password && setValue(pass, msg.password));
-      loginFilled = usernameFilled || passwordFilled;
-      if (mode === "login") {
-        if (!loginFilled) {
-          sendResponse({ filled: false, reason: "no_login_fields" });
-          return;
-        }
-        sendResponse({ filled: true, login_filled: true, username_filled: usernameFilled, password_filled: passwordFilled,
-          partial: Boolean((msg.username && !usernameFilled) || (msg.password && !passwordFilled)) });
-        return;
-      }
+    if (msg.type === 'inline_close' && msg.token === token) {
+      closePanel(false); if (hidden) hideBadge(); respond({ok:true}); return;
     }
-
-    if (mode === "otp" || mode === "all") {
-      if (msg.totp_code) {
-        const otp = findOtpField();
-        if (setValue(otp, msg.totp_code)) otpFilled = true;
-      }
-      if (mode === "otp") {
-        if (!otpFilled) {
-          sendResponse({ filled: false, reason: "no_otp_field" });
-          return;
-        }
-        sendResponse({ filled: true, otp_filled: true });
-        return;
-      }
+    if (msg.type === 'inline_ready' && msg.token === token) {
+      clearTimeout(panelTimer); panelTimer = null; badge.title = 'CredPivot：点击关闭填充面板';
+      respond({ok:true}); return;
     }
-
-    if (mode === "all") {
-      if (!loginFilled && !otpFilled) {
-        sendResponse({ filled: false, reason: "no_input_fields" });
-        return;
-      }
-      sendResponse({ filled: true, login_filled: loginFilled, otp_filled: otpFilled });
+    if (msg.type === 'inline_preference') {
+      hidden = msg.hidden === true;
+      if (hidden) { closePanel(); hideBadge(); }
+      else { const target = bind(lastInput); if (target) showBadge(target); }
+      respond({ok:true}); return;
     }
-  });
+    if (msg.type === 'capture_login') {
+      const {user,pass} = loginFields(true,bind(lastInput));
+      respond({documentId,origin:location.origin,username:user?.value ?? '',password:pass?.value ?? ''}); return;
+    }
+    if (msg.type !== 'deliver_secret') return;
+    if (msg.document_id !== documentId || msg.origin !== location.origin || (msg.url && msg.url !== location.href)) {
+      respond({filled:false,reason:'document_mismatch'}); return;
+    }
+    const target = msg.target_id ? targets.get(msg.target_id) : null;
+    if (msg.target_id && !valid(target)) { respond({filled:false,reason:'target_changed'}); return; }
+    delivering = true;
+    try {
+    if (msg.mode === 'otp') { const ok = fillOtp(msg.totp_code,target); respond({filled:ok,otp_filled:ok,reason:ok ? undefined : 'no_otp_field'}); return; }
+    const {user,pass} = loginFields(false,target);
+    const usernameFilled = Boolean(msg.username && setValue(user,msg.username));
+    const passwordFilled = Boolean(msg.password && setValue(pass,msg.password));
+    const otpFilled = msg.mode === 'all' && Boolean(fillOtp(msg.totp_code,target));
+    respond({filled:usernameFilled || passwordFilled || otpFilled,login_filled:usernameFilled || passwordFilled,
+      username_filled:usernameFilled,password_filled:passwordFilled,otp_filled:otpFilled,
+      partial:Boolean((msg.username && !usernameFilled) || (msg.password && !passwordFilled)),
+      reason:usernameFilled || passwordFilled || otpFilled ? undefined : 'no_login_fields'});
+    } finally { delivering = false; }
+  }
+  chrome.runtime.onMessage.addListener(onMessage);
+  listen(document,'focusin',(event) => {
+    if (delivering || !event.isTrusted || event.composedPath().includes(host)) return;
+    const input = event.composedPath().find((el) => el instanceof HTMLInputElement);
+    const target = bind(input);
+    if (target) { lastInput = input; showBadge(target); }
+    else { closePanel(); hideBadge(); }
+  },true);
+  listen(document,'contextmenu',(event) => {
+    if (event.isTrusted) contextInput = event.composedPath().find((el) => el instanceof HTMLInputElement) || null;
+  },true);
+  listen(document,'pointerdown',(event) => {
+    if (event.isTrusted && panel && !event.composedPath().includes(host)) closePanel();
+    if (!delivering && event.isTrusted && !event.composedPath().includes(host)) {
+      const input = event.composedPath().find((el) => el instanceof HTMLInputElement);
+      const target = bind(input);
+      if (target) { lastInput = input; showBadge(target); }
+    }
+  },true);
+  listen(document,'keydown',(event) => { if (event.isTrusted && event.key === 'Escape') closePanel(); },true);
+  listen(window,'scroll',schedulePosition,true);
+  listen(window,'resize',schedulePosition);
+  listen(window,'pagehide',() => { closePanel(); hideBadge(); targets.clear(); });
+  void runtimeMessage({type:'inline_site_state'}).then((response) => { hidden = response?.hidden === true; if (hidden) { closePanel(); hideBadge(); } }).catch(() => {});
+  // document_idle 时页面可能已 autofocus；只显示入口，不因此读取候选或触发验证。
+  let initial = document.activeElement;
+  while (initial?.shadowRoot?.activeElement) initial = initial.shadowRoot.activeElement;
+  const initialTarget = bind(initial);
+  if (initialTarget) { lastInput = initial; showBadge(initialTarget); }
   globalThis.__credpivotContentReady = true;
+  globalThis.__credpivotContentVersion = version;
+  globalThis.__credpivotContentCleanup = () => {
+    closePanel(); observer?.disconnect(); if (frame) cancelAnimationFrame(frame);
+    for (const remove of listeners) remove();
+    try { chrome.runtime.onMessage.removeListener(onMessage); } catch (_) { /* 扩展更新后旧监听可能已经失效。 */ }
+    host?.remove(); targets.clear();
+  };
 })();

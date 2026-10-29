@@ -66,7 +66,7 @@ export function cancelPasskey(message, sender) {
   if (request?.tabId === sender.tab?.id && request.documentId === sender.documentId) request.cancelled = true;
 }
 
-export async function handlePasskey(message, sender, sendNative) {
+export async function handlePasskey(message, sender, sendNative, gateGeneration = () => 0) {
   if (sender.frameId !== 0 || !sender.documentId || !sender.tab?.id || !/^https:\/\//.test(sender.url || "") ||
       !["create","get"].includes(message.kind) || typeof message.request_id !== "string" ||
       !/^[0-9a-f-]{36}$/.test(message.request_id) || typeof message.document_token !== "string") {
@@ -83,18 +83,42 @@ export async function handlePasskey(message, sender, sendNative) {
   const expires = Date.now() + (Number.isFinite(requested) && requested > 0 ? Math.min(requested,120_000) : 120_000);
   let started = false;
   let sent = false;
+  let waitingForGate = false, gateRequested = false;
+  let expectedGateGeneration;
   try {
     if (!await passkeySiteState(origin) || !supported(message.kind,options,origin)) return {fallback:true};
     // 以 Chrome 提供的发送方 URL/documentId 为准，忽略网页自报的 origin。
     while (Date.now() < expires) {
       await checkDocument(request);
+      if (waitingForGate) {
+        // 取消验证后只读状态并结束；不能再次 begin 重建待验证标记，导致指纹反复弹出。
+        const state = await sendNative({action:"status"});
+        await checkDocument(request);
+        if (expectedGateGeneration !== gateGeneration()) {
+          return {error:{name:"NotAllowedError",message:"已有其他验证请求，请重新发起本次操作"}};
+        }
+        if (!state?.ok) return {error:{name:"NotAllowedError",message:state?.message || "无法读取本机验证状态"}};
+        if (state.payload?.extension_gate_active && state.payload?.unlocked && state.payload?.database_attached) {
+          waitingForGate = false;
+        } else {
+          if (state.payload?.extension_gate_pending !== true) {
+            return {error:{name:"NotAllowedError",message:state.payload?.extension_gate_pending === false
+              ? "验证已取消，请重新发起通行密钥操作" : "请更新 App，或先在插件面板完成验证后重试"}};
+          }
+          await new Promise((resolve) => setTimeout(resolve,500));
+          continue;
+        }
+      }
       sent = true;
       const response = await sendNative(started ? {action:"passkey.poll",passkey_request_id:message.request_id,origin} :
         {action:"passkey.begin",passkey_request_id:message.request_id,origin,kind:message.kind,options});
       await checkDocument(request);
       if (!response?.ok) {
         // 仅首次连接可等待解锁；操作中途失去授权立即失败，不静默重新签名。
-        if (!started && response?.code === "extension_gate_required") {
+        if (!started && !gateRequested && response?.code === "extension_gate_required") {
+          gateRequested = true;
+          waitingForGate = true;
+          expectedGateGeneration = gateGeneration();
           await new Promise((resolve) => setTimeout(resolve,500));
           continue;
         }
@@ -112,6 +136,9 @@ export async function handlePasskey(message, sender, sendNative) {
     return {error:{name:"NotAllowedError",message:"页面已改变、操作已取消或本机连接中断，请重试"}};
   } finally {
     active.delete(message.request_id);
+    if (sent) {
+      try { await sendNative({action:'extension.cancel',gate_request_id:message.request_id}); } catch (_) { /* 不重新发起验证。 */ }
+    }
     // 包括取消早于 begin 响应的情形；不能让后台残留待授权请求。
     if (sent) {
       try { await sendNative({action:"passkey.cancel",passkey_request_id:message.request_id}); } catch (_) { /* Agent 会自动过期。 */ }

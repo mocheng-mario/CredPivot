@@ -24,10 +24,12 @@ Future<void> _showTextRevealDialog(
   BuildContext context, {
   required String title,
   required String body,
+  required int session,
   bool allowCopy = true,
   bool touchIdToCopy = false,
   String touchIdCopyReason = 'credentials.showTextRevealDialog.text',
 }) async {
+  if (!context.mounted) return;
   await showDialog<void>(
     context: context,
     builder: (ctx) => AlertDialog(
@@ -37,10 +39,12 @@ Future<void> _showTextRevealDialog(
         if (allowCopy)
           TextButton(
             onPressed: () async {
-              if (touchIdToCopy) {
-                if (!await requireTouchId(ctx, reason: touchIdCopyReason)) return;
-              }
-              await AgentBridge.copyConcealed(body);
+              try {
+                if (touchIdToCopy) {
+                  if (!await requireTouchId(ctx, reason: touchIdCopyReason)) return;
+                }
+                await AgentBridge.copyConcealed(body, session: session);
+              } catch (error) { vaultMessage(ctx, error); return; }
               if (ctx.mounted) {
                 ScaffoldMessenger.of(ctx).showSnackBar(
                   const SnackBar(content: LText('credentials.showTextRevealDialog.text.item2')),
@@ -367,12 +371,15 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
   }
 
   Future<void> _copyPassword(String id) async {
-    if (!await requireTouchId(context, reason: tr('server.copyPassword.reason'))) return;
-    final detail = await AgentBridge.getCredential(id);
-    await AgentBridge.copyConcealed(detail['password'] as String? ?? '');
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: LText('server.copyPassword.text.item2')));
-    }
+    try {
+      final session = await AgentBridge.clipboardSession();
+      if (!mounted || !await requireTouchId(context, reason: tr('server.copyPassword.reason'))) return;
+      final detail = await AgentBridge.getCredential(id);
+      await AgentBridge.copyConcealed(detail['password'] as String? ?? '', session: session);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: LText('server.copyPassword.text.item2')));
+      }
+    } catch (error) { vaultMessage(context, error); }
   }
 
   @override
@@ -609,11 +616,13 @@ class _TotpPanelState extends State<_TotpPanel> {
   Future<Map<String, dynamic>?> _revealAfterTouchId(String reason) async {
     final id = _selected?['id'] as String?;
     if (id == null) return null;
-    if (!await requireTouchId(context, reason: reason)) return null;
     try {
-      return await AgentBridge.totpReveal(id);
+      final session = await AgentBridge.clipboardSession();
+      if (!mounted || !await requireTouchId(context, reason: reason)) return null;
+      final reveal = await AgentBridge.totpReveal(id);
+      return {...reveal, 'clipboard_session': session};
     } on AgentException catch (e) {
-      setState(() => _status = AgentBridge.friendlyMessage(e));
+      if (mounted) setState(() => _status = AgentBridge.friendlyMessage(e));
       return null;
     }
   }
@@ -652,6 +661,7 @@ class _TotpPanelState extends State<_TotpPanel> {
       context,
       title: 'otpauth URI',
       body: reveal['otpauth_uri'] as String? ?? '',
+      session: reveal['clipboard_session'] as int,
       touchIdToCopy: true,
       touchIdCopyReason: tr('credentials.showOtpauthUri.text.item2'),
     );
@@ -664,6 +674,7 @@ class _TotpPanelState extends State<_TotpPanel> {
       context,
       title: tr('credentials.showSecret.title'),
       body: reveal['secret_base32'] as String? ?? '',
+      session: reveal['clipboard_session'] as int,
       touchIdToCopy: true,
       touchIdCopyReason: tr('credentials.showSecret.text.item2'),
     );
@@ -736,7 +747,13 @@ class _TotpPanelState extends State<_TotpPanel> {
                     IconButton(
                       icon: const Icon(Icons.copy),
                       onPressed: () async {
-                        await AgentBridge.copyConcealed(_liveCode!);
+                        final code = _liveCode;
+                        if (code == null) return;
+                        try {
+                          final session = await AgentBridge.clipboardSession();
+                          if (!mounted) return;
+                          await AgentBridge.copyConcealed(code, session: session);
+                        } catch (error) { vaultMessage(context, error); return; }
                         if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: LText('credentials.build.text.item11')),

@@ -444,6 +444,8 @@ class _VaultHomePageState extends State<VaultHomePage> {
       }
       await _refreshStatus();
       if (!mounted) return;
+      final session = await AgentBridge.clipboardSession();
+      if (!mounted) return;
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -452,7 +454,9 @@ class _VaultHomePageState extends State<VaultHomePage> {
           actions: [
             TextButton(
               onPressed: () async {
-                await AgentBridge.copyConcealed(recovery);
+                try {
+                  await AgentBridge.copyConcealed(recovery, session: session);
+                } catch (error) { vaultMessage(ctx, error); return; }
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: LText('common.copied')));
                 }

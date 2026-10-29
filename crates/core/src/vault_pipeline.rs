@@ -249,20 +249,95 @@ pub fn security_rebuild_in_dir(
         return Err(CoreError::format("old recovery key still valid after rebuild"));
     }
 
-    // 切换前完成所有可能失败的复制；切换后不能因恢复点复制失败而漏交付新恢复密钥。
-    if let Err(e) = preserve_restore_points_from_backup(dir, &staging) {
+    // 本地历史全部保留；复制失败时不能切换或删除原保险库。
+    if let Err(e) = preserve_restore_points_from_backup(dir, &staging)
+        .and_then(|_| preserve_sync_backups(dir, &staging))
+        .and_then(|_| sync_rebuilt_directory(&staging)) {
         cleanup_failed_target(&staging);
         return Err(e);
     }
-    let backup = parent.join(format!(".credpivot-rebuild-backup-{}", Uuid::new_v4()));
-    fs::rename(dir, &backup).map_err(|e| CoreError::io(e.to_string()))?;
-    if fs::rename(&staging, dir).is_err() {
-        let _ = fs::rename(&backup, dir);
+    // 一次系统调用交换目录，崩溃时原路径始终指向完整的新库或旧库，不需要猜测临时目录。
+    if let Err(error) = exchange_vault_directories(dir, &staging) {
         cleanup_failed_target(&staging);
-        return Err(CoreError::format("failed to activate rebuilt vault"));
+        return Err(error);
     }
-    let _ = fs::remove_dir_all(&backup);
+    // 交换后 staging 才是旧库，清理失败不影响已激活的新库和恢复密钥交付。
+    // 先持久化交换结果；父目录同步失败时保留旧库，不能以清理破坏断电后的回退副本。
+    if fs::File::open(parent).and_then(|file| file.sync_all()).is_ok() {
+        let _ = fs::remove_dir_all(&staging);
+    }
     Ok(new_recovery_display)
+}
+
+fn preserve_sync_backups(source: &Path, target: &Path) -> Result<()> {
+    let source = source.join("sync-backups");
+    let metadata = match fs::symlink_metadata(&source) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(CoreError::io(error.to_string())),
+    };
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(CoreError::format("invalid sync backup directory"));
+    }
+    let target = target.join("sync-backups");
+    fs::create_dir(&target).map_err(|error| CoreError::io(error.to_string()))?;
+    for entry in fs::read_dir(&source).map_err(|error| CoreError::io(error.to_string()))? {
+        let entry = entry.map_err(|error| CoreError::io(error.to_string()))?;
+        if !entry.file_type().map_err(|error| CoreError::io(error.to_string()))?.is_file() {
+            return Err(CoreError::format("invalid sync backup entry"));
+        }
+        fs::copy(entry.path(), target.join(entry.file_name()))
+            .map_err(|error| CoreError::io(error.to_string()))?;
+    }
+    Ok(())
+}
+
+fn exchange_vault_directories(active: &Path, staged: &Path) -> Result<()> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        let active = CString::new(active.as_os_str().as_bytes())
+            .map_err(|_| CoreError::format("invalid vault directory"))?;
+        let staged = CString::new(staged.as_os_str().as_bytes())
+            .map_err(|_| CoreError::format("invalid staging directory"))?;
+        #[cfg(target_os = "macos")]
+        let result = {
+            extern "C" { fn renamex_np(from: *const std::ffi::c_char, to: *const std::ffi::c_char, flags: u32) -> i32; }
+            // macOS sys/stdio.h：RENAME_SWAP = 2；目录位于同一父目录/文件系统。
+            unsafe { renamex_np(active.as_ptr(), staged.as_ptr(), 2) }
+        };
+        #[cfg(target_os = "linux")]
+        let result = {
+            extern "C" { fn renameat2(from_fd: i32, from: *const std::ffi::c_char, to_fd: i32, to: *const std::ffi::c_char, flags: u32) -> i32; }
+            // Linux fcntl.h：AT_FDCWD = -100；RENAME_EXCHANGE = 2。
+            unsafe { renameat2(-100, active.as_ptr(), -100, staged.as_ptr(), 2) }
+        };
+        if result != 0 { return Err(CoreError::io(std::io::Error::last_os_error().to_string())); }
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = (active, staged);
+        // 不支持原子交换的系统/文件系统必须拒绝切换，不能退回有空窗的两次 rename。
+        Err(CoreError::format("atomic vault directory exchange is unavailable"))
+    }
+}
+
+/// 交换之前落盘新库及备份目录，不能在原文件删除后才依赖尚未刷盘的复制内容。
+fn sync_rebuilt_directory(directory: &Path) -> Result<()> {
+    for entry in fs::read_dir(directory).map_err(|error| CoreError::io(error.to_string()))? {
+        let entry = entry.map_err(|error| CoreError::io(error.to_string()))?;
+        let kind = entry.file_type().map_err(|error| CoreError::io(error.to_string()))?;
+        if kind.is_dir() {
+            sync_rebuilt_directory(&entry.path())?;
+        } else if kind.is_file() {
+            fs::File::open(entry.path()).and_then(|file| file.sync_all())
+                .map_err(|error| CoreError::io(error.to_string()))?;
+        } else { return Err(CoreError::format("invalid rebuilt vault entry")); }
+    }
+    fs::File::open(directory).and_then(|file| file.sync_all())
+        .map_err(|error| CoreError::io(error.to_string()))
 }
 
 fn preserve_restore_points_from_backup(backup: &Path, active: &Path) -> Result<()> {

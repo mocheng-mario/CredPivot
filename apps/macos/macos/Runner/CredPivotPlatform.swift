@@ -1,6 +1,7 @@
 import Cocoa
 import Vision
 import Darwin
+import notify
 import CryptoKit
 import FlutterMacOS
 import UniformTypeIdentifiers
@@ -1301,6 +1302,7 @@ extension Notification.Name {
 final class CredPivotPlatform: NSObject {
   private let channel: FlutterMethodChannel
   private var sshAuthorizationTimer: Timer?
+  private var pollingAuthorizations = false
   private var showingSshAuthorization = false
   private var showingPasskeyAuthorization = false
   private var shortcutController: CredPivotShortcuts?
@@ -1372,14 +1374,30 @@ final class CredPivotPlatform: NSObject {
     }
     shortcutController?.apply(AppPreferences.settings())
     sshAuthorizationTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-      self?.consumePasskeyAuthorization()
-      self?.consumeSshAuthorization()
+      guard let self = self, !self.pollingAuthorizations, !self.showingSshAuthorization,
+            !self.showingPasskeyAuthorization, !TouchIdGate.isAuthenticating, NSApp.modalWindow == nil else { return }
+      self.pollingAuthorizations = true
+      let epoch = TouchIdGate.authenticationEpoch
+      // Agent 忙碌时只延后本次查询，不能让周期轮询卡住主线程的指纹取消回调。
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let passkeys = LocalVaultUnlock.request(["type": "passkey_requests_pending"])?["requests"] as? [[String: Any]] ?? []
+        var ssh: [[String: Any]] = []
+        if passkeys.isEmpty {
+          ssh = LocalVaultUnlock.request(["type": "ssh_authorizations_pending"])?["requests"] as? [[String: Any]] ?? []
+        }
+        DispatchQueue.main.async { [weak self] in
+          guard let self = self else { return }
+          defer { self.pollingAuthorizations = false }
+          guard epoch == TouchIdGate.authenticationEpoch else { return }
+          self.consumePasskeyAuthorization(requests: passkeys)
+          self.consumeSshAuthorization(requests: ssh)
+        }
+      }
     }
   }
 
-  private func consumeSshAuthorization() {
+  private func consumeSshAuthorization(requests: [[String: Any]]) {
     guard !showingSshAuthorization, !showingPasskeyAuthorization, !TouchIdGate.isAuthenticating, NSApp.modalWindow == nil,
-          let requests = LocalVaultUnlock.request(["type": "ssh_authorizations_pending"])?["requests"] as? [[String: Any]],
           let request = requests.first, let id = request["id"] as? String else { return }
     showingSshAuthorization = true
     NSApp.activate(ignoringOtherApps: true)
@@ -1421,9 +1439,8 @@ final class CredPivotPlatform: NSObject {
     }
   }
 
-  private func consumePasskeyAuthorization() {
+  private func consumePasskeyAuthorization(requests: [[String: Any]]) {
     guard !showingPasskeyAuthorization, !showingSshAuthorization, !TouchIdGate.isAuthenticating, NSApp.modalWindow == nil,
-          let requests = LocalVaultUnlock.request(["type": "passkey_requests_pending"])?["requests"] as? [[String: Any]],
           let request = requests.first, let id = request["id"] as? String else { return }
     showingPasskeyAuthorization = true
     let create = request["create"] as? Bool == true
@@ -1510,8 +1527,11 @@ final class CredPivotPlatform: NSObject {
     case "isMainWindowForeground":
       result(isMainWindowForeground && !TouchIdGate.isAuthenticating && NSApp.modalWindow == nil)
     case "syncHostInfo":
-      let status = LocalVaultUnlock.request(["type": "status"]) ?? [:]
-      result(AppPreferences.syncHostInfo(vaultId: status["vault_id"] as? String ?? ""))
+      DispatchQueue.global(qos: .userInitiated).async {
+        let status = LocalVaultUnlock.request(["type": "status"]) ?? [:]
+        let info = AppPreferences.syncHostInfo(vaultId: status["vault_id"] as? String ?? "")
+        DispatchQueue.main.async { result(info) }
+      }
     case "setSyncHostName":
       guard let value = call.arguments as? String,
             let status = LocalVaultUnlock.request(["type": "status"]),
@@ -1570,24 +1590,32 @@ final class CredPivotPlatform: NSObject {
       if let data = json.data(using: .utf8) {
         requestObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
       }
+      let requestType = requestObject?["type"] as? String ?? ""
+      if ["status", "sync_status", "app_settings_get"].contains(requestType) {
+        let notice = LocalVaultUnlock.setupNotice
+        let backgroundLaunch = AppDelegate.launchedForBrowser
+        DispatchQueue.global(qos: .userInitiated).async {
+          var response = credpivotAgentRequestJsonString(json)
+          if requestType == "status", let responseData = response.data(using: .utf8),
+             var object = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+             var payload = object["payload"] as? [String: Any] {
+            payload["local_unlock_configured"] = LocalVaultUnlock.configured
+            payload["local_unlock_notice"] = notice
+            payload["browser_background_launch"] = backgroundLaunch
+            for (key, value) in AppPreferences.syncHostInfo(vaultId: payload["vault_id"] as? String ?? "") {
+              payload[key] = value
+            }
+            object["payload"] = payload
+            if let data = try? JSONSerialization.data(withJSONObject: object),
+               let updated = String(data: data, encoding: .utf8) { response = updated }
+          }
+          let reply = response
+          DispatchQueue.main.async { result(reply) }
+        }
+        return
+      }
       let previousSettings = requestObject?["type"] as? String == "app_settings_set" ? AppPreferences.settings() : nil
       var response = credpivotAgentRequestJsonString(json)
-      if let requestData = json.data(using: .utf8),
-         let request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any],
-         request["type"] as? String == "status",
-         let responseData = response.data(using: .utf8),
-         var object = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-         var payload = object["payload"] as? [String: Any] {
-        payload["local_unlock_configured"] = LocalVaultUnlock.configured
-        payload["local_unlock_notice"] = LocalVaultUnlock.setupNotice
-        payload["browser_background_launch"] = AppDelegate.launchedForBrowser
-        for (key, value) in AppPreferences.syncHostInfo(vaultId: payload["vault_id"] as? String ?? "") {
-          payload[key] = value
-        }
-        object["payload"] = payload
-        if let data = try? JSONSerialization.data(withJSONObject: object),
-           let updated = String(data: data, encoding: .utf8) { response = updated }
-      }
       if let data = json.data(using: .utf8),
          let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
          response.contains("\"type\":\"ok\"") {
@@ -1774,11 +1802,22 @@ final class CredPivotPlatform: NSObject {
         result(FlutterError(code: "io", message: NativePresentation.tr("native.result.message.item4"), details: nil))
       }
     case "copyConcealed":
-      guard let secret = call.arguments as? String else {
-        result(FlutterError(code: "bad_args", message: "secret required", details: nil))
+      guard let args = call.arguments as? [String: Any],
+            let secret = args["secret"] as? String,
+            let expected = args["vault_lock_generation"] as? NSNumber else {
+        result(FlutterError(code: "bad_args", message: "secret and vault session required", details: nil))
         return
       }
       let seconds = (AppPreferences.settings()["clipboard_clear_seconds"] as? NSNumber)?.doubleValue ?? 5
+      // 在实际写剪贴板的主线程同步校验，不能只依赖 Flutter 已关闭旧弹窗。
+      guard let status = LocalVaultUnlock.request(["type": "status"]),
+            status["unlocked"] as? Bool == true else {
+        result(FlutterError(code: "locked", message: NativePresentation.tr("common.unlockFirst"), details: nil)); return
+      }
+      guard let generation = status["vault_lock_generation"] as? NSNumber,
+            generation.uint64Value == expected.uint64Value else {
+        result(FlutterError(code: "clipboard_session_changed", message: NativePresentation.tr("common.operationFailed"), details: nil)); return
+      }
       ConcealedPasteboard.copyConcealed(secret, clearAfterSeconds: seconds)
       result(nil)
     case "getTerminalPreference":
@@ -1853,8 +1892,12 @@ final class CredPivotPlatform: NSObject {
 enum ExtensionGateCoordinator {
   private static var started = false
   private static var pending = false
-  /// 用户取消指纹/密码后短暂不再自动弹窗（毫秒时间戳）。
-  private static var snoozeUntilMs: TimeInterval = 0
+  private static var handledRequest: String?
+  private static var pendingContents: String?
+  private static var pendingEpoch: UInt64?
+  private static var notificationToken: Int32 = 0
+  private static var activity: NSObjectProtocol?
+  private static var pendingStartedAt: TimeInterval = 0
 
   static func start() {
     guard !started else { return }
@@ -1866,9 +1909,14 @@ enum ExtensionGateCoordinator {
     ) { _ in
       consumePendingIfNeeded()
     }
-    Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+    _ = notify_register_dispatch("com.credpivot.browser-verification", &notificationToken, .main) { _ in
       consumePendingIfNeeded()
     }
+    let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
+      consumePendingIfNeeded()
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    RunLoop.main.add(timer, forMode: .modalPanel)
     consumePendingIfNeeded()
   }
 
@@ -1878,35 +1926,90 @@ enum ExtensionGateCoordinator {
   }
 
   private static func consumePendingIfNeeded() {
-    let nowMs = Date().timeIntervalSince1970 * 1000
-    if nowMs < snoozeUntilMs {
-      return
-    }
-    if !FileManager.default.fileExists(atPath: pendingPath.path) {
-      return
-    }
+    let contents = try? String(contentsOf: pendingPath, encoding: .utf8)
     if pending {
+      // 网页面板撤销了当前请求时，取消对应的系统弹窗；不能误取消其他 App 操作的验证。
+      if contents != pendingContents || (pendingEpoch != nil && !TouchIdGate.isAuthenticating) {
+        let epoch = pendingEpoch
+        let obsoleteRequest = handledRequest
+        CredPivotRustFFI.logBrowserAuth(6, since: pendingStartedAt)
+        finishPending()
+        if epoch == TouchIdGate.authenticationEpoch { TouchIdGate.invalidateInFlightAuthentication() }
+        if let requestId = obsoleteRequest { cancelRequest(requestId) }
+      } else {
+        return
+      }
+    }
+    guard let contents = contents, let data = contents.data(using: .utf8),
+          let request = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          let session = request["session_id"] as? String, UUID(uuidString: session) != nil,
+          let requestId = request["request_id"] as? String, UUID(uuidString: requestId) != nil,
+          requestId != handledRequest else { return }
+    let age = Date().timeIntervalSince1970 * 1000 - ((request["created_ms"] as? NSNumber)?.doubleValue ?? 0)
+    let startedAt = ProcessInfo.processInfo.systemUptime
+    CredPivotRustFFI.logBrowserAuth(1, since: startedAt)
+    // 已有验证/模态窗口时直接结束本次请求，不排队到用户忘记此次点击后再突然弹出。
+    if TouchIdGate.isAuthenticating || NSApp.modalWindow != nil || age < 0 || age > 15_000 {
+      handledRequest = requestId
+      CredPivotRustFFI.logBrowserAuth(7, since: startedAt)
+      cancelRequest(requestId)
       return
     }
-    guard !TouchIdGate.isAuthenticating,
-          let session = try? String(contentsOf: pendingPath, encoding: .utf8),
-          UUID(uuidString: session) != nil else { return }
+    // 即使清理标记失败，同一请求也只提示一次。手动重试会携带新的请求标识，无需冷却等待。
+    handledRequest = requestId
+    pendingContents = contents
     pending = true
-    // LocalAuthentication 自行展示系统弹窗，不激活 App，避免打断 Chrome。
-    TouchIdGate.shared.authenticateForExtensionGate(reason: NativePresentation.tr("browser.authorization.reason")) { ok in
-      pending = false
-      let current = try? String(contentsOf: pendingPath, encoding: .utf8)
-      guard current == session else { return }
-      if ok {
-        _ = LocalVaultUnlock.request(["type": "extension_gate_grant", "session_id": session, "ttl_secs": 0])
-      } else {
-        snoozeUntilMs = Date().timeIntervalSince1970 * 1000 + 30_000
-      }
-      // 取消后不自动重弹；用户重新点扩展连接时再生成请求。
-      if (try? String(contentsOf: pendingPath, encoding: .utf8)) == session {
-        try? FileManager.default.removeItem(at: pendingPath)
+    pendingStartedAt = startedAt
+    activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep,
+                                                     reason: "CredPivot browser verification")
+    // 状态预检可能等待 Agent 锁，不能占用展示弹窗、处理取消回调的主线程。
+    DispatchQueue.global(qos: .userInitiated).async {
+      let status = LocalVaultUnlock.request(["type": "status"])
+      DispatchQueue.main.async {
+        guard pendingContents == contents else { return }
+        CredPivotRustFFI.logBrowserAuth(2, since: startedAt)
+        let currentAge = Date().timeIntervalSince1970 * 1000 - ((request["created_ms"] as? NSNumber)?.doubleValue ?? 0)
+        guard let status = status, !TouchIdGate.isAuthenticating, NSApp.modalWindow == nil,
+              currentAge >= 0, currentAge <= 15_000,
+              (try? String(contentsOf: pendingPath, encoding: .utf8)) == contents else {
+          CredPivotRustFFI.logBrowserAuth(7, since: startedAt)
+          finishPending(); cancelRequest(requestId)
+          return
+        }
+        // LocalAuthentication 自行展示系统弹窗，不激活 App，避免打断 Chrome。
+        TouchIdGate.shared.authenticateForExtensionGate(reason: NativePresentation.tr("browser.authorization.reason"), preparedStatus: status) { ok in
+          // 旧系统弹窗的迟到回调不能清除新请求的在途状态。
+          guard pendingContents == contents else { return }
+          CredPivotRustFFI.logBrowserAuth(ok ? 4 : 5, since: startedAt)
+          finishPending()
+          // 授权提交和清理也不能阻塞下一次手动验证；Agent 会核对独立请求标识。
+          DispatchQueue.global(qos: .userInitiated).async {
+            if ok {
+              let granted = LocalVaultUnlock.request(["type": "extension_gate_grant", "session_id": session,
+                                                      "request_id": requestId, "ttl_secs": 0]) != nil
+              CredPivotRustFFI.logBrowserAuth(granted ? 8 : 9, since: startedAt)
+            }
+            _ = LocalVaultUnlock.request(["type": "extension_gate_cancel", "request_id": requestId])
+          }
+        }
+        CredPivotRustFFI.logBrowserAuth(3, since: startedAt)
+        if pendingContents == contents { pendingEpoch = TouchIdGate.authenticationEpoch }
       }
     }
+  }
+
+  private static func cancelRequest(_ requestId: String) {
+    DispatchQueue.global(qos: .userInitiated).async {
+      _ = LocalVaultUnlock.request(["type": "extension_gate_cancel", "request_id": requestId])
+    }
+  }
+
+  private static func finishPending() {
+    pending = false
+    pendingEpoch = nil
+    pendingContents = nil
+    if let token = activity { ProcessInfo.processInfo.endActivity(token) }
+    activity = nil
   }
 }
 
@@ -2085,9 +2188,9 @@ enum LocalVaultUnlock {
     return true
   }
 
-  static func unlockBiometric(completion: @escaping (Bool) -> Void) {
+  static func unlockBiometric(preparedStatus: [String: Any]? = nil, completion: @escaping (Bool) -> Void) {
     guard !TouchIdGate.isAuthenticating,
-          request(["type": "status"])?["master_password_required"] as? Bool == false,
+          (preparedStatus ?? request(["type": "status"]) ?? [:])["master_password_required"] as? Bool == false,
           let data = read(materialAccount),
           let record = try? JSONSerialization.jsonObject(with: data) as? [String: String],
           let binding = record["binding"],
@@ -2172,18 +2275,18 @@ final class TouchIdGate {
     completion(LocalVaultUnlock.verifyPassword(field.stringValue))
   }
 
-  func authenticateForExtensionGate(reason: String, completion: @escaping (Bool) -> Void) {
-    authenticate(reason: reason, allowReuse: false, completion: completion)
+  func authenticateForExtensionGate(reason: String, preparedStatus: [String: Any]? = nil, completion: @escaping (Bool) -> Void) {
+    authenticate(reason: reason, allowReuse: false, preparedStatus: preparedStatus, completion: completion)
   }
 
   func authenticateSensitiveOperation(reason: String, completion: @escaping (Bool) -> Void) {
     authenticate(reason: reason, allowReuse: true, completion: completion)
   }
 
-  private func authenticate(reason: String, allowReuse: Bool, completion: @escaping (Bool) -> Void) {
+  private func authenticate(reason: String, allowReuse: Bool, preparedStatus: [String: Any]? = nil, completion: @escaping (Bool) -> Void) {
     let localizedReason = NativePresentation.tr(reason)
     guard !TouchIdGate.isAuthenticating else { completion(false); return }
-    let status = LocalVaultUnlock.request(["type": "status"]) ?? [:]
+    let status = preparedStatus ?? LocalVaultUnlock.request(["type": "status"]) ?? [:]
     if allowReuse && status["sensitive_auth_active"] as? Bool == true { completion(true); return }
     if status["master_password_required"] as? Bool != false {
       askMasterPassword(reason: localizedReason, completion: completion)
@@ -2195,7 +2298,7 @@ final class TouchIdGate {
       if !LocalVaultUnlock.configured || !context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
         askMasterPassword(reason: localizedReason, completion: completion)
       } else {
-        LocalVaultUnlock.unlockBiometric(completion: completion)
+        LocalVaultUnlock.unlockBiometric(preparedStatus: status, completion: completion)
       }
       return
     }
@@ -2209,6 +2312,17 @@ final class TouchIdGate {
     let epoch = TouchIdGate.beginAuthentication(context: context)
     context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: localizedReason) { success, error in
       DispatchQueue.main.async {
+        if success && preparedStatus != nil {
+          guard epoch == TouchIdGate.authenticationEpoch else { completion(false); return }
+          DispatchQueue.global(qos: .userInitiated).async {
+            let verified = LocalVaultUnlock.request(["type": "sensitive_auth_grant"])?["verified"] as? Bool == true
+            DispatchQueue.main.async {
+              guard TouchIdGate.endAuthentication(epoch) else { completion(false); return }
+              completion(verified)
+            }
+          }
+          return
+        }
         guard TouchIdGate.endAuthentication(epoch) else { completion(false); return }
         if success {
           completion(LocalVaultUnlock.request(["type": "sensitive_auth_grant"])?["verified"] as? Bool == true)
@@ -2501,6 +2615,8 @@ enum ChromeHostInstaller {
   }
 
   static func applyPreference() -> [String: Any] {
+    // 启动新版 App 时同步固定目录，避免只更新 Native Host、插件文件仍停留在旧版本。
+    _ = extensionDirectoryPath()
     if let id = storedExtensionId() { return install(extensionId: id) }
     do {
       if FileManager.default.fileExists(atPath: manifestURL.path) { try FileManager.default.removeItem(at: manifestURL) }

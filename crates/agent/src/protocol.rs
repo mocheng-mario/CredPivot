@@ -35,10 +35,13 @@ pub enum AgentRequest {
     /// 浏览器会话由扩展的 session storage 持有，不能跨浏览器启动复用。
     BrowserRequest { session_id: String, request: Box<AgentRequest> },
     /// 扩展「连接」：必须由 App 对当前浏览器会话完成指纹/主密码验证。
-    ExtensionConnect,
+    ExtensionConnect { request_id: String },
+    /// 只撤销对应的待验证请求，不撤销已经授予的浏览器授权。
+    ExtensionGateCancel { request_id: String },
     /// App 完成当前会话的身份验证后授予 Chrome 扩展短时访问（秒）。
     ExtensionGateGrant {
         session_id: String,
+        request_id: String,
         #[serde(default = "default_extension_gate_ttl")]
         ttl_secs: u64,
     },
@@ -284,7 +287,8 @@ impl AgentRequest {
             Self::AppSettingsBackup => "app_settings_backup",
             Self::AppSettingsSet { .. } => "app_settings_set",
             Self::BrowserRequest { .. } => "browser_request",
-            Self::ExtensionConnect => "extension_connect",
+            Self::ExtensionConnect { .. } => "extension_connect",
+            Self::ExtensionGateCancel { .. } => "extension_gate_cancel",
             Self::ExtensionGateGrant { .. } => "extension_gate_grant",
             Self::Lock => "lock",
             Self::UnlockPassword { .. } => "unlock_password",
