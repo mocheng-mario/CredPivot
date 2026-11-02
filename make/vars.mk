@@ -15,6 +15,7 @@ APP_VERSION := $(shell awk '/^version: / {print $$2; exit}' $(MACOS_APP_DIR)/pub
 # CFBundleShortVersionString 使用数字版本，Beta 标识保留在下载文件名和 Cargo 版本中。
 MACOS_BUILD_NAME := $(firstword $(subst -, ,$(firstword $(subst +, ,$(APP_VERSION)))))
 MACOS_RUNNER := $(MACOS_APP_DIR)/macos/Runner
+MACOS_INSTALL_DIR ?= /Applications
 CHROME_EXT_DIR := $(ROOT)/apps/chrome-extension
 
 ifeq ($(CARGO_PROFILE),debug)

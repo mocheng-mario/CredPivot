@@ -42,9 +42,15 @@ case "$KIND" in
     ARCH="$(lipo -archs "$SOURCE/Contents/MacOS/credpivot_macos")"
     [[ "$ARCH" == arm64 || "$ARCH" == x86_64 || "$ARCH" == 'x86_64 arm64' || "$ARCH" == 'arm64 x86_64' ]] || exit 1
     ARCH="${ARCH// /-}"
-    ARCHIVE="$ROOT/dist/CredPivot-$VERSION-macos-$ARCH.zip"
-    ditto -c -k --keepParent "$SOURCE" "$TEMP_DIR/archive.zip"
-    mv "$TEMP_DIR/archive.zip" "$ARCHIVE"
+    ARCHIVE="$ROOT/dist/CredPivot-$VERSION-macos-$ARCH.dmg"
+    mkdir "$TEMP_DIR/dmg"
+    # 只重命名包目录，保留签名和包内可执行文件名称。
+    ditto "$SOURCE" "$TEMP_DIR/dmg/CredPivot.app"
+    codesign --verify --deep --strict "$TEMP_DIR/dmg/CredPivot.app"
+    ln -s /Applications "$TEMP_DIR/dmg/Applications"
+    hdiutil create -volname CredPivot -srcfolder "$TEMP_DIR/dmg" -fs HFS+ -format UDZO "$TEMP_DIR/archive.dmg"
+    hdiutil verify "$TEMP_DIR/archive.dmg"
+    mv "$TEMP_DIR/archive.dmg" "$ARCHIVE"
     ;;
   extension)
     [[ -f "$SOURCE/manifest.json" ]] || { echo "扩展清单不存在" >&2; exit 1; }

@@ -1,4 +1,4 @@
-.PHONY: macos-bootstrap macos-pub-get macos-ensure-build-stamp macos-write-build-stamp macos-sync-artifacts macos-build macos-build-debug macos-build-release
+.PHONY: macos-bootstrap macos-pub-get macos-ensure-build-stamp macos-write-build-stamp macos-sync-artifacts macos-build macos-build-debug macos-build-release macos-install
 
 ## 首次：flutter create + Rust 产物 + debug 构建（等同 scripts/bootstrap-macos.sh）
 macos-bootstrap:
@@ -58,5 +58,9 @@ macos-build-release: macos-write-build-stamp
 	cd $(MACOS_APP_DIR) && $(FLUTTER) build macos --release --build-name $(MACOS_BUILD_NAME)
 	@echo "Release: $(MACOS_APP_DIR)/build/macos/Build/Products/Release/credpivot_macos.app"
 	@echo "构建不会退出当前 App；若正在运行 Debug，请先用 Cmd+Q 退出，再打开上述 Release。"
+	@echo "安装到应用程序：make macos-install；生成拖拽安装包：make release-app"
+
+macos-install: macos-build-release
+	bash "$(ROOT)/scripts/install-macos.sh" "$(MACOS_APP_DIR)/build/macos/Build/Products/Release/credpivot_macos.app" "$(MACOS_INSTALL_DIR)"
 
 macos-build: macos-build-debug

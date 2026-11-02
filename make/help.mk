@@ -20,6 +20,7 @@ help:
 	@echo "  make macos-build         debug 构建（默认）"
 	@echo "  make macos-build-debug   同 macos-build"
 	@echo "  make macos-build-release release 构建"
+	@echo "  make macos-install       release 构建并安装到 /Applications/CredPivot.app（需先退出旧 App）"
 	@echo ""
 	@echo "Chrome:"
 	@echo "  make chrome-info         扩展路径与加载说明"
@@ -31,5 +32,7 @@ help:
 	@echo "发布（生成到 dist/，不上传）:"
 	@echo "  make release             App、独立 CLI、Chrome 扩展及各自 SHA-256"
 	@echo "  make release-app / release-cli / release-extension"
+	@echo "  release-app 生成 DMG，打开后将 CredPivot 拖入应用程序"
 	@echo ""
 	@echo "变量: CARGO_PROFILE=debug|release  FLUTTER=...  CARGO=..."
+	@echo '  MACOS_INSTALL_DIR="$$HOME/Applications" 可改为仅当前用户安装'
