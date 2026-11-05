@@ -1445,14 +1445,38 @@ final class CredPivotPlatform: NSObject {
       alert.accessoryView = accessory
     }
     alert.messageText = policy == "unlock" ? NativePresentation.tr("ssh.authorization.unlockTitle") : NativePresentation.tr("ssh.authorization.confirmTitle")
-    let scope = policy == "session" ? NativePresentation.tr("ssh.authorization.sessionScope") : NativePresentation.tr("ssh.authorization.onceScope")
+    var scope = policy == "session" ? NativePresentation.tr("ssh.authorization.sessionScope") : NativePresentation.tr("ssh.authorization.onceScope")
     let caller = request["caller"] as? String ?? NativePresentation.tr("common.unknownProcess")
     alert.informativeText = policy == "unlock"
       ? NativePresentation.tr("ssh.authorization.unlockBody", arguments: ["caller": caller])
       : NativePresentation.tr("ssh.authorization.signBody", arguments: ["label": request["key_label"] as? String ?? NativePresentation.tr("common.unknown"), "fingerprint": request["fingerprint"] as? String ?? "", "caller": caller, "scope": scope])
-    if policy == "git_select" {
-      alert.messageText = NativePresentation.tr("ssh.git.chooseTitle")
-      alert.informativeText = NativePresentation.tr("ssh.git.chooseBody", arguments: ["repository": request["repository"] as? String ?? ""])
+    if let repository = request["repository"] as? String, !repository.isEmpty {
+      let reuseSeconds = (request["reuse_seconds"] as? NSNumber)?.uint64Value ?? 0
+      if policy == "session", reuseSeconds > 0 {
+        scope = NativePresentation.tr("ssh.git.authorization.reuseScope", arguments: ["minutes": String(reuseSeconds / 60)])
+      }
+      // 此信息来自受信任的 Git 适配器；普通 SSH 没有仓库上下文，继续使用原提示。
+      let sources = ["local_memory": "ssh.git.source.localMemory", "remote_memory": "ssh.git.source.remoteMemory",
+        "rule": "ssh.git.source.rule", "manual": "ssh.git.source.manual", "reselect": "ssh.git.source.reselect",
+        "multiple_rules": "ssh.git.source.multipleRules", "no_rule": "ssh.git.source.noRule", "pending": "ssh.git.source.pending"]
+      let source = NativePresentation.tr(sources[request["selection_source"] as? String ?? ""] ?? "ssh.git.source.pending")
+      if policy == "unlock" {
+        alert.informativeText = NativePresentation.tr("ssh.git.authorization.unlockBody", arguments: ["repository": repository, "caller": caller])
+      } else if policy == "git_select" {
+        alert.messageText = NativePresentation.tr("ssh.git.chooseTitle")
+        alert.informativeText = NativePresentation.tr("ssh.git.chooseBody", arguments: ["repository": repository, "source": source])
+        if reuseSeconds > 0 {
+          alert.informativeText += "\n\n" + NativePresentation.tr("ssh.git.authorization.chooseReuse", arguments: ["minutes": String(reuseSeconds / 60)])
+        }
+      } else {
+        alert.messageText = NativePresentation.tr("ssh.git.authorization.signTitle")
+        alert.informativeText = NativePresentation.tr("ssh.git.authorization.signBody", arguments: ["repository": repository,
+          "source": source, "label": request["key_label"] as? String ?? NativePresentation.tr("common.unknown"),
+          "fingerprint": request["fingerprint"] as? String ?? "", "caller": caller, "scope": scope])
+      }
+      if let rule = request["matched_rule"] as? String, !rule.isEmpty {
+        alert.informativeText += "\n" + NativePresentation.tr("ssh.git.authorization.matchedRule", arguments: ["rule": rule])
+      }
     }
     alert.addButton(withTitle: NativePresentation.tr("common.allow"))
     alert.addButton(withTitle: NativePresentation.tr("common.deny"))

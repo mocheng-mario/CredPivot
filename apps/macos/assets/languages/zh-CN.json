@@ -5245,8 +5245,8 @@
       ]
     },
     "settings.build.text.item19": {
-      "source": "同一连接限时复用",
-      "translation": "同一连接限时复用",
+      "source": "限时复用授权",
+      "translation": "限时复用授权",
       "description": "settings: build; text.",
       "placeholders": {},
       "locations": [
@@ -5284,8 +5284,8 @@
       ]
     },
     "settings.build.text.item22": {
-      "source": "每把密钥可在详细资料中覆盖。会话授权使用敏感操作的有效期，锁定或切换密钥立即失效；不据此推断最终目标主机。",
-      "translation": "每把密钥可在详细资料中覆盖。会话授权使用敏感操作的有效期，锁定或切换密钥立即失效；不据此推断最终目标主机。",
+      "source": "每把密钥可在详细资料中覆盖。普通 SSH 仅在同一连接内按敏感操作有效期复用；通过 Git 接入的同一仓库和密钥，可按下方时长跨连接复用。锁库或修改安全配置后失效。",
+      "translation": "每把密钥可在详细资料中覆盖。普通 SSH 仅在同一连接内按敏感操作有效期复用；通过 Git 接入的同一仓库和密钥，可按下方时长跨连接复用。锁库或修改安全配置后失效。",
       "description": "settings: build; text.",
       "placeholders": {},
       "locations": [
@@ -15305,8 +15305,8 @@
       ]
     },
     "ssh.git.settings": {
-      "source": "Git 接入与密钥记忆",
-      "translation": "Git 接入与密钥记忆",
+      "source": "Git 自动选择密钥",
+      "translation": "Git 自动选择密钥",
       "description": "Git SSH integration and repository identity selection.",
       "placeholders": {},
       "locations": [
@@ -15317,8 +15317,8 @@
       ]
     },
     "ssh.git.integrationHelp": {
-      "source": "启用后，系统 Git 的 SSH 连接交给 CredPivot 选择密钥，保留原来的 clone、pull、fetch、push 命令和仓库地址。私钥始终留在保险库中。已有仓库自己的 core.sshCommand 或终端 GIT_SSH_COMMAND 会优先于此设置。",
-      "translation": "启用后，系统 Git 的 SSH 连接交给 CredPivot 选择密钥，保留原来的 clone、pull、fetch、push 命令和仓库地址。私钥始终留在保险库中。已有仓库自己的 core.sshCommand 或终端 GIT_SSH_COMMAND 会优先于此设置。",
+      "source": "启用后，Git 会将 SSH 连接交给 CredPivot，按仓库使用范围或已记住的选择确定密钥。将备份并修改用户级 core.sshCommand；停用时恢复原配置。仓库地址和日常 Git 命令无需修改。仓库自己的 core.sshCommand 或终端 GIT_SSH_COMMAND 会优先于此设置。",
+      "translation": "启用后，Git 会将 SSH 连接交给 CredPivot，按仓库使用范围或已记住的选择确定密钥。将备份并修改用户级 core.sshCommand；停用时恢复原配置。仓库地址和日常 Git 命令无需修改。仓库自己的 core.sshCommand 或终端 GIT_SSH_COMMAND 会优先于此设置。",
       "description": "Git SSH integration and repository identity selection.",
       "placeholders": {},
       "locations": [
@@ -15393,8 +15393,8 @@
       ]
     },
     "ssh.git.disable": {
-      "source": "撤销 Git 接入",
-      "translation": "撤销 Git 接入",
+      "source": "停用并恢复原配置",
+      "translation": "停用并恢复原配置",
       "description": "Git SSH integration and repository identity selection.",
       "placeholders": {},
       "locations": [
@@ -15441,8 +15441,8 @@
       ]
     },
     "ssh.git.bindings": {
-      "source": "已记住的仓库选择",
-      "translation": "已记住的仓库选择",
+      "source": "已记住的仓库",
+      "translation": "已记住的仓库",
       "description": "Git SSH integration and repository identity selection.",
       "placeholders": {},
       "locations": [
@@ -15537,11 +15537,12 @@
       ]
     },
     "ssh.git.chooseBody": {
-      "source": "仓库：{repository}\n请选择本次 Git 操作使用的 SSH 密钥。主机和路径来自本机 Git 调用；选择后将继续当前命令。",
-      "translation": "仓库：{repository}\n请选择本次 Git 操作使用的 SSH 密钥。主机和路径来自本机 Git 调用；选择后将继续当前命令。",
+      "source": "仓库：{repository}\n选择原因：{source}\n\n请选择本次 Git 操作使用的 SSH 密钥。仓库信息来自 CredPivot 的 Git 适配程序；允许后将继续当前命令。",
+      "translation": "仓库：{repository}\n选择原因：{source}\n\n请选择本次 Git 操作使用的 SSH 密钥。仓库信息来自 CredPivot 的 Git 适配程序；允许后将继续当前命令。",
       "description": "Git SSH integration and repository identity selection.",
       "placeholders": {
-        "repository": "Text"
+        "repository": "Text",
+        "source": "Text"
       },
       "locations": [
         "ssh_git_ui.dart",
@@ -15575,6 +15576,355 @@
       "placeholders": {},
       "locations": [
         "ssh_git_ui.dart"
+      ]
+    },
+    "ssh.git.integrationSection": {
+      "source": "Git 接入",
+      "translation": "Git 接入",
+      "description": "Git identity selection settings and authorization context.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.source.localMemory": {
+      "source": "本地仓库副本的已记住选择",
+      "translation": "本地仓库副本的已记住选择",
+      "description": "Git identity selection settings and authorization context.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.source.remoteMemory": {
+      "source": "远端仓库的已记住选择",
+      "translation": "远端仓库的已记住选择",
+      "description": "Git identity selection settings and authorization context.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.source.rule": {
+      "source": "使用范围自动匹配",
+      "translation": "使用范围自动匹配",
+      "description": "Git identity selection settings and authorization context.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.source.manual": {
+      "source": "本次手动选择",
+      "translation": "本次手动选择",
+      "description": "Git identity selection settings and authorization context.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.source.reselect": {
+      "source": "已设置为重新选择密钥",
+      "translation": "已设置为重新选择密钥",
+      "description": "Git identity selection settings and authorization context.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.source.multipleRules": {
+      "source": "多把密钥的使用范围均匹配，需要选择",
+      "translation": "多把密钥的使用范围均匹配，需要选择",
+      "description": "Git identity selection settings and authorization context.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.source.noRule": {
+      "source": "没有匹配的使用范围，需要手动选择",
+      "translation": "没有匹配的使用范围，需要手动选择",
+      "description": "Git identity selection settings and authorization context.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.source.pending": {
+      "source": "解锁后继续选择密钥",
+      "translation": "解锁后继续选择密钥",
+      "description": "Git identity selection settings and authorization context.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.authorization.unlockBody": {
+      "source": "仓库：{repository}\n调用：{caller}\n\n请先解锁保险库，以继续本次 Git 操作。仓库信息来自 CredPivot 的 Git 适配程序。",
+      "translation": "仓库：{repository}\n调用：{caller}\n\n请先解锁保险库，以继续本次 Git 操作。仓库信息来自 CredPivot 的 Git 适配程序。",
+      "description": "Git identity selection settings and authorization context.",
+      "placeholders": {
+        "repository": "Text",
+        "caller": "Text"
+      },
+      "locations": [
+        "ssh_git_ui.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.authorization.signTitle": {
+      "source": "允许 Git 使用此 SSH 密钥？",
+      "translation": "允许 Git 使用此 SSH 密钥？",
+      "description": "Git identity selection settings and authorization context.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.authorization.signBody": {
+      "source": "仓库：{repository}\n密钥：{label}\n{fingerprint}\n选择依据：{source}\n调用：{caller}\n\n仓库信息来自 CredPivot 的 Git 适配程序。\n{scope}",
+      "translation": "仓库：{repository}\n密钥：{label}\n{fingerprint}\n选择依据：{source}\n调用：{caller}\n\n仓库信息来自 CredPivot 的 Git 适配程序。\n{scope}",
+      "description": "Git identity selection settings and authorization context.",
+      "placeholders": {
+        "repository": "Text",
+        "label": "Text",
+        "fingerprint": "Text",
+        "source": "Text",
+        "caller": "Text",
+        "scope": "Text"
+      },
+      "locations": [
+        "ssh_git_ui.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.authorization.matchedRule": {
+      "source": "匹配规则：{rule}",
+      "translation": "匹配规则：{rule}",
+      "description": "Git identity selection settings and authorization context.",
+      "placeholders": {
+        "rule": "Text"
+      },
+      "locations": [
+        "ssh_git_ui.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.authorization.reuseSetting": {
+      "source": "Git 签名授权复用",
+      "translation": "Git 签名授权复用",
+      "description": "Time-limited Git signing authorization reuse.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.authorization.reuseHelp": {
+      "source": "0～30 分钟，默认 5 分钟；0 关闭跨连接复用。仅对已启用 Git 自动选择密钥、且使用“限时复用授权”策略的密钥生效。同一 SSH 用户、主机、端口、仓库及密钥可复用；后续使用不延长时限。锁库、重启、修改安全配置或撤销仓库记忆后失效。",
+      "translation": "0～30 分钟，默认 5 分钟；0 关闭跨连接复用。仅对已启用 Git 自动选择密钥、且使用“限时复用授权”策略的密钥生效。同一 SSH 用户、主机、端口、仓库及密钥可复用；后续使用不延长时限。锁库、重启、修改安全配置或撤销仓库记忆后失效。",
+      "description": "Time-limited Git signing authorization reuse.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.authorization.reuseScope": {
+      "source": "允许后，{minutes} 分钟内同一 SSH 用户、主机、端口、仓库及密钥可跨 Git 连接复用。后续使用不延长时限，锁库后立即失效。",
+      "translation": "允许后，{minutes} 分钟内同一 SSH 用户、主机、端口、仓库及密钥可跨 Git 连接复用。后续使用不延长时限，锁库后立即失效。",
+      "description": "Time-limited Git signing authorization reuse.",
+      "placeholders": {
+        "minutes": "Text"
+      },
+      "locations": [
+        "settings_page.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.authorization.chooseReuse": {
+      "source": "若选择“限时复用授权”策略的密钥，本次成功签名后 {minutes} 分钟内，同一 SSH 用户、主机、端口、仓库及密钥可跨 Git 连接复用。其他签名策略仍保持逐次确认。",
+      "translation": "若选择“限时复用授权”策略的密钥，本次成功签名后 {minutes} 分钟内，同一 SSH 用户、主机、端口、仓库及密钥可跨 Git 连接复用。其他签名策略仍保持逐次确认。",
+      "description": "Time-limited Git signing authorization reuse.",
+      "placeholders": {
+        "minutes": "Text"
+      },
+      "locations": [
+        "settings_page.dart",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "settings.navigation.title": {
+      "source": "设置分区",
+      "translation": "设置分区",
+      "description": "Settings search and section navigation.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart"
+      ]
+    },
+    "settings.navigation.all": {
+      "source": "全部设置",
+      "translation": "全部设置",
+      "description": "Settings search and section navigation.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart"
+      ]
+    },
+    "settings.search.hint": {
+      "source": "搜索配置名称、说明或配置键，例如：锁定、Git、日志",
+      "translation": "搜索配置名称、说明或配置键，例如：锁定、Git、日志",
+      "description": "Settings search and section navigation.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart"
+      ]
+    },
+    "settings.search.clear": {
+      "source": "清除搜索，显示全部设置",
+      "translation": "清除搜索，显示全部设置",
+      "description": "Settings search and section navigation.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart"
+      ]
+    },
+    "settings.search.results": {
+      "source": "找到 {count} 个相关配置分区",
+      "translation": "找到 {count} 个相关配置分区",
+      "description": "Settings search and section navigation.",
+      "placeholders": {
+        "count": "Text"
+      },
+      "locations": [
+        "settings_page.dart"
+      ]
+    },
+    "settings.search.emptyTitle": {
+      "source": "没有找到相关设置",
+      "translation": "没有找到相关设置",
+      "description": "Settings search and section navigation.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart"
+      ]
+    },
+    "settings.search.emptyHelp": {
+      "source": "试试配置名称、说明中的关键词，或直接输入配置键。",
+      "translation": "试试配置名称、说明中的关键词，或直接输入配置键。",
+      "description": "Settings search and section navigation.",
+      "placeholders": {},
+      "locations": [
+        "settings_page.dart"
+      ]
+    },
+    "vault.exportOvb.passwordRequired": {
+      "source": "请输入当前保险库的主密码。",
+      "translation": "请输入当前保险库的主密码。",
+      "description": "OVB export password prompt and result.",
+      "placeholders": {},
+      "locations": [
+        "main.dart"
+      ]
+    },
+    "vault.exportOvb.passwordInvalid": {
+      "source": "主密码验证失败，请确认当前保险库的主密码后重试。",
+      "translation": "主密码验证失败，请确认当前保险库的主密码后重试。",
+      "description": "OVB export password prompt and result.",
+      "placeholders": {},
+      "locations": [
+        "main.dart"
+      ]
+    },
+    "vault.exportOvb.passwordHelp": {
+      "source": "请输入当前保险库的主密码，以验证身份并导出加密备份。备份沿用当前主密码和恢复密钥，不需要设置新的导出密码。",
+      "translation": "请输入当前保险库的主密码，以验证身份并导出加密备份。备份沿用当前主密码和恢复密钥，不需要设置新的导出密码。",
+      "description": "OVB export password prompt and result.",
+      "placeholders": {},
+      "locations": [
+        "main.dart"
+      ]
+    },
+    "vault.exportOvb.chooseAndExport": {
+      "source": "选择保存位置并导出",
+      "translation": "选择保存位置并导出",
+      "description": "OVB export password prompt and result.",
+      "placeholders": {},
+      "locations": [
+        "main.dart"
+      ]
+    },
+    "vault.exportOvb.failed": {
+      "source": "备份导出失败，请检查保存位置是否可写，并重试。若仍失败，请查看诊断日志。",
+      "translation": "备份导出失败，请检查保存位置是否可写，并重试。若仍失败，请查看诊断日志。",
+      "description": "OVB export password prompt and result.",
+      "placeholders": {},
+      "locations": [
+        "main.dart"
+      ]
+    },
+    "vault.exportOvb.success": {
+      "source": "加密备份已导出",
+      "translation": "加密备份已导出",
+      "description": "OVB export password prompt and result.",
+      "placeholders": {},
+      "locations": [
+        "main.dart"
+      ]
+    },
+    "vault.changePassword.currentRequired": {
+      "source": "请先输入当前主密码，再修改主密码。",
+      "translation": "请先输入当前主密码，再修改主密码。",
+      "description": "Required credential validation before password changes and backup recovery.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "credentials_page.dart",
+        "vault_setup.dart"
+      ]
+    },
+    "vault.recoverOvb.passwordRequired": {
+      "source": "请输入备份或恢复点的主密码。",
+      "translation": "请输入备份或恢复点的主密码。",
+      "description": "Required credential validation before password changes and backup recovery.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "credentials_page.dart",
+        "vault_setup.dart"
+      ]
+    },
+    "vault.recoverOvb.recoveryKeyRequired": {
+      "source": "使用恢复密钥恢复时，请先输入备份对应的恢复密钥。",
+      "translation": "使用恢复密钥恢复时，请先输入备份对应的恢复密钥。",
+      "description": "Required credential validation before password changes and backup recovery.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "credentials_page.dart",
+        "vault_setup.dart"
+      ]
+    },
+    "vault.recoverOvb.credentialsRequired": {
+      "source": "请先输入备份的主密码或恢复密钥，再选择要恢复的 OVB 文件。",
+      "translation": "请先输入备份的主密码或恢复密钥，再选择要恢复的 OVB 文件。",
+      "description": "Required credential validation before password changes and backup recovery.",
+      "placeholders": {},
+      "locations": [
+        "main.dart",
+        "credentials_page.dart",
+        "vault_setup.dart"
       ]
     }
   }

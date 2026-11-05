@@ -65,7 +65,8 @@ Future<void> showGitSshSettings(BuildContext context) async {
   await showDialog<void>(context: context, barrierDismissible: false, builder: (ctx) => StatefulBuilder(builder: (ctx, update) => PopScope(
     canPop: !busy, child: AlertDialog(title: const LText('ssh.git.settings'), content: SizedBox(width: appEditDialogWidth(ctx),
       height: MediaQuery.sizeOf(ctx).height * .6, child: ListView(children: [
-        const LText('ssh.git.integrationHelp'), const SizedBox(height: 12),
+        AppPanel(title: 'ssh.git.integrationSection', subtitle: 'ssh.git.integrationHelp', icon: Icons.settings_ethernet,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         LText(status['enabled'] == true ? 'ssh.git.enabled' : 'ssh.git.disabled'),
         if (status['current'] is String && (status['current'] as String).isNotEmpty) SelectableText(tr('ssh.git.current', args: {'command': status['current']})),
         if (status['backup'] is String && (status['backup'] as String).isNotEmpty) SelectableText(tr('ssh.git.backup', args: {'path': status['backup']})),
@@ -79,11 +80,16 @@ Future<void> showGitSshSettings(BuildContext context) async {
           } catch (e) { error = e is PlatformException ? e.message ?? 'ssh.git.configureFailed' : e is AgentException ? e.message : 'ssh.git.configureFailed'; }
           finally { if (ctx.mounted) update(() => busy = false); }
         }, child: LText(status['enabled'] == true ? 'ssh.git.disable' : 'ssh.git.enable')),
-        const SizedBox(height: 20), const LText('ssh.git.bindings'), const LText('ssh.git.bindingsHelp'),
+        ])),
+        const SizedBox(height: 16),
+        AppPanel(title: 'ssh.git.bindings', subtitle: 'ssh.git.bindingsHelp', icon: Icons.key_outlined,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         for (final raw in bindings) Builder(builder: (_) {
           final binding = Map<String, dynamic>.from(raw as Map);
           return ListTile(contentPadding: EdgeInsets.zero, title: Text(binding['remote']?.toString() ?? ''),
-            subtitle: Text([binding['label']?.toString() ?? tr('ssh.git.missingKey'), binding['workspace']?.toString() ?? '',
+            subtitle: Text([binding['label']?.toString() ?? tr('ssh.git.missingKey'),
+              tr(binding['scope']?.toString().startsWith('git-ssh:local:') == true ? 'ssh.git.source.localMemory' : 'ssh.git.source.remoteMemory'),
+              binding['workspace']?.toString() ?? '',
               if (binding['reselect'] == true) tr('ssh.git.rechoosePending')].where((v) => v.isNotEmpty).join('\n')),
             trailing: PopupMenuButton<String>(enabled: !busy, onSelected: (action) async {
               update(() { busy = true; error = ''; });
@@ -99,6 +105,7 @@ Future<void> showGitSshSettings(BuildContext context) async {
               PopupMenuItem(value: 'ssh_git_forget', child: LText('ssh.git.forget'))]));
         }),
         if (bindings.isEmpty) const LText('ssh.git.noBindings'),
+        ])),
         if (error.isNotEmpty) LText(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
         if (busy) const LinearProgressIndicator(),
       ])), actions: [TextButton(onPressed: busy ? null : () => Navigator.pop(ctx), child: const LText('common.close'))],

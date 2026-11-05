@@ -23,6 +23,7 @@ pub struct AppSettings {
     pub password_history_limit: usize,
     pub password_reminder_days: u32,
     pub ssh_sign_policy: String,
+    pub git_ssh_auth_seconds: u64,
     pub shortcut_search: String,
     pub shortcut_lock: String,
     // 只接收旧配置中的此字段；复制已恢复为系统行为，保存时移除。
@@ -61,6 +62,7 @@ impl Default for AppSettings {
             password_history_limit: 20,
             password_reminder_days: 90,
             ssh_sign_policy: "session".into(),
+            git_ssh_auth_seconds: 300,
             shortcut_search: "command+k".into(),
             shortcut_lock: "command+l".into(),
             shortcut_copy: String::new(),
@@ -113,6 +115,8 @@ impl AppSettings {
             && (60..=1800).contains(&self.vault_idle_seconds)
             && self.vault_idle_seconds % 60 == 0
             && self.sensitive_auth_seconds <= 300
+            && self.git_ssh_auth_seconds <= 1800
+            && self.git_ssh_auth_seconds % 60 == 0
             && (60..=1800).contains(&self.browser_idle_seconds)
             && self.browser_idle_seconds % 60 == 0
             && (5..=300).contains(&self.clipboard_clear_seconds)
@@ -145,6 +149,7 @@ impl AppSettings {
 
     pub fn security_differs(&self, other: &Self) -> bool {
         self.ssh_sign_policy != other.ssh_sign_policy
+            || self.git_ssh_auth_seconds != other.git_ssh_auth_seconds
             || self.vault_idle_seconds != other.vault_idle_seconds
             || self.sensitive_auth_seconds != other.sensitive_auth_seconds
             || self.browser_idle_seconds != other.browser_idle_seconds
@@ -214,6 +219,7 @@ pub fn effective_app_settings() -> AppSettings {
         AppSettings {
             vault_idle_seconds: 60,
             sensitive_auth_seconds: 0,
+            git_ssh_auth_seconds: 0,
             ssh_sign_policy: "biometric".into(),
             browser_idle_seconds: 60,
             clipboard_clear_seconds: 5,

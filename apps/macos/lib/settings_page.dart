@@ -36,6 +36,10 @@ class _SettingsPageState extends State<SettingsPage> {
   final _numbers = <String, TextEditingController>{};
   final _terminal = TextEditingController();
   final _extensionId = TextEditingController();
+  final _search = TextEditingController();
+  final _settingsScroll = ScrollController();
+  final _sectionKeys = {for (final id in _sections.keys) id: GlobalKey()};
+  String? _selectedSection;
   Map<String, dynamic> _saved = {};
   Map<String, dynamic> _draft = {};
   Map<String, dynamic> _defaults = {};
@@ -62,6 +66,7 @@ class _SettingsPageState extends State<SettingsPage> {
   static const _numericKeys = [
     'vault_idle_seconds',
     'sensitive_auth_seconds',
+    'git_ssh_auth_seconds',
     'browser_idle_seconds',
     'clipboard_clear_seconds',
     'master_password_days',
@@ -82,6 +87,105 @@ class _SettingsPageState extends State<SettingsPage> {
     '#B45309': 'theme.colors.amber',
     '#BE185D': 'theme.colors.rose',
   };
+
+  // 只索引配置名称、说明和配置键，不把用户填写的值加入搜索。
+  static const _sections = {
+    'security': (title: 'settings.build.title.item2', icon: Icons.lock_outline_rounded, terms: [
+      'settings.build.description', 'settings.security.autoUnlockOnWake', 'settings.security.autoUnlockOnWakeHelp',
+      'settings.build.text.item6', 'settings.build.text.item7', 'settings.build.text.item8', 'settings.build.text.item9',
+      'settings.build.text.item10', 'settings.build.text.item11', 'settings.build.text.item12', 'settings.build.text.item13',
+      'settings.build.text.item14', 'settings.build.text.item15', 'settings.build.text.item16', 'settings.build.text.item17',
+      'auto_unlock_on_wake', 'vault_idle_seconds', 'sensitive_auth_seconds', 'browser_idle_seconds',
+      'clipboard_clear_seconds', 'master_password_days', 'master_password_idle_hours',
+    ]),
+    'ssh': (title: 'settings.build.title.item3', icon: Icons.security_outlined, terms: [
+      'settings.build.text.item18', 'settings.build.text.item19', 'settings.build.text.item20',
+      'settings.build.text.item21', 'settings.build.text.item22', 'ssh.git.authorization.reuseSetting',
+      'ssh.git.authorization.reuseHelp', 'ssh_sign_policy', 'git_ssh_auth_seconds',
+    ]),
+    'general': (title: 'settings.build.title.item4', icon: Icons.tune_rounded, terms: [
+      'settings.build.text.item23', 'settings.build.text.item24', 'settings.build.text.item25', 'settings.build.text.item26',
+      'settings.theme.label', 'settings.theme.system', 'settings.theme.light', 'settings.theme.dark',
+      'settings.language.label', 'settings.language.packActions', 'language.help', 'language.actions.import',
+      'language.actions.exportTemplate', 'language.actions.exportCurrent', 'password_history_limit', 'password_reminder_days', 'theme', 'language',
+    ]),
+    'appearance': (title: 'theme.colors.title', icon: Icons.palette_outlined, terms: [
+      'theme.colors.help', 'theme.colors.recommended', 'theme.colors.custom', 'theme.colors.openPicker', 'theme.colors.preview',
+      'theme.colors.indigo', 'theme.colors.blue', 'theme.colors.teal', 'theme.colors.green', 'theme.colors.amber', 'theme.colors.rose', 'accent_color',
+    ]),
+    'recovery': (title: 'settings.build.title.item5', icon: Icons.history_rounded, terms: [
+      'settings.build.text.item28', 'settings.build.text.item29', 'settings.build.text.item30', 'settings.build.text.item31',
+      'restore_interval_hours', 'restore_keep_count',
+    ]),
+    'logs': (title: 'diagnostics.build.title', icon: Icons.article_outlined, terms: [
+      'settings.build.description.item2', 'settings.build.text.item32', 'settings.build.text.item33',
+      'settings.build.text.item34', 'settings.build.text.item35', 'settings.build.text.item36', 'settings.build.text.item37',
+      'log_level', 'log_max_mb', 'log_backup_count', 'debug', 'info', 'warn', 'error',
+    ]),
+    'vault': (title: 'settings.build.title.item6', icon: Icons.folder_outlined, terms: [
+      'settings.build.text.item38', 'settings.build.text.item39', 'vault_directory',
+    ]),
+    'startup': (title: 'settings.build.title.item7', icon: Icons.desktop_mac_outlined, terms: [
+      'settings.build.text.item40', 'settings.build.text.item41', 'settings.build.text.item42',
+      'settings.build.text.item43', 'settings.build.text.item44', 'launch_at_login',
+    ]),
+    'terminal': (title: 'settings.build.title.item8', icon: Icons.terminal_rounded, terms: [
+      'settings.build.description.item3', 'settings.build.text.item46', 'settings.build.text.item47',
+      'settings.ssh.identityAgent', 'settings.build.text.item49', 'settings.build.text.item50',
+      'ssh.git.settings', 'ssh.git.integrationHelp', 'ssh.git.bindings', 'terminal_app_path', 'IdentityAgent',
+    ]),
+    'browser': (title: 'settings.build.title.item9', icon: Icons.language_rounded, terms: [
+      'settings.build.description.item4', 'browser.build.text.item9', 'settings.build.text.item51', 'chrome_extension_id',
+    ]),
+    'config': (title: 'settings.build.title.item10', icon: Icons.data_object_rounded, terms: [
+      'settings.build.description.item5', 'settings.json',
+    ]),
+  };
+
+  bool _matchesSection(String id) {
+    final query = _search.text.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    final section = _sections[id]!;
+    final text = [id, tr(section.title), for (final term in section.terms) ...[term, tr(term)]].join(' ').toLowerCase();
+    return query.split(RegExp(r'\s+')).every(text.contains);
+  }
+
+  void _selectSection(String? id) {
+    _search.clear();
+    setState(() => _selectedSection = id);
+    if (_settingsScroll.hasClients) _settingsScroll.jumpTo(0);
+  }
+
+  Widget _section(String id, Widget child) => Visibility(
+    key: _sectionKeys[id],
+    visible: (_selectedSection == null || _selectedSection == id) && _matchesSection(id),
+    // 隐藏分区仍保留表单状态，避免切换导航后丢失输入或跳过保存校验。
+    maintainState: true,
+    child: Padding(padding: const EdgeInsets.only(bottom: 16), child: child),
+  );
+
+  Widget _navigation({required bool compact}) {
+    if (compact) {
+      return InputDecorator(decoration: InputDecoration(labelText: tr('settings.navigation.title')),
+        child: DropdownButtonHideUnderline(child: DropdownButton<String>(
+          value: _selectedSection ?? '', isExpanded: true, isDense: true,
+          items: [DropdownMenuItem(value: '', child: LText('settings.navigation.all')),
+            for (final entry in _sections.entries) DropdownMenuItem(value: entry.key, child: LText(entry.value.title))],
+          onChanged: (value) { if (value != null) _selectSection(value.isEmpty ? null : value); },
+        )));
+    }
+    return Card(child: ListView(padding: const EdgeInsets.all(8), children: [
+      Padding(padding: const EdgeInsets.all(12), child: LText('settings.navigation.title', style: Theme.of(context).textTheme.titleSmall)),
+      ListTile(dense: true, selected: _selectedSection == null, leading: const Icon(Icons.grid_view_rounded, size: 20),
+        selectedTileColor: Theme.of(context).colorScheme.primaryContainer,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        title: const LText('settings.navigation.all'), onTap: () => _selectSection(null)),
+      for (final entry in _sections.entries) ListTile(dense: true, selected: _selectedSection == entry.key,
+        selectedTileColor: Theme.of(context).colorScheme.primaryContainer,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        leading: Icon(entry.value.icon, size: 20), title: LText(entry.value.title), onTap: () => _selectSection(entry.key)),
+    ]));
+  }
 
   Future<void> _pickAccentColor() async {
     final picked = await showThemeColorPicker(context,
@@ -172,6 +276,8 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     _terminal.dispose();
     _extensionId.dispose();
+    _search.dispose();
+    _settingsScroll.dispose();
     super.dispose();
   }
 
@@ -180,7 +286,7 @@ class _SettingsPageState extends State<SettingsPage> {
     for (final key in _numericKeys) {
       final value = (settings[key] as num).toInt();
       _numbers[key]!.text =
-          (key == 'vault_idle_seconds' || key == 'browser_idle_seconds'
+          (key == 'vault_idle_seconds' || key == 'browser_idle_seconds' || key == 'git_ssh_auth_seconds'
                   ? value ~/ 60
                   : value)
               .toString();
@@ -336,7 +442,26 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _save() async {
-    if (_busy || !(_form.currentState?.validate() ?? false)) return;
+    if (_busy || _form.currentState == null) return;
+    final invalid = _form.currentState!.validateGranularly();
+    if (invalid.isNotEmpty) {
+      final field = invalid.first;
+      String? section;
+      field.context.visitAncestorElements((element) {
+        for (final entry in _sectionKeys.entries) {
+          if (element.widget.key == entry.value) { section = entry.key; return false; }
+        }
+        return true;
+      });
+      // 保存时也校验被搜索隐藏的配置，并展开错误所在分区，避免无提示地失败。
+      _search.clear();
+      setState(() { _selectedSection = section; _message = ''; });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && field.mounted) Scrollable.ensureVisible(field.context,
+          alignment: .2, duration: const Duration(milliseconds: 200));
+      });
+      return;
+    }
     setState(() {
       _saving = true;
       _message = '';
@@ -375,7 +500,7 @@ class _SettingsPageState extends State<SettingsPage> {
       }
       for (final key in _numericKeys) {
         final value = int.parse(_numbers[key]!.text);
-        next[key] = key == 'vault_idle_seconds' || key == 'browser_idle_seconds'
+        next[key] = key == 'vault_idle_seconds' || key == 'browser_idle_seconds' || key == 'git_ssh_auth_seconds'
             ? value * 60
             : value;
       }
@@ -448,40 +573,18 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ],
     );
-    return AbsorbPointer(
-        absorbing: _busy,
-        child: Form(
-            key: _form,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(24, 6, 24, 24),
-              children: [
-                LayoutBuilder(builder: (context, constraints) {
-                  final status = LText(
-                      _warning.isNotEmpty
-                          ? tr('settings.build.text.item2')
-                          : _dirty
-                              ? tr('settings.build.text.item3')
-                              : tr('settings.build.text.item4'),
-                      style: Theme.of(context).textTheme.bodySmall);
-                  if (constraints.maxWidth < 600) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [status, const SizedBox(height: 12), actions],
-                    );
-                  }
-                  return Row(children: [Expanded(child: status), actions]);
-                }),
-                if (_busy) const LinearProgressIndicator(),
-                if (_warning.isNotEmpty) AppNotice(_warning),
-                if (_message.isNotEmpty)
-                  AppNotice(_message,
-                      onDismiss: () => setState(() => _message = '')),
-                if (_backupPath.isNotEmpty)
-                  AppPanel(
-                    title: tr('settings.build.title'),
-                    child: SelectableText(_backupPath)),
-                const SizedBox(height: 16),
-                AppPanel(
+    final content = Scrollbar(controller: _settingsScroll, thumbVisibility: true,
+      child: SingleChildScrollView(controller: _settingsScroll,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (_warning.isNotEmpty) AppNotice(_warning),
+        if (_message.isNotEmpty)
+          AppNotice(_message,
+              onDismiss: () => setState(() => _message = '')),
+        if (_backupPath.isNotEmpty)
+          AppPanel(
+            title: tr('settings.build.title'),
+            child: SelectableText(_backupPath)),
+                _section('security', AppPanel(
                     title: tr('settings.build.title.item2'),
                     subtitle: tr('settings.build.description'),
                     icon: Icons.lock_outline_rounded,
@@ -511,9 +614,8 @@ class _SettingsPageState extends State<SettingsPage> {
                           tr('settings.build.text.item15'), tr('common.units.days'), 1, 7),
                       _number('master_password_idle_hours', tr('settings.build.text.item16'),
                           tr('settings.build.text.item17'), tr('common.units.hours'), 1, 24),
-                    ])),
-                const SizedBox(height: 16),
-                AppPanel(
+                    ]))),
+                _section('ssh', AppPanel(
                     title: tr('settings.build.title.item3'),
                     icon: Icons.security_outlined,
                     child: appFieldRows([
@@ -533,9 +635,10 @@ class _SettingsPageState extends State<SettingsPage> {
                           }),
                         ),
                       ),
-                    ])),
-                const SizedBox(height: 16),
-                AppPanel(
+                      _number('git_ssh_auth_seconds', tr('ssh.git.authorization.reuseSetting'),
+                          tr('ssh.git.authorization.reuseHelp'), tr('common.units.minutes'), 0, 30),
+                    ]))),
+                _section('general', AppPanel(
                     title: tr('settings.build.title.item4'),
                     icon: Icons.tune_rounded,
                     child: appFieldRows([
@@ -593,11 +696,9 @@ class _SettingsPageState extends State<SettingsPage> {
                         ]),
                       ),
                       for (final warning in AppPresentation.instance.loadWarnings) AppNotice(warning),
-                    ])),
-                const SizedBox(height: 16),
-                _themeColors(),
-                const SizedBox(height: 16),
-                AppPanel(
+                    ]))),
+                _section('appearance', _themeColors()),
+                _section('recovery', AppPanel(
                     title: tr('settings.build.title.item5'),
                     icon: Icons.history_rounded,
                     child: appFieldRows([
@@ -605,9 +706,8 @@ class _SettingsPageState extends State<SettingsPage> {
                           tr('settings.build.text.item29'), tr('common.units.hours'), 1, 24),
                       _number('restore_keep_count', tr('settings.build.text.item30'),
                           tr('settings.build.text.item31'), tr('common.units.copies'), 1, 100),
-                    ])),
-                const SizedBox(height: 16),
-                AppPanel(
+                    ]))),
+                _section('logs', AppPanel(
                     title: tr('diagnostics.build.title'),
                     subtitle: tr('settings.build.description.item2'),
                     icon: Icons.article_outlined,
@@ -636,9 +736,8 @@ class _SettingsPageState extends State<SettingsPage> {
                           tr('settings.build.text.item35'), 'MB', 1, 100),
                       _number('log_backup_count', tr('settings.build.text.item36'),
                           tr('settings.build.text.item37'), tr('common.units.copies'), 1, 10),
-                    ])),
-                const SizedBox(height: 16),
-                AppPanel(
+                    ]))),
+                _section('vault', AppPanel(
                     title: tr('settings.build.title.item6'),
                     icon: Icons.folder_outlined,
                     child: appFieldRows([
@@ -663,9 +762,8 @@ class _SettingsPageState extends State<SettingsPage> {
                           ],
                         ),
                       ),
-                    ])),
-                const SizedBox(height: 16),
-                AppPanel(
+                    ]))),
+                _section('startup', AppPanel(
                     title: tr('settings.build.title.item7'),
                     icon: Icons.desktop_mac_outlined,
                     child: appFieldRows([
@@ -693,9 +791,8 @@ class _SettingsPageState extends State<SettingsPage> {
                           )),
                         ]),
                       ),
-                    ])),
-                const SizedBox(height: 16),
-                AppPanel(
+                    ]))),
+                _section('terminal', AppPanel(
                     title: tr('settings.build.title.item8'),
                     subtitle: tr('settings.build.description.item3'),
                     icon: Icons.terminal_rounded,
@@ -752,9 +849,8 @@ class _SettingsPageState extends State<SettingsPage> {
                           ],
                         ),
                       ),
-                    ])),
-                const SizedBox(height: 16),
-                AppPanel(
+                    ]))),
+                _section('browser', AppPanel(
                     title: tr('settings.build.title.item9'),
                     subtitle: tr('settings.build.description.item4'),
                     icon: Icons.language_rounded,
@@ -772,15 +868,64 @@ class _SettingsPageState extends State<SettingsPage> {
                                   ? null : tr('settings.build.text.item52'),
                         ),
                       ),
-                    ])),
-                const SizedBox(height: 16),
-                AppPanel(
+                    ]))),
+                _section('config', AppPanel(
                     title: tr('settings.build.title.item10'),
                     subtitle: tr('settings.build.description.item5'),
                     icon: Icons.data_object_rounded,
                     child: SelectableText(_path,
-                        style: Theme.of(context).textTheme.bodySmall)),
-              ],
-            )));
+                        style: Theme.of(context).textTheme.bodySmall))),
+        if (_search.text.trim().isNotEmpty && !_sections.keys.any(_matchesSection))
+          AppPanel(title: 'settings.search.emptyTitle', subtitle: 'settings.search.emptyHelp',
+            child: Align(alignment: Alignment.centerLeft, child: TextButton.icon(
+              onPressed: () => _selectSection(null), icon: const Icon(Icons.clear_rounded),
+              label: const LText('settings.search.clear')))),
+      ])));
+    return AbsorbPointer(absorbing: _busy, child: Form(key: _form,
+      child: Padding(padding: const EdgeInsets.fromLTRB(24, 6, 24, 24), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        LayoutBuilder(builder: (context, constraints) {
+          final status = LText(
+              _warning.isNotEmpty
+                  ? tr('settings.build.text.item2')
+                  : _dirty
+                      ? tr('settings.build.text.item3')
+                      : tr('settings.build.text.item4'),
+              style: Theme.of(context).textTheme.bodySmall);
+          if (constraints.maxWidth < 600) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [status, const SizedBox(height: 12), actions],
+            );
+          }
+          return Row(children: [Expanded(child: status), actions]);
+        }),
+        if (_busy) const LinearProgressIndicator(),
+        const SizedBox(height: 12),
+        TextField(controller: _search, decoration: InputDecoration(
+          hintText: tr('settings.search.hint'), prefixIcon: const Icon(Icons.search_rounded),
+          suffixIcon: _search.text.isEmpty ? null : IconButton(
+            tooltip: tr('settings.search.clear'), icon: const Icon(Icons.close_rounded),
+            onPressed: () => _selectSection(null))),
+          onChanged: (_) {
+            setState(() => _selectedSection = null);
+            if (_settingsScroll.hasClients) _settingsScroll.jumpTo(0);
+          }),
+        if (_search.text.trim().isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8),
+          child: LText('settings.search.results', args: {'count': _sections.keys.where(_matchesSection).length},
+            style: Theme.of(context).textTheme.bodySmall)),
+        const SizedBox(height: 12),
+        Expanded(child: LayoutBuilder(builder: (context, constraints) {
+          if (constraints.maxWidth >= 980) {
+            return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              SizedBox(width: 200, child: _navigation(compact: false)),
+              const SizedBox(width: 16), Expanded(child: content),
+            ]);
+          }
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _navigation(compact: true), const SizedBox(height: 12), Expanded(child: content),
+          ]);
+        })),
+      ]))));
   }
 }

@@ -1109,6 +1109,7 @@ async fn handle_request_inner(
         AgentRequest::VaultManage { action } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
+            let revoke_ssh=matches!(&action,credpivot_core::VaultAction::SshGitForget {..} | credpivot_core::VaultAction::SshGitRechoose {..});
             if !action.is_passive() { v.touch_activity(); }
             // 导入和永久删除前保留可恢复快照，且失败时不执行危险操作。
             if matches!(&action, credpivot_core::VaultAction::BitwardenImport { .. } | credpivot_core::VaultAction::GoogleImport { .. } | credpivot_core::VaultAction::TrashPurge { .. } | credpivot_core::VaultAction::PartitionMoveApply {..}) {
@@ -1126,7 +1127,10 @@ async fn handle_request_inner(
                 None => return AgentResponse::err("locked", "database not attached"),
             };
             match result {
-                Ok(payload) => AgentResponse::ok(payload),
+                Ok(payload) => {
+                    if revoke_ssh { v.ssh_authorization.clear(); }
+                    AgentResponse::ok(payload)
+                }
                 Err(credpivot_core::CoreError::Conflict) => AgentResponse::err("conflict", "记录已改变，请刷新重试"),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }

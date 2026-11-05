@@ -1139,6 +1139,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
   List<Map<String, dynamic>> _restorePoints = [];
   List<Map<String, dynamic>> _recoveryCodes = [];
   String _log = '';
+  String _restoreError = '';
   final _serviceName = TextEditingController();
   final _codesText = TextEditingController();
   final _recoveryKey = TextEditingController();
@@ -1221,52 +1222,65 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
     String? password;
     if (point['requires_password'] == true) {
       final controller = TextEditingController();
-      password = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const LText('credentials.recoverPoint.text'),
-          content: SizedBox(width: appEditDialogWidth(ctx), child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: appFormFields([
-              const LText('credentials.recoverPoint.text.item2'),
-              AppFieldRow(label: tr('credentials.recoverPoint.text.item3'), child: TextField(controller: controller, obscureText: true, autofocus: true,
-                decoration: InputDecoration())),
-            ]),
-          )),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const LText('common.continue')),
-          ],
-        ),
-      );
-      controller.dispose();
+      final form = GlobalKey<FormState>();
+      ModalRoute<String>? route;
+      try {
+        password = await showDialog<String>(
+          context: context,
+          builder: (ctx) {
+            route = ModalRoute.of<String>(ctx);
+            return AlertDialog(
+              title: const LText('credentials.recoverPoint.text'),
+              content: Form(key: form, child: SizedBox(width: appEditDialogWidth(ctx), child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: appFormFields([
+                  const LText('credentials.recoverPoint.text.item2'),
+                  AppFieldRow(label: tr('credentials.recoverPoint.text.item3'), child: TextFormField(controller: controller, obscureText: true, autofocus: true,
+                    autocorrect: false, enableSuggestions: false, enableIMEPersonalizedLearning: false,
+                    validator: (value) => (value ?? '').isEmpty ? tr('vault.recoverOvb.passwordRequired') : null,
+                    decoration: InputDecoration())),
+                ]),
+              ))),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.cancel')),
+                FilledButton(onPressed: () {
+                  if (form.currentState?.validate() == true) Navigator.pop(ctx, controller.text);
+                }, child: const LText('common.continue')),
+              ],
+            );
+          },
+        );
+      } finally { await route?.completed; controller.dispose(); }
       if (password == null || !mounted) return;
     }
     final target = await AgentBridge.pickDirectory();
     if (target == null || !mounted) return;
-    if (!await requireTouchId(context, reason: tr('credentials.recoverPoint.reason'))) return;
+    if (!await requireTouchId(context, reason: tr('credentials.recoverPoint.reason')) || !mounted) return;
     final ts = point['created_at_ms'] as int? ?? 0;
     try {
       await AgentBridge.recoverRestorePoint(ts, target, password: password);
       await AgentBridge.lockVault();
       await AgentBridge.vaultOpenDir(target);
       widget.onVaultSwitched?.call();
-      setState(() => _log = tr('credentials.recoverPoint.text.item4', args: {'target': target}));
+      if (mounted) setState(() => _log = tr('credentials.recoverPoint.text.item4', args: {'target': target}));
     } on AgentException catch (e) {
-      setState(() => _log = AgentBridge.diagnosticMessage(e));
+      if (mounted) setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
   }
 
   Future<void> _migrateVault() async {
-    if (!await requireTouchId(context, reason: tr('credentials.migrateVault.reason'))) return;
+    if (!mounted || !widget.unlocked) return;
     final target = await AgentBridge.pickDirectory();
-    if (target == null) return;
+    if (target == null || !mounted || !widget.unlocked) return;
+    // 系统目录选择可能耗时很久，应在选定目标后才取得短期敏感授权。
+    if (!await requireTouchId(context, reason: tr('credentials.migrateVault.reason')) || !mounted) return;
     try {
       await AgentBridge.migrateVault(target);
+      if (!mounted) return;
       setState(() => _log = tr('credentials.migrateVault.text', args: {'target': target}));
       await _loadAll();
     } on AgentException catch (e) {
-      setState(() => _log = AgentBridge.diagnosticMessage(e));
+      if (mounted) setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
   }
 
@@ -1276,23 +1290,31 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
   }
 
   Future<void> _recoverOvbToEmptyDir() async {
+    if (!mounted || !widget.unlocked) return;
+    final password = _rebuildPassword.text;
+    final recoveryKey = _recoveryKey.text.trim();
+    if (password.isEmpty && recoveryKey.isEmpty) {
+      setState(() => _restoreError = tr('vault.recoverOvb.credentialsRequired'));
+      return;
+    }
+    setState(() => _restoreError = '');
     final ovb = await AgentBridge.pickOpenFile();
-    if (ovb == null) return;
+    if (ovb == null || !mounted || !widget.unlocked) return;
     final target = await AgentBridge.pickDirectory();
-    if (target == null) return;
+    if (target == null || !mounted || !widget.unlocked) return;
     try {
       await AgentBridge.vaultRecoverOvb(
         ovbPath: ovb,
         targetDir: target,
-        password: _rebuildPassword.text.isNotEmpty ? _rebuildPassword.text : null,
-        recoveryKey: _recoveryKey.text.trim().isNotEmpty ? _recoveryKey.text.trim() : null,
+        password: password.isNotEmpty ? password : null,
+        recoveryKey: recoveryKey.isNotEmpty ? recoveryKey : null,
       );
       await AgentBridge.lockVault();
       await AgentBridge.vaultOpenDir(target);
       widget.onVaultSwitched?.call();
-      setState(() => _log = tr('credentials.recoverOvbToEmptyDir.text', args: {'target': target}));
+      if (mounted) setState(() => _log = tr('credentials.recoverOvbToEmptyDir.text', args: {'target': target}));
     } on AgentException catch (e) {
-      setState(() => _log = AgentBridge.diagnosticMessage(e));
+      if (mounted) setState(() => _log = AgentBridge.diagnosticMessage(e));
     }
   }
 
@@ -1307,6 +1329,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       _log = '';
       _recoveryKey.clear();
       _rebuildPassword.clear();
+      _restoreError = '';
       _serviceName.clear();
       _codesText.clear();
     } else if (widget.unlocked && !oldWidget.unlocked) {
@@ -1437,6 +1460,7 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
           childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
           children: [
             AppNotice(tr('credentials.build.text.item49')),
+            if (_restoreError.isNotEmpty) AppNotice(_restoreError),
             AppFieldRow(label: tr('vault.vaultOverview.text.item26'), child: TextField(
                 controller: _rebuildPassword,
                 obscureText: true,

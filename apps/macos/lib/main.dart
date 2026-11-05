@@ -568,13 +568,20 @@ class _VaultHomePageState extends State<VaultHomePage> {
   }
 
   Future<void> _changePassword() async {
-    if (_newPassword.text.length < 8) {
+    if (_busy || !_unlocked || !mounted) return;
+    final currentPassword = _password.text;
+    final newPassword = _newPassword.text;
+    if (currentPassword.isEmpty) {
+      _appendLog(tr('vault.changePassword.currentRequired'));
+      return;
+    }
+    if (newPassword.length < 8) {
       _appendLog(tr('vault.changePassword.text'));
       return;
     }
-    if (!await requireTouchId(context, reason: tr('vault.changePassword.reason'))) return;
+    if (!await requireTouchId(context, reason: tr('vault.changePassword.reason')) || !mounted) return;
     await _run(tr('vault.changePassword.text.item2'), () async {
-      await AgentBridge.vaultChangePassword(_password.text, _newPassword.text);
+      await AgentBridge.vaultChangePassword(currentPassword, newPassword);
       _password.clear();
       _newPassword.clear();
       await _refreshStatus();
@@ -583,24 +590,97 @@ class _VaultHomePageState extends State<VaultHomePage> {
   }
 
   Future<void> _exportOvb() async {
-    if (!await requireTouchId(context, reason: tr('vault.exportOvb.reason'))) return;
-    final path = await AgentBridge.pickSaveFile();
-    if (path == null) return;
+    if (_busy || !_unlocked || !mounted) return;
     await _run(tr('vault.exportOvb.text'), () async {
-      await AgentBridge.vaultExportOvb(path, _password.text);
-      _password.clear();
-      await _refreshStatus();
-      _appendLog(tr('vault.exportOvb.text.item2', args: {'path': path}));
+      final password = TextEditingController();
+      ModalRoute<String>? route;
+      var exporting = false, closing = false;
+      var error = '';
+      try {
+        final output = await showDialog<String>(context: context, barrierDismissible: false, builder: (ctx) {
+          route = ModalRoute.of<String>(ctx);
+          return StatefulBuilder(builder: (ctx, update) {
+            Future<void> save() async {
+              if (exporting || closing) return;
+              final secret = password.text;
+              if (secret.isEmpty) { update(() => error = tr('vault.exportOvb.passwordRequired')); return; }
+              update(() { exporting = true; error = ''; });
+              try {
+                final path = await AgentBridge.pickSaveFile();
+                if (path == null || !ctx.mounted || closing) return;
+                // 首页密码框会在解锁后清空，不能作为导出凭据；主密码验证同时完成敏感授权。
+                // 选定路径后再验证，避免用户停留在保存面板期间授权过期。
+                await AgentBridge.request({'type': 'verify_master_password', 'password': secret});
+                if (!ctx.mounted || closing) return;
+                await AgentBridge.vaultExportOvb(path, secret);
+                if (ctx.mounted) {
+                  closing = true;
+                  password.clear();
+                  Navigator.pop(ctx, path);
+                }
+              } on AgentException catch (problem) {
+                if (ctx.mounted && !closing) update(() => error = problem.code == 'bad_unlock'
+                    ? tr('vault.exportOvb.passwordInvalid') : AgentBridge.friendlyMessage(problem));
+              } catch (_) {
+                if (ctx.mounted && !closing) update(() => error = tr('vault.exportOvb.failed'));
+              } finally {
+                if (ctx.mounted && !closing) update(() => exporting = false);
+              }
+            }
+            return PopScope(canPop: !exporting, child: AlertDialog(
+              title: const LText('vault.exportOvb.reason'),
+              content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(child: Column(
+                mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                const LText('vault.exportOvb.passwordHelp'),
+                const SizedBox(height: 16),
+                AppFieldRow(label: tr('vault.vaultOverview.text.item19'), child: TextField(
+                  controller: password, enabled: !exporting, obscureText: true, autofocus: true,
+                  autocorrect: false, enableSuggestions: false, enableIMEPersonalizedLearning: false,
+                  decoration: const InputDecoration(), onSubmitted: (_) => save())),
+                if (error.isNotEmpty) SelectableText(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+                if (exporting) const LinearProgressIndicator(),
+              ]))),
+              actions: [
+                TextButton(onPressed: exporting ? null : () { closing = true; Navigator.pop(ctx); }, child: const LText('common.cancel')),
+                FilledButton(onPressed: exporting ? null : save, child: LText(exporting ? 'common.saving' : 'vault.exportOvb.chooseAndExport')),
+              ],
+            ));
+          });
+        });
+        // 等弹窗卸载再释放控制器或显示结果，避免退出动画期间访问已销毁的输入框。
+        await route?.completed;
+        if (output == null || !mounted) return;
+        _appendLog(tr('vault.exportOvb.text.item2', args: {'path': output}));
+        await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+          title: const LText('vault.exportOvb.success'), content: SelectableText(output),
+          actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.close'))],
+        ));
+        if (mounted) await _refreshStatus();
+      } finally {
+        await route?.completed;
+        password.dispose();
+      }
     });
   }
 
   Future<void> _recoverOvb({required bool useRecovery}) async {
+    if (_busy || !mounted) return;
     final initial = !_vaultExists;
+    // 在打开系统面板前记录输入，避免后续锁定清空控件后将空口令提交给恢复操作。
+    var password = _recoveryPassword.text;
+    final recoveryKey = _recoveryKey.text.trim();
+    if (useRecovery && recoveryKey.isEmpty) {
+      _appendLog(tr('vault.recoverOvb.recoveryKeyRequired'));
+      return;
+    }
+    if (!initial && !useRecovery && password.isEmpty) {
+      _appendLog(tr('vault.recoverOvb.passwordRequired'));
+      return;
+    }
     final ovb = await AgentBridge.pickOpenFile();
-    if (ovb == null) return;
+    if (ovb == null || !mounted) return;
     final target = await AgentBridge.pickDirectory();
     if (target == null || !mounted) return;
-    var password = _recoveryPassword.text;
     if (initial && !useRecovery && password.isEmpty) {
       final supplied = await askInitialBackupPassword(context);
       if (supplied == null || !mounted) return;
@@ -611,7 +691,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
         ovbPath: ovb,
         targetDir: target,
         password: useRecovery ? null : password,
-        recoveryKey: useRecovery ? _recoveryKey.text.trim() : null,
+        recoveryKey: useRecovery ? recoveryKey : null,
       );
       await AgentBridge.lockVault();
       await AgentBridge.vaultOpenDir(target);

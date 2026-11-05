@@ -1,4 +1,4 @@
-use crate::{error::{AgentError,Result}, ssh_agent::{self,PendingAuthorization}, vault_session::VaultSession};
+use crate::{error::{AgentError,Result}, ssh_agent::{self,GitContext,PendingAuthorization}, vault_session::VaultSession};
 use credpivot_core::ssh_git::GitTarget;
 use base64::Engine;
 use serde_json::{json,Value};
@@ -18,10 +18,11 @@ fn scopes(target: &GitTarget) -> Result<(String,String)> {
 }
 fn hex_digest(data: &[u8]) -> String { Sha256::digest(data).iter().map(|b|format!("{b:02x}")).collect() }
 
-async fn choose(stream: &mut UnixStream, vault: &Arc<Mutex<VaultSession>>, target: &GitTarget) -> Result<(String,Option<String>,bool)> {
+async fn choose(stream: &mut UnixStream, vault: &Arc<Mutex<VaultSession>>, target: &GitTarget) -> Result<(String,Option<String>,bool,GitContext)> {
     let remote=target.normalized().map_err(|_|failure())?;
+    let authorization_scope=target.identity().map_err(|_|failure())?;
     let (local_scope,remote_scope)=scopes(target)?;
-    let (id,receiver,candidates)={
+    let (id,receiver,candidates,generation)={
         let mut v=vault.lock().await;
         if !v.unlocked { return Err(AgentError::Locked); }
         let db=v.db.as_ref().ok_or(AgentError::Locked)?;
@@ -39,7 +40,10 @@ async fn choose(stream: &mut UnixStream, vault: &Arc<Mutex<VaultSession>>, targe
                         let value=json!({"key_id":key.id,"remote":target.identity().map_err(|_|failure())?,"workspace":target.workspace}).to_string();
                         db.conn().execute("INSERT OR REPLACE INTO sync_state(key,value) VALUES (?1,?2)",[local_scope.as_str(),value.as_str()]).map_err(|_|failure())?;
                     }
-                    return Ok((key.id.clone(),None,false));
+                    return Ok((key.id.clone(),None,false,GitContext {
+                        repository:remote,authorization_scope,authorization_generation:v.ssh_authorization.generation,
+                        selection_source:if scope==&local_scope {"local_memory"} else {"remote_memory"},matched_rule:None,
+                    }));
                 }
             }
         }
@@ -47,22 +51,31 @@ async fn choose(stream: &mut UnixStream, vault: &Arc<Mutex<VaultSession>>, targe
         for key in &keys {
             let data=credpivot_core::manage_credentials(db.conn(),credpivot_core::VaultAction::ItemDetails {item_id:key.item_id.clone()}).map_err(|_|failure())?;
             let rules=data["details"]["ssh_git_rules"].as_array().cloned().unwrap_or_default();
-            let score=rules.iter().filter_map(Value::as_str).map(|r|credpivot_core::ssh_git::match_score(r,&remote)).max().unwrap_or(0);
+            let matched_rule=rules.iter().filter_map(Value::as_str).map(|r|(r,credpivot_core::ssh_git::match_score(r,&remote)))
+                .filter(|(_,score)|*score>0).max_by_key(|(_,score)|*score);
+            let score=matched_rule.map_or(0,|(_,score)|score);
             best=best.max(score);
             let policy=data["details"]["ssh_sign_policy"].as_str().filter(|s|!s.is_empty()).map(str::to_owned)
                 .unwrap_or_else(||credpivot_core::effective_app_settings().ssh_sign_policy);
             let partition:String=db.conn().query_row("SELECT p.name FROM partitions p JOIN items i ON i.partition_id=p.id WHERE i.id=?1",[&key.item_id],|r|r.get(0)).map_err(|_|failure())?;
-            candidates.push(json!({"id":key.id,"label":key.label,"fingerprint":fingerprint(&key.public_openssh)?,"partition":partition,"policy":policy,"score":score}));
+            candidates.push(json!({"id":key.id,"label":key.label,"fingerprint":fingerprint(&key.public_openssh)?,"partition":partition,"policy":policy,"score":score,"rule":matched_rule.map(|(rule,_)|rule)}));
         }
         if best>0 && !reselect { candidates.retain(|c|c["score"].as_u64()==Some(best as u64)); }
-        if best>0 && !reselect && candidates.len()==1 { return Ok((candidates[0]["id"].as_str().ok_or_else(failure)?.into(),None,false)); }
+        if best>0 && !reselect && candidates.len()==1 { return Ok((candidates[0]["id"].as_str().ok_or_else(failure)?.into(),None,false,GitContext {
+            repository:remote,authorization_scope,authorization_generation:v.ssh_authorization.generation,
+            selection_source:"rule",matched_rule:candidates[0]["rule"].as_str().map(str::to_owned),
+        })); }
         if candidates.is_empty() || candidates.len()>500 || v.ssh_authorization.pending.len()>=8 { return Err(failure()); }
+        let generation=v.ssh_authorization.generation;
         let (reply,receiver)=oneshot::channel(); let id=uuid::Uuid::new_v4().to_string();
         v.ssh_authorization.pending.insert(id.clone(),PendingAuthorization {
             id:id.clone(),key_label:String::new(),fingerprint:String::new(),caller:"Git SSH".into(),policy:"git_select".into(),
-            repository:Some(remote),candidates:candidates.clone(),created:Instant::now(),reply,
+            git:Some(GitContext {repository:remote.clone(),authorization_scope:authorization_scope.clone(),authorization_generation:generation,
+                selection_source:if reselect {"reselect"} else if best>0 {"multiple_rules"} else {"no_rule"},matched_rule:None}),
+            candidates:candidates.clone(),created:Instant::now(),reply,
+            reuse_seconds:Some(credpivot_core::effective_app_settings().git_ssh_auth_seconds),
         });
-        (id,receiver,candidates)
+        (id,receiver,candidates,generation)
     };
     let mut disconnected=[0];
     let decision=tokio::select! {
@@ -70,6 +83,7 @@ async fn choose(stream: &mut UnixStream, vault: &Arc<Mutex<VaultSession>>, targe
         _=stream.read(&mut disconnected)=>None,
     };
     let mut v=vault.lock().await; v.ssh_authorization.pending.remove(&id);
+    if v.ssh_authorization.generation!=generation { return Err(failure()); }
     let selected=decision.filter(|d|d.approved).ok_or_else(failure)?;
     let candidate=candidates.iter().find(|c|c["id"].as_str()==Some(selected.key_id.as_str())).ok_or_else(failure)?;
     if !v.unlocked { return Err(AgentError::Locked); }
@@ -77,15 +91,21 @@ async fn choose(stream: &mut UnixStream, vault: &Arc<Mutex<VaultSession>>, targe
     let key=db.list_ssh().map_err(|_|failure())?.into_iter().find(|k|k.id==selected.key_id).ok_or_else(failure)?;
     if candidate["fingerprint"].as_str()!=Some(fingerprint(&key.public_openssh)?.as_str()) { return Err(failure()); }
     v.touch_activity();
-    Ok((key.id,Some(candidate["policy"].as_str().ok_or_else(failure)?.into()),selected.remember))
+    Ok((key.id,Some(candidate["policy"].as_str().ok_or_else(failure)?.into()),selected.remember,GitContext {
+        repository:remote,authorization_scope,authorization_generation:generation,selection_source:"manual",matched_rule:candidate["rule"].as_str().map(str::to_owned),
+    }))
 }
 
 pub(crate) async fn serve_selection(stream: &mut UnixStream, vault: Arc<Mutex<VaultSession>>, pid: Option<u32>, body: &[u8]) -> Result<()> {
     crate::peer_auth::authorize_git_ssh_peer(pid.ok_or_else(failure)?)?;
     if body.len()>16384 { return Err(failure()); }
     let target:GitTarget=serde_json::from_slice(body).map_err(|_|failure())?; target.normalized().map_err(|_|failure())?;
-    if !vault.lock().await.unlocked { let _=ssh_agent::authorized_identities(stream,&vault,"CredPivot Git SSH",None).await?; }
-    let (key_id,confirmed_policy,remember)=choose(stream,&vault,&target).await?;
+    if !vault.lock().await.unlocked {
+        let git=GitContext {repository:target.normalized().map_err(|_|failure())?,authorization_scope:target.identity().map_err(|_|failure())?,
+            authorization_generation:0,selection_source:"pending",matched_rule:None};
+        let _=ssh_agent::authorized_identities(stream,&vault,"CredPivot Git SSH",None,Some(&git)).await?;
+    }
+    let (key_id,confirmed_policy,remember,git)=choose(stream,&vault,&target).await?;
     let directory=crate::paths::runtime_dir().join("git-sockets"); std::fs::create_dir_all(&directory)?;
     #[cfg(unix)] { use std::os::unix::fs::PermissionsExt; std::fs::set_permissions(&directory,std::fs::Permissions::from_mode(0o700))?; }
     let nonce=uuid::Uuid::new_v4().simple().to_string();
@@ -96,6 +116,8 @@ pub(crate) async fn serve_selection(stream: &mut UnixStream, vault: Arc<Mutex<Va
         let public={
             let mut v=vault.lock().await;
             if !v.unlocked { return Err(AgentError::Locked); }
+            // 锁库或撤销记忆可能发生在选择完成后；不能重新建立已被撤销的授权。
+            if v.ssh_authorization.generation!=git.authorization_generation { return Err(failure()); }
             let key=v.db.as_ref().ok_or(AgentError::Locked)?.list_ssh().map_err(|_|failure())?.into_iter().find(|k|k.id==key_id).ok_or_else(failure)?;
             if let Some(policy)=confirmed_policy { v.ssh_authorization.approve_once(key_id.clone(),nonce.clone(),policy); }
             key.public_openssh
@@ -114,8 +136,8 @@ pub(crate) async fn serve_selection(stream: &mut UnixStream, vault: Arc<Mutex<Va
             completed=&mut completion=>break completed.unwrap_or(false),
             accepted=listener.accept()=>{ let (socket,_)=accepted?;
                 if socket.peer_cred().ok().and_then(|v|v.pid()).map(|v|v as u32)!=Some(child) { continue; }
-                let vault=vault.clone(); let key=key_id.clone(); let scope=nonce.clone();
-                connections.spawn(async move { let _=ssh_agent::selected_connection(socket,vault,key,scope).await; }); },
+                let vault=vault.clone(); let key=key_id.clone(); let scope=nonce.clone(); let git=git.clone();
+                connections.spawn(async move { let _=ssh_agent::selected_connection(socket,vault,key,scope,git).await; }); },
             _=connections.join_next(), if !connections.is_empty()=>{},
         }};
         connections.abort_all();
@@ -173,12 +195,16 @@ fn adapter() -> std::result::Result<i32,Box<dyn std::error::Error>> {
         else { return Err("unsupported Git SSH arguments".into()); }
     }
     if index+2!=args.len() { return Err("invalid Git SSH arguments".into()); }
-    let words=shell_words(&args[index+1])?;
-    if words.len()!=2 || !["git-upload-pack","git-receive-pack"].contains(&words[0].as_str()) { return Err("unsupported Git operation".into()); }
     let output=Command::new("/usr/bin/ssh").arg("-G").args(&args[..=index]).stdin(Stdio::null()).output()?;
     if !output.status.success() { return Err("SSH configuration failed".into()); }
     let config=String::from_utf8(output.stdout)?;
     let value=|key:&str|->Option<String> { config.lines().find_map(|line|line.strip_prefix(&format!("{key} ")).map(str::to_owned)) };
+    // 尊重用户对该目标禁用 Agent 的配置；原样转交 SSH，不连接 App 或叠加身份。
+    if value("identityagent").is_some_and(|agent|agent.eq_ignore_ascii_case("none")) {
+        return Ok(Command::new("/usr/bin/ssh").args(&args).status()?.code().unwrap_or(1));
+    }
+    let words=shell_words(&args[index+1])?;
+    if words.len()!=2 || !["git-upload-pack","git-receive-pack"].contains(&words[0].as_str()) { return Err("unsupported Git operation".into()); }
     let repo=Command::new("/usr/bin/git").args(["rev-parse","--absolute-git-dir"]).stderr(Stdio::null()).output()?;
     let workspace=if repo.status.success() {String::from_utf8(repo.stdout)?.trim().to_string()} else {String::new()};
     let mut target=GitTarget {host:value("hostname").ok_or("host missing")?,port:value("port").ok_or("port missing")?.parse()?,

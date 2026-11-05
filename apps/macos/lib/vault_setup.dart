@@ -84,15 +84,17 @@ class _UnconfiguredVaultPageState extends State<UnconfiguredVaultPage> {
 
 Future<String?> askInitialBackupPassword(BuildContext context) async {
   final input = TextEditingController();
+  final form = GlobalKey<FormState>();
   ModalRoute<String>? route;
   try {
     return await showDialog<String>(context: context, builder: (ctx) {
       route = ModalRoute.of<String>(ctx);
-      return AlertDialog(title: const LText('setup.backupPassword'), content: TextField(controller: input, obscureText: true, autofocus: true,
+      return AlertDialog(title: const LText('setup.backupPassword'), content: Form(key: form, child: TextFormField(controller: input, obscureText: true, autofocus: true,
         autocorrect: false, enableSuggestions: false, enableIMEPersonalizedLearning: false,
-        onSubmitted: (value) { if (value.isNotEmpty) Navigator.pop(ctx, value); }),
+        validator: (value) => (value ?? '').isEmpty ? tr('vault.recoverOvb.passwordRequired') : null,
+        onSubmitted: (value) { if (form.currentState?.validate() == true) Navigator.pop(ctx, value); })),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.cancel')),
-          FilledButton(onPressed: () { if (input.text.isNotEmpty) Navigator.pop(ctx, input.text); }, child: const LText('common.continue'))]);
+          FilledButton(onPressed: () { if (form.currentState?.validate() == true) Navigator.pop(ctx, input.text); }, child: const LText('common.continue'))]);
     });
   } finally { await route?.completed; input.dispose(); }
 }

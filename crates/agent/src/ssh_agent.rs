@@ -22,6 +22,20 @@ const SSH_AGENTC_SIGN_REQUEST: u8 = 13;
 
 const AUTH_TIMEOUT: Duration = Duration::from_secs(90);
 
+/// 仓库信息只由已验证的 Git 适配器传入，不能根据普通 SSH 签名请求猜测。
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct GitContext {
+    pub repository: String,
+    // 包含 SSH 用户、主机、端口及仓库；不与普通 SSH 请求共享授权。
+    #[serde(skip)]
+    pub authorization_scope: String,
+    #[serde(skip)]
+    pub authorization_generation: u64,
+    pub selection_source: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matched_rule: Option<String>,
+}
+
 #[derive(Debug, serde::Serialize)]
 pub struct PendingAuthorization {
     pub id: String,
@@ -29,10 +43,12 @@ pub struct PendingAuthorization {
     pub fingerprint: String,
     pub caller: String,
     pub policy: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub repository: Option<String>,
+    #[serde(flatten)]
+    pub(crate) git: Option<GitContext>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub candidates: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reuse_seconds: Option<u64>,
     #[serde(skip)]
     pub(crate) created: Instant,
     #[serde(skip)]
@@ -46,7 +62,8 @@ pub(crate) struct AuthorizationDecision { pub approved: bool, pub key_id: String
 pub struct SshAuthorization {
     pub pending: HashMap<String, PendingAuthorization>,
     grants: HashMap<(String, String), Instant>,
-    generation: u64,
+    git_grants: HashMap<(String, String), Instant>,
+    pub(crate) generation: u64,
     approved_once: HashMap<(String,String),(Instant,String)>,
 }
 impl SshAuthorization {
@@ -54,11 +71,13 @@ impl SshAuthorization {
         self.generation = self.generation.wrapping_add(1);
         self.pending.clear();
         self.grants.clear();
+        self.git_grants.clear();
         self.approved_once.clear();
     }
     pub fn expire(&mut self) {
         self.pending.retain(|_,r|r.created.elapsed() < AUTH_TIMEOUT && !r.reply.is_closed());
         self.grants.retain(|_,until|*until > Instant::now());
+        self.git_grants.retain(|_,until|*until > Instant::now());
         self.approved_once.retain(|_,(at,_)|at.elapsed()<Duration::from_secs(120));
     }
     pub(crate) fn approve_once(&mut self, key_id: String, scope: String, policy: String) {
@@ -67,6 +86,19 @@ impl SshAuthorization {
     pub fn resolve(&mut self, id: &str, approved: bool, key_id: String, remember: bool) -> bool {
         self.expire();
         self.pending.remove(id).is_some_and(|r|r.reply.send(AuthorizationDecision {approved,key_id,remember}).is_ok())
+    }
+}
+
+/// 仅在明确批准且成功签名后建立固定期限，复用本身不会延长授权。
+fn grant_session_authorization(v: &mut VaultSession, key_id: &str, scope: &str, git: Option<&GitContext>) {
+    let settings=credpivot_core::effective_app_settings();
+    if settings.sensitive_auth_seconds>0 {
+        v.ssh_authorization.grants.insert((key_id.into(),scope.into()),Instant::now()+Duration::from_secs(settings.sensitive_auth_seconds));
+    }
+    if let Some(git)=git.filter(|g|!g.authorization_scope.is_empty()) {
+        if settings.git_ssh_auth_seconds>0 {
+            v.ssh_authorization.git_grants.insert((key_id.into(),git.authorization_scope.clone()),Instant::now()+Duration::from_secs(settings.git_ssh_auth_seconds));
+        }
     }
 }
 
@@ -82,19 +114,24 @@ fn signing_policy(v: &VaultSession, id: &str) -> Result<(String, String)> {
     Ok((key.label,policy))
 }
 
-async fn authorized_sign(stream: &mut tokio::net::UnixStream, vault: &Arc<Mutex<VaultSession>>, msg: &[u8], caller: &str, scope: &str, selected: Option<&str>) -> Result<Vec<u8>> {
+async fn authorized_sign(stream: &mut tokio::net::UnixStream, vault: &Arc<Mutex<VaultSession>>, msg: &[u8], caller: &str, scope: &str, selected: Option<&str>, git: Option<&GitContext>) -> Result<Vec<u8>> {
     let (id, key_id, expected_key, policy, generation, receiver) = {
         let mut v = vault.lock().await;
         if session_denied(&mut v) { return Ok(failure_packet()); }
         // 先检查请求和密钥，畸形请求不能触发验证弹窗；此处尚未生成签名。
         let Some((key_id,blob)) = requested_identity(&v,msg,selected)? else { return Ok(failure_packet()); };
         let (label, policy) = signing_policy(&v,&key_id)?;
+        let git_reuse_seconds=if git.is_some() && policy=="session" {credpivot_core::effective_app_settings().git_ssh_auth_seconds} else {0};
         v.ssh_authorization.expire();
         if v.ssh_authorization.approved_once.remove(&(key_id.clone(),scope.into())).is_some_and(|(_,saved)|saved==policy) {
-            if policy=="session" {
-                let ttl=credpivot_core::effective_app_settings().sensitive_auth_seconds;
-                if ttl>0 { v.ssh_authorization.grants.insert((key_id.clone(),scope.into()),Instant::now()+Duration::from_secs(ttl)); }
+            let result=sign_request(&v,msg,&key_id)?;
+            if policy=="session" && result.get(4)==Some(&SSH_AGENT_SIGN_RESPONSE) {
+                grant_session_authorization(&mut v,&key_id,scope,git);
             }
+            v.touch_activity(); return Ok(result);
+        }
+        if git_reuse_seconds>0 && git.is_some_and(|g|!g.authorization_scope.is_empty()
+            && v.ssh_authorization.git_grants.contains_key(&(key_id.clone(),g.authorization_scope.clone()))) {
             v.touch_activity(); return sign_request(&v,msg,&key_id);
         }
         if policy == "session" && v.ssh_authorization.grants.contains_key(&(key_id.clone(),scope.into())) {
@@ -107,7 +144,8 @@ async fn authorized_sign(stream: &mut tokio::net::UnixStream, vault: &Arc<Mutex<
         v.ssh_authorization.pending.insert(id.clone(),PendingAuthorization {
             id:id.clone(),key_label:label,fingerprint:format!("SHA256:{}",base64::engine::general_purpose::STANDARD_NO_PAD.encode(Sha256::digest(&blob))),
             caller:caller.into(),policy:policy.clone(),created:Instant::now(),reply,
-            repository:None,candidates:Vec::new(),
+            git:git.cloned(),candidates:Vec::new(),
+            reuse_seconds:git.map(|_|git_reuse_seconds),
         });
         (id,key_id,blob,policy,v.ssh_authorization.generation,receiver)
     };
@@ -119,19 +157,21 @@ async fn authorized_sign(stream: &mut tokio::net::UnixStream, vault: &Arc<Mutex<
     };
     let mut v = vault.lock().await;
     v.ssh_authorization.pending.remove(&id);
+    if !approved {
+        if let Some(git)=git { v.ssh_authorization.git_grants.remove(&(key_id.clone(),git.authorization_scope.clone())); }
+    }
     if !approved || session_denied(&mut v) || v.ssh_authorization.generation != generation
         || requested_identity(&v,msg,selected)?.as_ref() != Some(&(key_id.clone(),expected_key))
         || signing_policy(&v,&key_id)?.1 != policy { return Ok(failure_packet()); }
     let result = sign_request(&v,msg,&key_id)?;
-    if policy == "session" {
-        let ttl = credpivot_core::effective_app_settings().sensitive_auth_seconds;
-        if ttl > 0 { v.ssh_authorization.grants.insert((key_id,scope.into()),Instant::now()+Duration::from_secs(ttl)); }
+    if policy == "session" && result.get(4)==Some(&SSH_AGENT_SIGN_RESPONSE) {
+        grant_session_authorization(&mut v,&key_id,scope,git);
     }
     v.touch_activity();
     Ok(result)
 }
 
-pub(crate) async fn authorized_identities(stream: &mut tokio::net::UnixStream, vault: &Arc<Mutex<VaultSession>>, caller: &str, selected: Option<&str>) -> Result<Vec<u8>> {
+pub(crate) async fn authorized_identities(stream: &mut tokio::net::UnixStream, vault: &Arc<Mutex<VaultSession>>, caller: &str, selected: Option<&str>, git: Option<&GitContext>) -> Result<Vec<u8>> {
     let (id, receiver) = {
         let mut v = vault.lock().await;
         if !session_denied(&mut v) {
@@ -145,7 +185,7 @@ pub(crate) async fn authorized_identities(stream: &mut tokio::net::UnixStream, v
         v.ssh_authorization.pending.insert(id.clone(), PendingAuthorization {
             id: id.clone(), key_label: String::new(), fingerprint: String::new(),
             caller: caller.into(), policy: "unlock".into(), created: Instant::now(), reply,
-            repository:None,candidates:Vec::new(),
+            git:git.cloned(),candidates:Vec::new(),reuse_seconds:None,
         });
         (id, receiver)
     };
@@ -187,8 +227,8 @@ async fn handle_ssh_connection(stream: &mut tokio::net::UnixStream, vault: Arc<M
     normal_connection(stream,vault,None,Some(first)).await
 }
 
-pub(crate) async fn selected_connection(mut stream: tokio::net::UnixStream, vault: Arc<Mutex<VaultSession>>, key_id: String, scope: String) -> Result<()> {
-    normal_connection_with_scope(&mut stream,vault,Some(key_id),None,scope).await
+pub(crate) async fn selected_connection(mut stream: tokio::net::UnixStream, vault: Arc<Mutex<VaultSession>>, key_id: String, scope: String, git: GitContext) -> Result<()> {
+    normal_connection_with_scope(&mut stream,vault,Some(key_id),None,scope,Some(git)).await
 }
 
 async fn read_message(stream: &mut tokio::net::UnixStream) -> Result<Option<Vec<u8>>> {
@@ -200,10 +240,10 @@ async fn read_message(stream: &mut tokio::net::UnixStream) -> Result<Option<Vec<
 }
 
 async fn normal_connection(stream: &mut tokio::net::UnixStream, vault: Arc<Mutex<VaultSession>>, selected: Option<String>, mut first: Option<Vec<u8>>) -> Result<()> {
-    normal_connection_with_scope(stream,vault,selected,first.take(),uuid::Uuid::new_v4().to_string()).await
+    normal_connection_with_scope(stream,vault,selected,first.take(),uuid::Uuid::new_v4().to_string(),None).await
 }
 
-async fn normal_connection_with_scope(stream: &mut tokio::net::UnixStream, vault: Arc<Mutex<VaultSession>>, selected: Option<String>, mut first: Option<Vec<u8>>, connection: String) -> Result<()> {
+async fn normal_connection_with_scope(stream: &mut tokio::net::UnixStream, vault: Arc<Mutex<VaultSession>>, selected: Option<String>, mut first: Option<Vec<u8>>, connection: String, git: Option<GitContext>) -> Result<()> {
     let caller=stream.peer_cred().ok().and_then(|c|c.pid()).map(|pid| {
         #[cfg(target_os="macos")]
         let name=crate::peer_auth::peer_executable_path(pid as u32).ok().and_then(|p|p.file_name().map(|s|s.to_string_lossy().into_owned())).unwrap_or_else(||"本地进程".into());
@@ -214,8 +254,8 @@ async fn normal_connection_with_scope(stream: &mut tokio::net::UnixStream, vault
     loop {
         let msg=if let Some(first)=first.take() { first } else { match read_message(stream).await? {Some(msg)=>msg,None=>break} };
         let response=match msg[0] {
-            SSH_AGENTC_REQUEST_IDENTITIES=>authorized_identities(stream,&vault,&caller,selected.as_deref()).await?,
-            SSH_AGENTC_SIGN_REQUEST=>authorized_sign(stream,&vault,&msg,&caller,&connection,selected.as_deref()).await?,
+            SSH_AGENTC_REQUEST_IDENTITIES=>authorized_identities(stream,&vault,&caller,selected.as_deref(),git.as_ref()).await?,
+            SSH_AGENTC_SIGN_REQUEST=>authorized_sign(stream,&vault,&msg,&caller,&connection,selected.as_deref(),git.as_ref()).await?,
             _=>failure_packet(),
         };
         stream.write_all(&response).await?;
