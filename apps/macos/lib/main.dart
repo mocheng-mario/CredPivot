@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -19,8 +20,10 @@ import 'shortcuts_page.dart';
 import 'vault_tools.dart';
 import 'webdav_sync.dart';
 import 'credential_partitions.dart';
+import 'main_android.dart' as android;
 
 Future<void> main() async {
+  if (Platform.isAndroid) { await android.main(); return; }
   WidgetsFlutterBinding.ensureInitialized();
   try {
     await AppPresentation.instance.loadCatalog();

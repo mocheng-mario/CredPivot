@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import 'app_ui.dart';
 
@@ -107,7 +108,7 @@ class CredentialWorkspace extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(child: list),
-              if (actions != null) ...[
+              if (actions != null || (defaultTargetPlatform == TargetPlatform.android && detail != null)) ...[
                 const SizedBox(height: 8),
                 ConstrainedBox(
                   constraints:
@@ -116,7 +117,13 @@ class CredentialWorkspace extends StatelessWidget {
                       child: Card(
                           child: Padding(
                               padding: const EdgeInsets.all(12),
-                              child: actions!))),
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                                if (defaultTargetPlatform == TargetPlatform.android && detail != null) detail!,
+                                if (actions != null) ...[
+                                  if (defaultTargetPlatform == TargetPlatform.android && detail != null) const Divider(height: 24),
+                                  actions!,
+                                ],
+                              ])))),
                 ),
               ],
             ]);

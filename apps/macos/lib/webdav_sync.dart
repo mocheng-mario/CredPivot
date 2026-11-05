@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'agent_bridge.dart';
 import 'app_ui.dart';
 import 'credential_confirm.dart';
 import 'touch_id_gate.dart';
+import 'android_webdav.dart';
 
 /// 生命周期属于 App，而非侧边栏页面；离开同步页后仍可同步，锁定则取消网络操作。
 class WebDavSync extends ChangeNotifier with WidgetsBindingObserver {
@@ -104,7 +106,7 @@ class WebDavSync extends ChangeNotifier with WidgetsBindingObserver {
       progress = '';
       lastResult = '';
       _attention = false;
-      _channel.invokeMethod<void>('webdavCancel').catchError((Object _) {});
+      _invoke('webdavCancel').catchError((Object _) => <String, dynamic>{});
     } else {
       _due = DateTime.now();
       refresh().catchError((Object _) {});
@@ -118,10 +120,11 @@ class WebDavSync extends ChangeNotifier with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed && unlocked) _due = DateTime.now();
   }
 
-  Future<Map<String, dynamic>> _native(String method,
-          [Map<String, dynamic>? args]) async =>
-      Map<String, dynamic>.from(
-          await _channel.invokeMethod<Map>(method, args) ?? {});
+  Future<Map<String, dynamic>> _invoke(String method, [Map<String, dynamic>? args]) async {
+    if (Platform.isAndroid) return AndroidWebDav.instance.invoke(method, args);
+    return Map<String, dynamic>.from(await _channel.invokeMethod<Map>(method, args) ?? {});
+  }
+  Future<Map<String, dynamic>> _native(String method, [Map<String, dynamic>? args]) => _invoke(method, args);
   Future<Map<String, dynamic>> _agent(Map<String, dynamic> args) async =>
       AgentBridge.payloadOf(await AgentBridge.request(args));
   Future<void> refresh() async {
@@ -293,8 +296,7 @@ class WebDavSync extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> cancelConfigurationTest() =>
-      _channel.invokeMethod<void>('webdavTestCancel');
+  Future<void> cancelConfigurationTest() async { await _invoke('webdavTestCancel'); }
   Future<void> _prepare(int epoch,
       {String? strategy, String remotePassword = ''}) async {
     progress = 'sync.progress.preparing';

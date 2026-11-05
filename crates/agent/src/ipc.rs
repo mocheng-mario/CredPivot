@@ -1,9 +1,8 @@
 use crate::extension_gate::{clear_persisted_extension_gate, extension_gate_idle_secs};
 use crate::error::{AgentError, Result};
-use crate::peer_auth::{
-    authorize_peer, peer_executable_path, peer_is_askpass_executable, peer_is_native_host_executable,
-    PeerAuthConfig,
-};
+use crate::peer_auth::{authorize_peer, PeerAuthConfig};
+#[cfg(target_os = "macos")]
+use crate::peer_auth::{peer_executable_path, peer_is_askpass_executable, peer_is_native_host_executable};
 use crate::ssh_session::{prepare_session, consume_askpass_secret, SSH_SESSION_TTL_MS};
 use crate::ssh_session::SshSessionGrant;
 use crate::session_guard::expire_idle_session;
@@ -256,11 +255,12 @@ pub async fn handle_request(
     let operation = req.operation();
     crate::diagnostics::debug(operation, "request started");
     let mutates = matches!(&req,
-        AgentRequest::CredentialSave { .. } | AgentRequest::CredentialUpdate { .. } | AgentRequest::BrowserCredentialUpdate { .. }
+        AgentRequest::CredentialSave { .. } | AgentRequest::CredentialUpdate { .. } | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::AppCredentialPasswordUpdate { .. }
         | AgentRequest::CredentialTrash { .. } | AgentRequest::TotpCreate { .. } | AgentRequest::ImportBitwarden { .. }
         | AgentRequest::SshKeyGenerate { .. } | AgentRequest::SshSelectKey { .. }
         | AgentRequest::RecoveryCodesCreate { .. } | AgentRequest::RecoveryCodesUpdate { .. }
         | AgentRequest::ServerProfileCreate { .. } | AgentRequest::ServerProfileUpdate { .. })
+        || matches!(&req, AgentRequest::AppPasskey { kind, complete: true, .. } if kind == "create")
         || matches!(&req, AgentRequest::CredentialGroupCreate { .. }
             | AgentRequest::CredentialGroupDelete { .. } | AgentRequest::CredentialItemSetGroup { .. })
         || matches!(&req,AgentRequest::VaultManage { action } if matches!(action,
@@ -378,7 +378,7 @@ async fn handle_request_inner(
         | AgentRequest::SyncStatus | AgentRequest::SyncControlAuthorize | AgentRequest::SyncCancel | AgentRequest::SyncPrepare { .. } | AgentRequest::SyncResolve { .. }
         | AgentRequest::SyncPreviewPage { .. }
         | AgentRequest::SyncApply { .. } | AgentRequest::SyncPublishAuthorize { .. } | AgentRequest::SyncAcknowledge { .. } | AgentRequest::SyncDisconnect
-        | AgentRequest::VaultManage { .. }
+        | AgentRequest::VaultManage { .. } | AgentRequest::AppCredentialPasswordUpdate { .. } | AgentRequest::AppPasskey { .. }
         | AgentRequest::SshAuthorizationsPending | AgentRequest::SshAuthorizationResolve { .. }
         | AgentRequest::PasskeyRequestsPending | AgentRequest::PasskeyResolve { .. } | AgentRequest::PasskeyList
         | AgentRequest::UnlockPassword { .. } | AgentRequest::VaultCreate { .. }) && !peer.from_app {
@@ -427,7 +427,7 @@ async fn handle_request_inner(
     }
     let bump_gate_activity = peer.from_native_host && req_requires_extension_gate(&req);
     if peer.from_app && (matches!(&req,
-        AgentRequest::CredentialGet { .. } | AgentRequest::CredentialUpdate { .. }
+        AgentRequest::CredentialGet { .. } | AgentRequest::CredentialUpdate { .. } | AgentRequest::AppCredentialPasswordUpdate { .. } | AgentRequest::AppPasskey { complete: true, .. }
         | AgentRequest::CredentialTrash { .. } | AgentRequest::TotpCode { .. }
         | AgentRequest::TotpReveal { .. } | AgentRequest::RecoveryCodesGet { .. }
         | AgentRequest::RecoveryCodesUpdate { .. }
@@ -467,6 +467,34 @@ async fn handle_request_inner(
         }
         AgentRequest::BrowserRequest { .. } => AgentResponse::err("forbidden", "nested browser request"),
         AgentRequest::Ping => AgentResponse::ok(json!({ "pong": true })),
+        AgentRequest::AppPasskey { kind, origin, options, package_name, client_data_hash, complete, credential_id } => {
+            #[cfg(target_os = "android")]
+            {
+                let mut v = st.vault.lock().await;
+                if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
+                let Some(db) = v.db.as_ref() else { return AgentResponse::err("locked", "vault locked"); };
+                let request = match credpivot_core::passkey::Request::parse_android(&kind, &origin, &options, &package_name, client_data_hash.as_deref()) {
+                    Ok(request) => request,
+                    Err(_) => return AgentResponse::err("passkey_request", "通行密钥请求无效或不受支持"),
+                };
+                let result = if complete {
+                    request.complete_in_partition(db.conn(), &credential_id, partition.unwrap_or(credpivot_core::partitions::PERSONAL))
+                        // WebAuthn 结果不使用通用 credential 字段，避免附加本地分区名称后交给网站。
+                        .map(|credential|json!({"result":credential}))
+                } else {
+                    request.candidates(db.conn()).map(|items|json!({"items":items,"rp_id":request.rp_id,"username":request.username,"excluded":request.excluded(db.conn()).unwrap_or(true)}))
+                };
+                match result {
+                    Ok(payload) => { v.touch_activity(); AgentResponse::ok(payload) },
+                    Err(_) => AgentResponse::err("passkey_request", "通行密钥操作失败，请核对请求或记录"),
+                }
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                let _ = (kind, origin, options, package_name, client_data_hash, complete, credential_id);
+                AgentResponse::err("unsupported", "Android credential provider only")
+            }
+        }
         AgentRequest::PasskeyList => {
             let v = st.vault.lock().await;
             let Some(db) = v.db.as_ref().filter(|_|v.unlocked) else { return AgentResponse::err("locked","vault locked"); };
@@ -851,6 +879,15 @@ async fn handle_request_inner(
                 Ok(())=>{v.touch_activity();AgentResponse::ok(json!({"updated":true}))},
                 Err(credpivot_core::CoreError::Conflict)=>AgentResponse::err("conflict","记录已改变，请刷新后重试"),
                 Err(_)=>AgentResponse::err("vault","密码更新失败"),
+            }
+        }
+        AgentRequest::AppCredentialPasswordUpdate { credential_id, expected_revision, username, password } => {
+            let mut v = st.vault.lock().await;
+            let Some(db) = v.db.as_ref() else { return AgentResponse::err("locked", "vault locked"); };
+            match credpivot_core::update_login_from_browser(db.conn(), &credential_id, &expected_revision, &username, &password) {
+                Ok(()) => { v.touch_activity(); AgentResponse::ok(json!({"updated":true})) },
+                Err(credpivot_core::CoreError::Conflict) => AgentResponse::err("conflict", "记录已改变，请刷新后重试"),
+                Err(_) => AgentResponse::err("vault", "密码更新失败"),
             }
         }
         AgentRequest::BrowserMfaSuggest { origin, credential_id, include_other_matches } => {
@@ -1607,7 +1644,7 @@ fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
 fn peer_pid(stream: &tokio::net::UnixStream) -> Result<u32> {
     use std::os::unix::io::AsRawFd;
     let fd = stream.as_raw_fd();
@@ -1643,7 +1680,8 @@ fn peer_pid(stream: &tokio::net::UnixStream) -> Result<u32> {
     Ok(pid as u32)
 }
 
-#[cfg(not(unix))]
+#[cfg(not(target_os = "macos"))]
 fn peer_pid(_stream: &tokio::net::UnixStream) -> Result<u32> {
-    Ok(0)
+    // Android 仅允许进程内调用，不能把缺少桌面进程身份校验解释为授权成功。
+    Err(AgentError::PeerDenied("external IPC is unavailable on this platform".into()))
 }

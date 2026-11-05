@@ -12991,6 +12991,1363 @@
       "locations": [
         "credential_partitions.dart"
       ]
+    },
+    "android.sync.failureTitle": {
+      "source": "同步失败",
+      "translation": "同步失败",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.startup.failed": {
+      "source": "启动失败，请重试。请确认 APK 已包含 Rust 核心。",
+      "translation": "启动失败，请重试。请确认 APK 已包含 Rust 核心。",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.agent.startFailed": {
+      "source": "本机 Agent 启动失败",
+      "translation": "本机 Agent 启动失败",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.operation.failed": {
+      "source": "操作失败，请重试",
+      "translation": "操作失败，请重试",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.password.title": {
+      "source": "主密码",
+      "translation": "主密码",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.password.repeat": {
+      "source": "再次输入主密码",
+      "translation": "再次输入主密码",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.password.mismatch": {
+      "source": "密码不能为空，且两次输入需一致",
+      "translation": "密码不能为空，且两次输入需一致",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.password.required": {
+      "source": "请输入密码",
+      "translation": "请输入密码",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.vault.create": {
+      "source": "创建保险库",
+      "translation": "创建保险库",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.vault.lock": {
+      "source": "锁定保险库",
+      "translation": "锁定保险库",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.vault.unlock": {
+      "source": "解锁保险库",
+      "translation": "解锁保险库",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.vault.welcome": {
+      "source": "欢迎使用 CredPivot",
+      "translation": "欢迎使用 CredPivot",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.vault.recoveryTitle": {
+      "source": "请保存恢复密钥",
+      "translation": "请保存恢复密钥",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.vault.restorePassword": {
+      "source": "输入备份对应的主密码",
+      "translation": "输入备份对应的主密码",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.exportReason": {
+      "source": "导出加密备份",
+      "translation": "导出加密备份",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.exportPassword": {
+      "source": "输入当前主密码以导出备份",
+      "translation": "输入当前主密码以导出备份",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.exportedTitle": {
+      "source": "备份已导出",
+      "translation": "备份已导出",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.exportedBody": {
+      "source": "加密备份可以在 Mac 或 Android 上恢复，请妥善保存。",
+      "translation": "加密备份可以在 Mac 或 Android 上恢复，请妥善保存。",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.partitions.select": {
+      "source": "选择分区",
+      "translation": "选择分区",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.partitions.manage": {
+      "source": "分区管理",
+      "translation": "分区管理",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.navigation.credentials": {
+      "source": "凭据",
+      "translation": "凭据",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.navigation.sync": {
+      "source": "同步",
+      "translation": "同步",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.navigation.vault": {
+      "source": "保险库",
+      "translation": "保险库",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.navigation.settings": {
+      "source": "设置",
+      "translation": "设置",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.unlock.password": {
+      "source": "使用主密码解锁",
+      "translation": "使用主密码解锁",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.unlock.biometric": {
+      "source": "生物识别解锁",
+      "translation": "生物识别解锁",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.unlock.restore": {
+      "source": "从加密备份恢复",
+      "translation": "从加密备份恢复",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.startup.retry": {
+      "source": "重新初始化",
+      "translation": "重新初始化",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.title": {
+      "source": "加密备份与恢复",
+      "translation": "加密备份与恢复",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.description": {
+      "source": "与 Mac 使用同一 OVB 加密备份格式。恢复时创建新目录，保留当前保险库。",
+      "translation": "与 Mac 使用同一 OVB 加密备份格式。恢复时创建新目录，保留当前保险库。",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.restore": {
+      "source": "恢复并切换保险库",
+      "translation": "恢复并切换保险库",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.sync.hostName": {
+      "source": "同步主机名称",
+      "translation": "同步主机名称",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.loadFailed": {
+      "source": "读取设置失败",
+      "translation": "读取设置失败",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.saveReason": {
+      "source": "保存安全设置",
+      "translation": "保存安全设置",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.saved": {
+      "source": "设置已保存",
+      "translation": "设置已保存",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.invalid": {
+      "source": "设置无效，请检查数值范围",
+      "translation": "设置无效，请检查数值范围",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.disable": {
+      "source": "停用生物识别",
+      "translation": "停用生物识别",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.enable": {
+      "source": "启用生物识别",
+      "translation": "启用生物识别",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.failed": {
+      "source": "生物识别设置失败",
+      "translation": "生物识别设置失败",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.appearance": {
+      "source": "外观",
+      "translation": "外观",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.theme": {
+      "source": "主题",
+      "translation": "主题",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.theme.system": {
+      "source": "跟随系统",
+      "translation": "跟随系统",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.theme.light": {
+      "source": "浅色",
+      "translation": "浅色",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.theme.dark": {
+      "source": "深色",
+      "translation": "深色",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.language": {
+      "source": "语言",
+      "translation": "语言",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.language.import": {
+      "source": "导入语言包",
+      "translation": "导入语言包",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.language.export": {
+      "source": "导出语言模板",
+      "translation": "导出语言模板",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.language.exportFailed": {
+      "source": "导出失败，请重试",
+      "translation": "导出失败，请重试",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.security": {
+      "source": "安全",
+      "translation": "安全",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.wakeAuth": {
+      "source": "唤醒时主动验证",
+      "translation": "唤醒时主动验证",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.enabledHelp": {
+      "source": "已启用，修改指纹后需重新启用",
+      "translation": "已启用，修改指纹后需重新启用",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.disabledHelp": {
+      "source": "未启用；主密码始终可用",
+      "translation": "未启用；主密码始终可用",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.disableAction": {
+      "source": "停用",
+      "translation": "停用",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.enableAction": {
+      "source": "启用",
+      "translation": "启用",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.backgroundLock": {
+      "source": "离开 App 后立即锁定；系统文件选择流程例外。",
+      "translation": "离开 App 后立即锁定；系统文件选择流程例外。",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.save": {
+      "source": "保存设置",
+      "translation": "保存设置",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.vaultIdle": {
+      "source": "空闲锁定（秒，60～1800）",
+      "translation": "空闲锁定（秒，60～1800）",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.sensitiveReuse": {
+      "source": "敏感操作验证复用（秒，0～300）",
+      "translation": "敏感操作验证复用（秒，0～300）",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.clipboardClear": {
+      "source": "剪贴板清理（秒，5～300）",
+      "translation": "剪贴板清理（秒，5～300）",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.masterPeriod": {
+      "source": "主密码验证周期（天，1～7）",
+      "translation": "主密码验证周期（天，1～7）",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.masterIdle": {
+      "source": "长期未解锁后验证主密码（小时，1～24）",
+      "translation": "长期未解锁后验证主密码（小时，1～24）",
+      "description": "Android app interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.vault.recoveryBody": {
+      "source": "这是主密码遗失时的恢复凭据，请离线保存。\n\n{key}",
+      "translation": "这是主密码遗失时的恢复凭据，请离线保存。\n\n{key}",
+      "description": "Android app interface.",
+      "placeholders": {
+        "key": "Recovery key"
+      },
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.password.current": {
+      "source": "输入当前主密码",
+      "translation": "输入当前主密码",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.password.new": {
+      "source": "设置新主密码",
+      "translation": "设置新主密码",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.password.change": {
+      "source": "修改主密码",
+      "translation": "修改主密码",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.password.changed": {
+      "source": "主密码已修改",
+      "translation": "主密码已修改",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.password.changedHelp": {
+      "source": "请保管好新主密码。旧的生物识别授权已清除，请在设置中重新启用。同步后的其他设备也需要使用新密码重新接入。",
+      "translation": "请保管好新主密码。旧的生物识别授权已清除，请在设置中重新启用。同步后的其他设备也需要使用新密码重新接入。",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.restore.failed": {
+      "source": "无法读取本地恢复点。",
+      "translation": "无法读取本地恢复点。",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.restore.points": {
+      "source": "本地恢复点",
+      "translation": "本地恢复点",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.restore.empty": {
+      "source": "暂无本地恢复点。",
+      "translation": "暂无本地恢复点。",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.restore.done": {
+      "source": "恢复完成",
+      "translation": "恢复完成",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.restore.doneHelp": {
+      "source": "已切换到恢复出的独立保险库，原保险库仍保留。WebDAV 需要重新确认接入策略。",
+      "translation": "已切换到恢复出的独立保险库，原保险库仍保留。WebDAV 需要重新确认接入策略。",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.restoreInterval": {
+      "source": "恢复点间隔（小时）",
+      "translation": "恢复点间隔（小时）",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.restoreCount": {
+      "source": "恢复点保留数量",
+      "translation": "恢复点保留数量",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.passwordHistory": {
+      "source": "每条记录的密码历史上限",
+      "translation": "每条记录的密码历史上限",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.passwordReminder": {
+      "source": "默认改密提醒（天）",
+      "translation": "默认改密提醒（天）",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.logSize": {
+      "source": "单日日志大小上限（MB）",
+      "translation": "单日日志大小上限（MB）",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.logCount": {
+      "source": "日志轮转保留份数",
+      "translation": "日志轮转保留份数",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.autofill.title": {
+      "source": "系统自动填充",
+      "translation": "系统自动填充",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.autofill.help": {
+      "source": "在系统中选择 CredPivot 后，可以从其他 App 或浏览器的账号、密码和验证码输入框打开填充选择页。验证取消后需手动重试。",
+      "translation": "在系统中选择 CredPivot 后，可以从其他 App 或浏览器的账号、密码和验证码输入框打开填充选择页。验证取消后需手动重试。",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.autofill.status": {
+      "source": "当前状态",
+      "translation": "当前状态",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.autofill.enabled": {
+      "source": "已启用",
+      "translation": "已启用",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.autofill.disabled": {
+      "source": "尚未启用",
+      "translation": "尚未启用",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.autofill.refresh": {
+      "source": "刷新状态",
+      "translation": "刷新状态",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.autofill.configure": {
+      "source": "打开系统自动填充设置",
+      "translation": "打开系统自动填充设置",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.diagnostics.title": {
+      "source": "运行日志",
+      "translation": "运行日志",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "android_diagnostics.dart"
+      ]
+    },
+    "android.diagnostics.failed": {
+      "source": "日志读取或设置失败，请重试。",
+      "translation": "日志读取或设置失败，请重试。",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "android_diagnostics.dart"
+      ]
+    },
+    "android.diagnostics.options": {
+      "source": "日志选项",
+      "translation": "日志选项",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "android_diagnostics.dart"
+      ]
+    },
+    "android.diagnostics.file": {
+      "source": "日志日期 / 文件",
+      "translation": "日志日期 / 文件",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "android_diagnostics.dart"
+      ]
+    },
+    "android.diagnostics.minimum": {
+      "source": "查看级别",
+      "translation": "查看级别",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "android_diagnostics.dart"
+      ]
+    },
+    "android.diagnostics.recording": {
+      "source": "记录级别",
+      "translation": "记录级别",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "android_diagnostics.dart"
+      ]
+    },
+    "android.diagnostics.newestFirst": {
+      "source": "日志内容（最新在前）",
+      "translation": "日志内容（最新在前）",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "android_diagnostics.dart"
+      ]
+    },
+    "android.diagnostics.empty": {
+      "source": "暂无日志。",
+      "translation": "暂无日志。",
+      "description": "Android mobile interface.",
+      "placeholders": {},
+      "locations": [
+        "android_diagnostics.dart"
+      ]
+    },
+    "android.passkey.title": {
+      "source": "系统账号管理（密码与通行密钥）",
+      "translation": "系统账号管理（密码与通行密钥）",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.passkey.help": {
+      "source": "需要 Android 14 或更新版本。在系统中启用 CredPivot，可通过 Credential Manager 保存、读取密码，以及创建和使用通行密钥。通行密钥随加密备份和 WebDAV 迁移。浏览器支持 Chrome 正式版、Beta 和 Firefox 正式版；通行密钥当前要求网页主机与 RP ID 完全一致，原生应用需要网站发布有效的 Asset Links。",
+      "translation": "需要 Android 14 或更新版本。在系统中启用 CredPivot，可通过 Credential Manager 保存、读取密码，以及创建和使用通行密钥。通行密钥随加密备份和 WebDAV 迁移。浏览器支持 Chrome 正式版、Beta 和 Firefox 正式版；通行密钥当前要求网页主机与 RP ID 完全一致，原生应用需要网站发布有效的 Asset Links。",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.passkey.unsupported": {
+      "source": "系统账号提供方需要 Android 14 或更新版本。较早版本可使用上方的系统自动填充，已保存的通行密钥仍可在此管理。",
+      "translation": "系统账号提供方需要 Android 14 或更新版本。较早版本可使用上方的系统自动填充，已保存的通行密钥仍可在此管理。",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.passkey.configure": {
+      "source": "打开系统账号提供方设置",
+      "translation": "打开系统账号提供方设置",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.native.passkeyChoose": {
+      "source": "解锁并选择通行密钥",
+      "translation": "解锁并选择通行密钥",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.passkeyCreate": {
+      "source": "创建通行密钥",
+      "translation": "创建通行密钥",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.passkeyFailed": {
+      "source": "通行密钥操作失败，请核对网站及请求后重试。",
+      "translation": "通行密钥操作失败，请核对网站及请求后重试。",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.passkeyVerify": {
+      "source": "验证 CredPivot 通行密钥操作",
+      "translation": "验证 CredPivot 通行密钥操作",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.passkeyTarget": {
+      "source": "网站：{arg1}\n调用应用：{arg2}\n已校验的来源：{arg3}",
+      "translation": "网站：{arg1}\n调用应用：{arg2}\n已校验的来源：{arg3}",
+      "description": "Android system credential interface.",
+      "placeholders": {
+        "arg1": "Text",
+        "arg2": "Text",
+        "arg3": "Text"
+      },
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.passkeyExcluded": {
+      "source": "该网站已经存在排除列表中的通行密钥。",
+      "translation": "该网站已经存在排除列表中的通行密钥。",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.passkeyCreateAccount": {
+      "source": "为 {arg1} 创建通行密钥",
+      "translation": "为 {arg1} 创建通行密钥",
+      "description": "Android system credential interface.",
+      "placeholders": {
+        "arg1": "Text"
+      },
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillServiceLabel": {
+      "source": "CredPivot 密码与验证码",
+      "translation": "CredPivot 密码与验证码",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillUnlock": {
+      "source": "解锁 CredPivot / 重试验证",
+      "translation": "解锁 CredPivot / 重试验证",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillMasterPassword": {
+      "source": "使用主密码验证",
+      "translation": "使用主密码验证",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillTitle": {
+      "source": "选择填充记录",
+      "translation": "选择填充记录",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillSaveTitle": {
+      "source": "保存到 CredPivot",
+      "translation": "保存到 CredPivot",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillTarget": {
+      "source": "应用：{arg1}\n包名：{arg2}\n页面声明的网站：{arg3}",
+      "translation": "应用：{arg1}\n包名：{arg2}\n页面声明的网站：{arg3}",
+      "description": "Android system credential interface.",
+      "placeholders": {
+        "arg1": "Text",
+        "arg2": "Text",
+        "arg3": "Text"
+      },
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillNativeTarget": {
+      "source": "无（原生应用）",
+      "translation": "无（原生应用）",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillVerifyReason": {
+      "source": "验证后选择要填充或保存的账号",
+      "translation": "验证后选择要填充或保存的账号",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillCancelled": {
+      "source": "已取消验证。点击验证按钮或重新选择记录可手动重试。",
+      "translation": "已取消验证。点击验证按钮或重新选择记录可手动重试。",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillOperationFailed": {
+      "source": "操作未完成。请重新验证后重试；记录可能已修改或保险库已锁定。",
+      "translation": "操作未完成。请重新验证后重试；记录可能已修改或保险库已锁定。",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillOtp": {
+      "source": "填充 MFA 验证码",
+      "translation": "填充 MFA 验证码",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillSearch": {
+      "source": "搜索名称、账号或网站",
+      "translation": "搜索名称、账号或网站",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillManualNotice": {
+      "source": "请核对目标应用及网站。网站由目标应用声明，不代表已通过身份验证；仅向你信任的应用交付凭据。",
+      "translation": "请核对目标应用及网站。网站由目标应用声明，不代表已通过身份验证；仅向你信任的应用交付凭据。",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillSaveNew": {
+      "source": "保存为新账号",
+      "translation": "保存为新账号",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillNoResults": {
+      "source": "没有找到记录，可切换分区或修改搜索。",
+      "translation": "没有找到记录，可切换分区或修改搜索。",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillPrevious": {
+      "source": "上一页",
+      "translation": "上一页",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillNext": {
+      "source": "下一页",
+      "translation": "下一页",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillConfirmTitle": {
+      "source": "确认交付凭据",
+      "translation": "确认交付凭据",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillUpdateTitle": {
+      "source": "确认更新当前密码",
+      "translation": "确认更新当前密码",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillConfirm": {
+      "source": "记录：{arg1}\n\n{arg2}\n\n是否继续？更新密码会保留原密码历史及其他关联资料。",
+      "translation": "记录：{arg1}\n\n{arg2}\n\n是否继续？更新密码会保留原密码历史及其他关联资料。",
+      "description": "Android system credential interface.",
+      "placeholders": {
+        "arg1": "Text",
+        "arg2": "Text"
+      },
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillName": {
+      "source": "记录名称",
+      "translation": "记录名称",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillAccount": {
+      "source": "账号",
+      "translation": "账号",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillUngrouped": {
+      "source": "不分组",
+      "translation": "不分组",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillSaveConfirm": {
+      "source": "{arg1}\n\n保存该应用提交的密码？请确认它是已经生效的密码。",
+      "translation": "{arg1}\n\n保存该应用提交的密码？请确认它是已经生效的密码。",
+      "description": "Android system credential interface.",
+      "placeholders": {
+        "arg1": "Text"
+      },
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillSaved": {
+      "source": "密码已保存。",
+      "translation": "密码已保存。",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillSaveFailed": {
+      "source": "密码未保存，请打开 CredPivot 手动添加。",
+      "translation": "密码未保存，请打开 CredPivot 手动添加。",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.settings.range": {
+      "source": "{field}：请输入 {minimum}–{maximum} 范围内的整数。空闲锁定秒数需为 60 的倍数。",
+      "translation": "{field}：请输入 {minimum}–{maximum} 范围内的整数。空闲锁定秒数需为 60 的倍数。",
+      "description": "Android settings.",
+      "placeholders": {
+        "field": "Text",
+        "minimum": "Text",
+        "maximum": "Text"
+      },
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.minuteStep": {
+      "source": "以 60 秒为步长设置。",
+      "translation": "以 60 秒为步长设置。",
+      "description": "Android settings.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.reset": {
+      "source": "恢复此页默认设置",
+      "translation": "恢复此页默认设置",
+      "description": "Android settings.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.resetDone": {
+      "source": "默认设置已恢复",
+      "translation": "默认设置已恢复",
+      "description": "Android settings.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.backupPath": {
+      "source": "原配置已保留，备份文件：\n{path}",
+      "translation": "原配置已保留，备份文件：\n{path}",
+      "description": "Android settings.",
+      "placeholders": {
+        "path": "Text"
+      },
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.noPreviousFile": {
+      "source": "此前没有配置文件，无需备份。",
+      "translation": "此前没有配置文件，无需备份。",
+      "description": "Android settings.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.resetFailed": {
+      "source": "未能完成恢复默认，请重试；备份文件如已生成会保留。",
+      "translation": "未能完成恢复默认，请重试；备份文件如已生成会保留。",
+      "description": "Android settings.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.passkey.listHelp": {
+      "source": "在支持的 App 或浏览器中选择 CredPivot 创建或使用通行密钥；请先在设置中启用系统账号提供方，需要 Android 14 或更新版本。此处可管理分组、资料、迁移及回收站。",
+      "translation": "在支持的 App 或浏览器中选择 CredPivot 创建或使用通行密钥；请先在设置中启用系统账号提供方，需要 Android 14 或更新版本。此处可管理分组、资料、迁移及回收站。",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "passkeys_page.dart"
+      ]
+    },
+    "android.native.passkeyPreparing": {
+      "source": "正在检查请求来源。首次使用原生应用时，需要联网验证网站的应用关联。",
+      "translation": "正在检查请求来源。首次使用原生应用时，需要联网验证网站的应用关联。",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillSubmittedAccount": {
+      "source": "本次保存的账号：{arg1}",
+      "translation": "本次保存的账号：{arg1}",
+      "description": "Android system credential interface.",
+      "placeholders": {
+        "arg1": "Text"
+      },
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.autofillOtpLength": {
+      "source": "验证码位数与页面输入格数不同，请选择对应的 MFA 记录。",
+      "translation": "验证码位数与页面输入格数不同，请选择对应的 MFA 记录。",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.authenticationTitle": {
+      "source": "CredPivot 身份验证",
+      "translation": "CredPivot 身份验证",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.authenticationMasterTitle": {
+      "source": "请输入 CredPivot 主密码",
+      "translation": "请输入 CredPivot 主密码",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.authenticationMasterHint": {
+      "source": "主密码",
+      "translation": "主密码",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.authenticationVerify": {
+      "source": "验证",
+      "translation": "验证",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.authenticationBusy": {
+      "source": "已有身份验证正在进行",
+      "translation": "已有身份验证正在进行",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.authenticationFailed": {
+      "source": "验证失败，请使用主密码重试",
+      "translation": "验证失败，请使用主密码重试",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
+    },
+    "android.native.authenticationPasswordWrong": {
+      "source": "主密码不正确，请重新输入",
+      "translation": "主密码不正确，请重新输入",
+      "description": "Android system credential interface.",
+      "placeholders": {},
+      "locations": [
+        "AndroidStrings.kt"
+      ]
     }
   }
 }

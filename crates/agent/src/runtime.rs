@@ -1,13 +1,15 @@
 use crate::error::Result;
-use crate::ipc::{load_extension_gate_into_state, serve_ipc, IpcState};
-use crate::paths::{agent_socket_path, ensure_runtime_dir, ssh_agent_socket_path};
+use crate::ipc::{load_extension_gate_into_state, IpcState};
+use crate::paths::ensure_runtime_dir;
+#[cfg(not(target_os = "android"))]
+use crate::{ipc::serve_ipc, paths::{agent_socket_path, ssh_agent_socket_path}, ssh_agent::serve_ssh_agent};
 use crate::peer_auth::PeerAuthConfig;
 use crate::session_guard::expire_idle_session;
 use crate::single_writer::SingleWriterLock;
-use crate::ssh_agent::serve_ssh_agent;
 use crate::vault_session::VaultSession;
 use std::sync::Arc;
 use std::time::Duration;
+#[cfg(not(target_os = "android"))]
 use tokio::net::UnixListener;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -15,7 +17,9 @@ use tokio::task::JoinHandle;
 pub struct AgentRuntime {
     _lock: SingleWriterLock,
     pub state: Arc<Mutex<IpcState>>,
+    #[cfg(not(target_os = "android"))]
     ipc_task: JoinHandle<()>,
+    #[cfg(not(target_os = "android"))]
     ssh_task: JoinHandle<()>,
     restore_task: JoinHandle<()>,
     idle_task: JoinHandle<()>,
@@ -35,11 +39,13 @@ impl AgentRuntime {
         crate::peer_auth::bootstrap_trusted_askpass_env();
         crate::diagnostics::init();
 
-        remove_stale_socket(&agent_socket_path())?;
-        remove_stale_socket(&ssh_agent_socket_path())?;
-
-        let ipc_listener = UnixListener::bind(agent_socket_path())?;
-        let ssh_listener = UnixListener::bind(ssh_agent_socket_path())?;
+        // 手机端没有 Chrome Native Host 或桌面 SSH Agent，不创建外部 socket。
+        #[cfg(not(target_os = "android"))]
+        let (ipc_listener, ssh_listener) = {
+            remove_stale_socket(&agent_socket_path())?;
+            remove_stale_socket(&ssh_agent_socket_path())?;
+            (UnixListener::bind(agent_socket_path())?, UnixListener::bind(ssh_agent_socket_path())?)
+        };
 
         let vault = Arc::new(Mutex::new(VaultSession::new()));
         let mut ipc_state = IpcState {
@@ -56,19 +62,23 @@ impl AgentRuntime {
         load_extension_gate_into_state(&mut ipc_state);
         let state = Arc::new(Mutex::new(ipc_state));
 
-        let ipc_state = state.clone();
-        let ipc_task = tokio::spawn(async move {
-            if serve_ipc(ipc_listener, ipc_state).await.is_err() {
-                crate::diagnostics::error("ipc", "server stopped unexpectedly");
-            }
-        });
+        #[cfg(not(target_os = "android"))]
+        let (ipc_task, ssh_task) = {
+            let ipc_state = state.clone();
+            let ipc_task = tokio::spawn(async move {
+                if serve_ipc(ipc_listener, ipc_state).await.is_err() {
+                    crate::diagnostics::error("ipc", "server stopped unexpectedly");
+                }
+            });
 
-        let ssh_vault = vault.clone();
-        let ssh_task = tokio::spawn(async move {
-            if serve_ssh_agent(ssh_listener, ssh_vault).await.is_err() {
-                crate::diagnostics::error("ssh", "agent stopped unexpectedly");
-            }
-        });
+            let ssh_vault = vault.clone();
+            let ssh_task = tokio::spawn(async move {
+                if serve_ssh_agent(ssh_listener, ssh_vault).await.is_err() {
+                    crate::diagnostics::error("ssh", "agent stopped unexpectedly");
+                }
+            });
+            (ipc_task, ssh_task)
+        };
 
         let restore_tick_vault = vault.clone();
         let restore_task = tokio::spawn(async move {
@@ -99,7 +109,9 @@ impl AgentRuntime {
         Ok(Self {
             _lock: lock,
             state,
+            #[cfg(not(target_os = "android"))]
             ipc_task,
+            #[cfg(not(target_os = "android"))]
             ssh_task,
             restore_task,
             idle_task,
@@ -114,20 +126,20 @@ impl AgentRuntime {
             st.pending_fills.clear();
             st.pending_ssh_sessions.clear();
         }
-        self.ipc_task.abort();
-        self.ssh_task.abort();
+        #[cfg(not(target_os = "android"))]
+        {
+            self.ipc_task.abort();
+            self.ssh_task.abort();
+            let _ = tokio::join!(self.ipc_task, self.ssh_task);
+        }
         self.restore_task.abort();
         self.idle_task.abort();
-        let _ = tokio::join!(
-            self.ipc_task,
-            self.ssh_task,
-            self.restore_task,
-            self.idle_task,
-        );
+        let _ = tokio::join!(self.restore_task, self.idle_task);
         crate::diagnostics::info("agent", "runtime stopped");
     }
 }
 
+#[cfg(not(target_os = "android"))]
 fn remove_stale_socket(path: &std::path::Path) -> Result<()> {
     if path.exists() {
         std::fs::remove_file(path)?;

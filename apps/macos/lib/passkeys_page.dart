@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import 'agent_bridge.dart';
 import 'app_ui.dart';
@@ -125,7 +126,7 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                 tooltip: tr('passkey.build.text'),
                 icon: const Icon(Icons.refresh_rounded))),
         AppNotice(
-            tr('passkey.build.text.item2')),
+            tr(defaultTargetPlatform == TargetPlatform.android ? 'android.passkey.listHelp' : 'passkey.build.text.item2')),
         const SizedBox(height: 12),
         TextField(
             onChanged: (value) => setState(() => _query = value),

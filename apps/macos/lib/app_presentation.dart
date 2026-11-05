@@ -27,6 +27,8 @@ class AppPresentation extends ChangeNotifier with WidgetsBindingObserver {
   Map<String, dynamic> _catalog = {};
   Map<String, dynamic> _messages = {};
   bool _observing = false;
+  // Android 的 HOME 来自原生私有目录，不能依赖 Dart VM 启动前的进程环境快照。
+  String? homeDirectory;
 
   bool get dark =>
       theme == 'dark' ||
@@ -39,7 +41,7 @@ class AppPresentation extends ChangeNotifier with WidgetsBindingObserver {
           ? ThemeMode.light
           : ThemeMode.system;
   String get directory =>
-      '${Platform.environment['HOME'] ?? Directory.systemTemp.path}/.credpivot/languages';
+      '${homeDirectory ?? Platform.environment['HOME'] ?? Directory.systemTemp.path}/.credpivot/languages';
 
   /// 首帧之前读取内置目录，避免启动/解锁期间把内部 key 显示给用户。
   Future<void> loadCatalog() async {
@@ -255,6 +257,10 @@ class AppPresentation extends ChangeNotifier with WidgetsBindingObserver {
     if (path == null) return null;
     await AgentBridge.writeTextFile(
         path, const JsonEncoder.withIndent('  ').convert(pack));
+    if (Platform.isAndroid) {
+      return const MethodChannel('credpivot/agent').invokeMethod<String>(
+          'androidExportDocument', {'path': path, 'name': filename});
+    }
     return path;
   }
 

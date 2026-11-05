@@ -58,6 +58,12 @@ pub enum AgentRequest {
     PasskeyRequestsPending,
     PasskeyResolve { request_id: String, approved: bool, #[serde(default)] credential_id: String, #[serde(default)] use_browser: bool },
     PasskeyList,
+    AppPasskey {
+        kind: String, origin: String, options: Value, package_name: String,
+        #[serde(default)] client_data_hash: Option<String>,
+        #[serde(default)] complete: bool,
+        #[serde(default)] credential_id: String,
+    },
     CredentialSave {
         #[serde(default)]
         password_active_since_ms: Option<i64>,
@@ -79,6 +85,8 @@ pub enum AgentRequest {
         linked_mfa_ids: Option<Vec<String>>,
     },
     BrowserCredentialUpdate { credential_id: String, expected_revision: String, origin: String, username: String, password: String },
+    /// Android 系统保存界面明确确认后更新当前密码；保留历史和所有关联资料。
+    AppCredentialPasswordUpdate { credential_id: String, expected_revision: String, username: String, password: String },
     BrowserTotpCode { #[serde(default)] credential_id: String, origin: String, #[serde(default)] totp_id: String },
     BrowserMfaSuggest { origin: String, #[serde(default)] credential_id: String, #[serde(default)] include_other_matches: bool },
     CredentialSuggest {
@@ -303,8 +311,10 @@ impl AgentRequest {
             Self::PasskeyRequestsPending => "passkey_requests_pending",
             Self::PasskeyResolve { .. } => "passkey_resolve",
             Self::PasskeyList => "passkey_list",
+            Self::AppPasskey { .. } => "app_passkey",
             Self::CredentialSave { .. } => "credential_save",
             Self::BrowserCredentialUpdate { .. } => "browser_credential_update",
+            Self::AppCredentialPasswordUpdate { .. } => "app_credential_password_update",
             Self::BrowserMfaSuggest { .. } => "browser_mfa_suggest",
             Self::BrowserTotpCode { .. } => "browser_totp_code",
             Self::CredentialSuggest { .. } => "credential_suggest",

@@ -241,10 +241,11 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
 
 /// 凭据 Tab：登录 / MFA / SSH 分栏，均可手动添加。
 class CredentialsTab extends StatelessWidget {
-  const CredentialsTab({super.key, required this.unlocked, this.onUnlock});
+  const CredentialsTab({super.key, required this.unlocked, this.onUnlock, this.mobile = false});
 
   final bool unlocked;
   final VoidCallback? onUnlock;
+  final bool mobile;
 
   @override
   Widget build(BuildContext context) {
@@ -260,7 +261,7 @@ class CredentialsTab extends StatelessWidget {
       );
     }
     return DefaultTabController(
-      length: 7,
+      length: mobile ? 5 : 7,
       child: Column(
         children: [
           Align(alignment: Alignment.centerRight, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -272,15 +273,15 @@ class CredentialsTab extends StatelessWidget {
             decoration: BoxDecoration(
                 color: AppColors.sidebar,
                 borderRadius: BorderRadius.circular(12)),
-            child: const TabBar(
+            child: TabBar(
               isScrollable: true,
               tabAlignment: TabAlignment.start,
               splashBorderRadius: BorderRadius.all(Radius.circular(9)),
               tabs: [
                 Tab(child: LText('credentials.login.title')),
                 Tab(child: LText('MFA / TOTP')),
-                Tab(child: LText('credentials.ssh.title')),
-                Tab(child: LText('credentials.server.title')),
+                if (!mobile) Tab(child: LText('credentials.ssh.title')),
+                if (!mobile) Tab(child: LText('credentials.server.title')),
                 Tab(child: LText('credentials.passkey.title')),
                 Tab(child: LText('credentials.tools.title')),
                 Tab(child: LText('credentials.trash.title')),
@@ -292,8 +293,8 @@ class CredentialsTab extends StatelessWidget {
               children: [
                 _LoginPasswordPanel(),
                 _TotpPanel(),
-                _SshKeysPanel(),
-                const ServerLoginPanel(),
+                if (!mobile) _SshKeysPanel(),
+                if (!mobile) const ServerLoginPanel(),
                 const PasskeysPanel(),
                 const VaultToolsPanel(),
                 const VaultToolsPanel(trashOnly: true),

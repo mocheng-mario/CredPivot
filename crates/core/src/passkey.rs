@@ -23,6 +23,8 @@ pub struct Request {
     credential_ids: Vec<String>,
     cred_props: bool,
     appid: bool,
+    client_data_hash: Option<[u8; 32]>,
+    android_package: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -166,7 +168,29 @@ impl Request {
             credential_ids,
             cred_props: options["extensions"]["credProps"] == true,
             appid: !create && options["extensions"].get("appid").is_some(),
+            client_data_hash: None,
+            android_package: None,
         })
+    }
+
+    /// 仅供 Android App 的受保护系统提供方使用；签名和 Asset Links 由原生层先行验证。
+    #[cfg(target_os = "android")]
+    pub fn parse_android(kind: &str, origin: &str, options: &Value, package: &str, client_hash: Option<&str>) -> Result<Self> {
+        if package.is_empty() || package.len() > 255 || !package.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'.' || c == b'_') { return Err(invalid()); }
+        let rp = if kind == "create" { options["rp"]["id"].as_str() } else { options["rpId"].as_str() }.ok_or_else(invalid)?;
+        let mut request = Self::parse(kind, &format!("https://{rp}"), options)?;
+        if let Some(hash) = origin.strip_prefix("android:apk-key-hash:") {
+            let decoded = URL_SAFE_NO_PAD.decode(hash).map_err(|_| invalid())?;
+            if decoded.len() != 32 || URL_SAFE_NO_PAD.encode(&decoded) != hash || client_hash.is_some() { return Err(invalid()); }
+            request.android_package = Some(package.into());
+        } else {
+            let browser = Self::parse(kind, origin, options)?;
+            if browser.rp_id != request.rp_id { return Err(invalid()); }
+            let hash = URL_SAFE_NO_PAD.decode(client_hash.ok_or_else(invalid)?).map_err(|_| invalid())?;
+            request.client_data_hash = Some(hash.try_into().map_err(|_| invalid())?);
+        }
+        request.origin = origin.into();
+        Ok(request)
     }
 
     pub fn candidates(&self, conn: &Connection) -> Result<Vec<Summary>> {
@@ -191,12 +215,23 @@ impl Request {
 
     /// 仅在 App 对本次请求确认并完成身份验证后调用。
     pub fn complete(&self, conn: &Connection, selected: &str) -> Result<Value> {
+        let partition = if self.create { crate::partitions::PERSONAL.to_string() } else {
+            conn.query_row("SELECT i.partition_id FROM passkey_credentials p JOIN items i ON i.id=p.item_id WHERE p.credential_id=?1 AND i.trashed=0", [selected], |r|r.get::<_,String>(0))?
+        };
+        self.complete_in_partition(conn, selected, &partition)
+    }
+
+    pub fn complete_in_partition(&self, conn: &Connection, selected: &str, partition: &str) -> Result<Value> {
+        crate::partitions::require(conn, partition)?;
         let tx = conn.unchecked_transaction()?;
-        let client_data = serde_json::to_vec(
-            &json!({"type":if self.create {"webauthn.create"} else {"webauthn.get"},
-            "challenge":self.challenge,"origin":self.origin,"crossOrigin":false}),
-        )
+        let mut client_json = json!({"type":if self.create {"webauthn.create"} else {"webauthn.get"},
+            "challenge":self.challenge,"origin":self.origin,"crossOrigin":false});
+        if let Some(package) = &self.android_package { client_json["androidPackageName"] = json!(package); }
+        let client_data = serde_json::to_vec(&client_json)
         .map_err(|_| invalid())?;
+        // 浏览器已计算的 hash 必须原样签名，不能用重新序列化的 JSON 替代。
+        let client_hash: [u8; 32] = self.client_data_hash.unwrap_or_else(|| Sha256::digest(&client_data).into());
+        let client_encoded = if self.client_data_hash.is_some() { String::new() } else { URL_SAFE_NO_PAD.encode(&client_data) };
         let mut auth_data = Sha256::digest(self.rp_id.as_bytes()).to_vec();
         // UP + UV + BE。可迁移凭据使用零计数；未确认异地备份，不能声称 BS=true。
         auth_data.push(if self.create { 0x4d } else { 0x0d });
@@ -217,9 +252,9 @@ impl Request {
             let title = format!("{} · {}", self.rp_id, self.username);
             let secret = Zeroizing::new(key.to_bytes().to_vec());
             tx.execute(
-                "INSERT INTO items(id,kind,title,current_revision,created_at_ms,updated_at_ms)
-                VALUES (?1,'passkey',?2,?3,?4,?4)",
-                params![item, title, new_revision(), ts],
+                "INSERT INTO items(id,kind,title,current_revision,created_at_ms,updated_at_ms,partition_id)
+                VALUES (?1,'passkey',?2,?3,?4,?4,?5)",
+                params![item, title, new_revision(), ts, partition],
             )?;
             tx.execute("INSERT INTO passkey_credentials(credential_id,item_id,rp_id,user_handle,username,display_name,private_key,created_at_ms)
                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",params![id,item,self.rp_id,self.user_handle,self.username,self.display_name,secret.as_slice(),ts])?;
@@ -246,7 +281,7 @@ impl Request {
                 json!({})
             };
             json!({"id":id,"rawId":id,"type":"public-key","authenticatorAttachment":"platform",
-                "clientExtensionResults":extensions,"response":{"clientDataJSON":URL_SAFE_NO_PAD.encode(&client_data),
+                "clientExtensionResults":extensions,"response":{"clientDataJSON":client_encoded,
                 "attestationObject":URL_SAFE_NO_PAD.encode(attestation),"authenticatorData":URL_SAFE_NO_PAD.encode(auth_data),
                 "publicKey":URL_SAFE_NO_PAD.encode(spki),"publicKeyAlgorithm":-7,"transports":["internal"]}})
         } else {
@@ -255,6 +290,10 @@ impl Request {
                 .iter()
                 .any(|r| r.credential_id == selected)
             {
+                return Err(invalid());
+            }
+            // 系统选择器中的分区选择不能绕过到另一个分区的通行密钥。
+            if !tx.query_row("SELECT EXISTS(SELECT 1 FROM passkey_credentials p JOIN items i ON i.id=p.item_id WHERE p.credential_id=?1 AND i.partition_id=?2 AND i.trashed=0)", params![selected,partition], |r|r.get::<_,bool>(0))? {
                 return Err(invalid());
             }
             let (secret, user_handle): (Vec<u8>, String) = tx.query_row(
@@ -266,14 +305,14 @@ impl Request {
             let key = SigningKey::from_slice(&secret)
                 .map_err(|_| CoreError::format("通行密钥数据损坏"))?;
             let mut signed = auth_data.clone();
-            signed.extend_from_slice(&Sha256::digest(&client_data));
+            signed.extend_from_slice(&client_hash);
             let signature: Signature = key.sign(&signed);
             // 沿用本机使用记录，备份/导出不会带走网站登录时间。
             tx.execute("INSERT INTO local_usage(item_id,last_used_at_ms,use_count)
                 SELECT item_id,?1,1 FROM passkey_credentials WHERE credential_id=?2
                 ON CONFLICT(item_id) DO UPDATE SET last_used_at_ms=excluded.last_used_at_ms,use_count=use_count+1",params![now_ms(),selected])?;
             json!({"id":selected,"rawId":selected,"type":"public-key","authenticatorAttachment":"platform",
-                "clientExtensionResults":if self.appid {json!({"appid":false})} else {json!({})},"response":{"clientDataJSON":URL_SAFE_NO_PAD.encode(&client_data),
+                "clientExtensionResults":if self.appid {json!({"appid":false})} else {json!({})},"response":{"clientDataJSON":client_encoded,
                 "authenticatorData":URL_SAFE_NO_PAD.encode(auth_data),"signature":URL_SAFE_NO_PAD.encode(signature.to_der().as_bytes()),"userHandle":user_handle}})
         };
         if self.create {

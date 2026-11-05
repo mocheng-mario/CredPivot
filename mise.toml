@@ -1,6 +1,8 @@
 [tools]
 rust = "1.99.1"
 flutter = "3.47.7"
+java = "temurin-21.0.13+9.0.LTS"
+android-sdk = "23.0"
 
 [env]
 # 修复为 Flutter 中国社区的标准镜像域名

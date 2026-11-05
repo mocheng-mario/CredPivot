@@ -31,6 +31,15 @@ apps/macos/build/
 apps/macos/.flutter-plugins-dependencies
 apps/macos/macos/Flutter/ephemeral/
 apps/macos/flutter_*.log
+apps/macos/android/.gradle/
+apps/macos/android/.kotlin/
+apps/macos/android/local.properties
+apps/macos/android/**/*.iml
+apps/macos/android/app/.cxx/
+apps/macos/android/app/src/main/rustLibs/
+apps/macos/android/key.properties
+*.jks
+*.keystore
 
 # Rust 产物由 make macos-sync-artifacts 复制到 Runner，不入库
 apps/macos/macos/Runner/libcredpivot_ffi.a
