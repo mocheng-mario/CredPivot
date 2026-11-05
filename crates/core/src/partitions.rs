@@ -115,8 +115,10 @@ pub fn validate(conn: &Connection) -> Result<()> {
         name(conn,row["name"].as_str().ok_or_else(||error("invalid"))?,row["id"].as_str())?;
     }
     let invalid: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM items i LEFT JOIN partitions p ON p.id=i.partition_id
-        LEFT JOIN credential_groups g ON g.id=i.group_id WHERE p.id IS NULL OR (i.group_id IS NOT NULL AND (g.id IS NULL OR g.partition_id<>i.partition_id)))
-        OR EXISTS(SELECT 1 FROM credential_groups g LEFT JOIN partitions p ON p.id=g.partition_id WHERE p.id IS NULL)",[],|r|r.get(0))?;
+        LEFT JOIN credential_groups g ON g.id=i.group_id WHERE p.id IS NULL OR (i.group_id IS NOT NULL AND (g.id IS NULL OR g.partition_id<>i.partition_id
+        OR (g.scope<>'shared' AND g.scope<>CASE i.kind WHEN 'ssh_key' THEN 'ssh' WHEN 'server_login' THEN 'server' ELSE i.kind END))))
+        OR EXISTS(SELECT 1 FROM credential_groups g LEFT JOIN partitions p ON p.id=g.partition_id WHERE p.id IS NULL
+        OR g.scope NOT IN ('shared','login','totp','ssh','server','passkey','recovery_codes','secure_note'))",[],|r|r.get(0))?;
     if invalid { return Err(error("invalid")); }
     let parts: BTreeMap<String,String> = rows(conn,"SELECT id,partition_id FROM items",[])?.into_iter()
         .map(|r|(r["id"].as_str().unwrap_or("").into(),r["partition_id"].as_str().unwrap_or("").into())).collect();

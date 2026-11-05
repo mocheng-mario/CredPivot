@@ -1,6 +1,7 @@
 use crate::error::{CoreError, Result};
 use crate::repo::{new_revision, now_ms};
 use rusqlite::{params, Connection};
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -11,13 +12,16 @@ pub struct CredentialGroupRow {
     pub sort_order: i64,
     pub partition_id: String,
     pub updated_at_ms: i64,
+    #[serde(default)]
+    pub usage_counts: BTreeMap<String, i64>,
 }
 
 pub fn list_credential_groups(conn: &Connection, scope: &str) -> Result<Vec<CredentialGroupRow>> {
+    checked_scope(scope)?;
     let mut stmt = conn
         .prepare(
             "SELECT id, name, scope, sort_order, partition_id, updated_at_ms FROM credential_groups
-             WHERE scope = ?1 ORDER BY sort_order ASC, name ASC",
+             WHERE scope IN (?1, 'shared') ORDER BY sort_order ASC, name ASC, id ASC",
         )
         .map_err(|e| CoreError::format(e.to_string()))?;
     let rows = stmt
@@ -29,6 +33,7 @@ pub fn list_credential_groups(conn: &Connection, scope: &str) -> Result<Vec<Cred
                 sort_order: row.get(3)?,
                 partition_id: row.get(4)?,
                 updated_at_ms: row.get(5)?,
+                usage_counts: BTreeMap::new(),
             })
         })
         .map_err(|e| CoreError::format(e.to_string()))?;
@@ -36,7 +41,19 @@ pub fn list_credential_groups(conn: &Connection, scope: &str) -> Result<Vec<Cred
     for r in rows {
         out.push(r.map_err(|e| CoreError::format(e.to_string()))?);
     }
+    // 统计所有子模块（含回收站），删除共享分组时不能只展示当前列表的影响。
+    let mut usage = conn.prepare("SELECT i.group_id,i.kind,COUNT(*) FROM items i JOIN credential_groups g ON g.id=i.group_id
+        WHERE g.scope IN (?1,'shared') GROUP BY i.group_id,i.kind")?;
+    let counts = usage.query_map([scope], |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,i64>(2)?)))?;
+    let mut by_group = BTreeMap::<String,BTreeMap<String,i64>>::new();
+    for row in counts { let (id,kind,count)=row?; by_group.entry(id).or_default().insert(kind,count); }
+    for group in &mut out { group.usage_counts=by_group.remove(&group.id).unwrap_or_default(); }
     Ok(out)
+}
+
+fn checked_scope(scope: &str) -> Result<()> {
+    if matches!(scope,"shared"|"login"|"totp"|"ssh"|"server"|"passkey"|"recovery_codes"|"secure_note") { Ok(()) }
+    else { Err(CoreError::format("partitions.errors.groupScope")) }
 }
 
 pub fn create_credential_group(conn: &Connection, scope: &str, name: &str) -> Result<CredentialGroupRow> {
@@ -44,6 +61,7 @@ pub fn create_credential_group(conn: &Connection, scope: &str, name: &str) -> Re
 }
 
 fn checked_name(conn: &Connection, partition: &str, scope: &str, name: &str, except: &str) -> Result<String> {
+    checked_scope(scope)?;
     let name=name.trim();
     if name.is_empty() || name.chars().count()>80 || name.chars().any(char::is_control)
         || name.eq_ignore_ascii_case("internal_work") { return Err(CoreError::format("partitions.errors.groupName")); }
@@ -79,6 +97,7 @@ pub fn create_credential_group_in_partition(conn: &Connection, partition_id: &st
         sort_order: sort,
         partition_id: partition_id.into(),
         updated_at_ms: ts,
+        usage_counts: BTreeMap::new(),
     })
 }
 
@@ -87,13 +106,37 @@ pub fn rename_credential_group(conn: &Connection, id: &str, name: &str) -> Resul
 }
 
 pub fn rename_credential_group_checked(conn: &Connection, id: &str, name: &str, expected: Option<i64>) -> Result<()> {
+    update_credential_group_checked(conn,id,name,None,expected)
+}
+
+pub fn update_credential_group_checked(conn: &Connection, id: &str, name: &str, scope: Option<&str>, expected: Option<i64>) -> Result<()> {
     let tx=conn.unchecked_transaction()?;
-    let (partition,scope,modified):(String,String,i64)=tx.query_row("SELECT partition_id,scope,updated_at_ms FROM credential_groups WHERE id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+    let (partition,old_scope,modified):(String,String,i64)=tx.query_row("SELECT partition_id,scope,updated_at_ms FROM credential_groups WHERE id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
     if expected.is_some_and(|value|value!=modified) { return Err(CoreError::Conflict); }
-    let name=checked_name(&tx,&partition,&scope,name,id)?;
-    tx.execute("UPDATE credential_groups SET name=?1,updated_at_ms=?2 WHERE id=?3",params![name,now_ms(),id])?;
+    let scope=scope.unwrap_or(&old_scope);
+    let name=checked_name(&tx,&partition,scope,name,id)?;
+    // 共享改为独享时，数据库约束会同时检查其他类型与回收站记录，不能遗留不可恢复的引用。
+    tx.execute("UPDATE credential_groups SET name=?1,scope=?2,updated_at_ms=?3 WHERE id=?4",params![name,scope,now_ms(),id])?;
     crate::mark_restore_dirty(&tx)?;
     tx.commit()?;
+    Ok(())
+}
+
+/// scope 复用现有字段，不改变快照结构；已有数据库打开时也补装幂等约束。
+pub(crate) fn install_constraints(conn: &Connection) -> Result<()> {
+    let normal="NOT EXISTS(SELECT 1 FROM sync_state WHERE key IN ('applying','partition_moving'))";
+    let item_scope="CASE NEW.kind WHEN 'ssh_key' THEN 'ssh' WHEN 'server_login' THEN 'server' ELSE NEW.kind END";
+    for event in ["INSERT","UPDATE"] {
+        conn.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS credential_group_item_{event} BEFORE {event} ON items WHEN {normal}
+BEGIN SELECT CASE WHEN NEW.group_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM credential_groups g
+ WHERE g.id=NEW.group_id AND g.partition_id=NEW.partition_id AND (g.scope='shared' OR g.scope={item_scope}))
+ THEN RAISE(ABORT,'partitions.errors.groupScope') END; END;
+CREATE TRIGGER IF NOT EXISTS credential_group_scope_{event} BEFORE {event} ON credential_groups WHEN {normal}
+BEGIN SELECT CASE WHEN NEW.scope NOT IN ('shared','login','totp','ssh','server','passkey','recovery_codes','secure_note')
+ OR (NEW.scope<>'shared' AND EXISTS(SELECT 1 FROM items i WHERE i.group_id=NEW.id
+ AND NEW.scope<>CASE i.kind WHEN 'ssh_key' THEN 'ssh' WHEN 'server_login' THEN 'server' ELSE i.kind END))
+ THEN RAISE(ABORT,'partitions.errors.groupInUse') END; END;"))?;
+    }
     Ok(())
 }
 

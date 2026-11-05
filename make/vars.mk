@@ -29,3 +29,4 @@ endif
 RUST_LIB_FFI := $(RUST_ARTIFACT_DIR)/libcredpivot_ffi.a
 RUST_HOST_BIN := $(RUST_ARTIFACT_DIR)/credpivot-native-host
 RUST_ASKPASS_BIN := $(RUST_ARTIFACT_DIR)/credpivot-askpass
+RUST_GIT_SSH_BIN := $(RUST_ARTIFACT_DIR)/credpivot-git-ssh

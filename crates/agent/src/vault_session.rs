@@ -46,6 +46,7 @@ impl std::fmt::Debug for LocalUnlockMaterial {
 /// 进程内 Vault 会话：M1 控制面 + M2 SQLCipher 业务库。
 #[derive(Debug)]
 pub struct VaultSession {
+    pub(crate) bootstrap_plan: Option<credpivot_core::sync::BootstrapPlan>,
     pub(crate) sync_plan: Option<credpivot_core::sync::Plan>,
     pub vault_dir: PathBuf,
     pub vmk: Option<Zeroizing<[u8; VMK_LEN]>>,
@@ -56,6 +57,7 @@ pub struct VaultSession {
     sensitive_authenticated_at: Option<Instant>,
     pub ssh_signing_key: Option<SigningKey>,
     pub ssh_signing_key_id: Option<String>,
+    pub ssh_signing_key_comment: String,
     pub ssh_authorization: crate::ssh_agent::SshAuthorization,
     pub passkey_requests: crate::passkey::PendingRequests,
     pub data_revision: String,
@@ -92,6 +94,7 @@ impl VaultSession {
     pub fn new_at(vault_dir: PathBuf) -> Self {
         let settings = credpivot_core::effective_app_settings();
         Self {
+            bootstrap_plan: None,
             sync_plan: None,
             vault_dir,
             vmk: None,
@@ -101,6 +104,7 @@ impl VaultSession {
             sensitive_authenticated_at: None,
             ssh_signing_key: None,
             ssh_signing_key_id: None,
+            ssh_signing_key_comment: String::new(),
             ssh_authorization: Default::default(),
             passkey_requests: Default::default(),
             data_revision: uuid::Uuid::new_v4().to_string(),
@@ -130,6 +134,7 @@ impl VaultSession {
         self.passkey_requests.clear();
         self.ssh_authorization.clear();
         self.ssh_signing_key_id = None;
+        self.ssh_signing_key_comment.clear();
         self.unlocked = false;
         self.vmk = None;
         self.db = None;
@@ -157,6 +162,7 @@ impl VaultSession {
             .default_ssh()
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         self.ssh_signing_key_id = rec.as_ref().map(|key| key.id.clone());
+        self.ssh_signing_key_comment = rec.as_ref().map(|key| key.public_openssh.splitn(3,' ').nth(2).unwrap_or("").to_string()).unwrap_or_default();
         self.ssh_authorization.clear();
         self.ssh_signing_key = rec.map(|key| SigningKey::from_bytes(&key.seed));
         Ok(())
@@ -229,6 +235,7 @@ impl VaultSession {
     }
 
     pub fn lock(&mut self) {
+        self.bootstrap_plan = None;
         self.sync_plan = None;
         self.passkey_requests.clear();
         if self.unlocked {
@@ -240,6 +247,7 @@ impl VaultSession {
         self.unlocked = false;
         self.ssh_authorization.clear();
         self.ssh_signing_key_id = None;
+        self.ssh_signing_key_comment.clear();
         self.sensitive_authenticated_at = None;
         self.vmk = None;
         self.db = None;
@@ -261,6 +269,7 @@ impl VaultSession {
             .map_err(|e| AgentError::Vault(e.to_string()))?;
         self.ssh_authorization.clear();
         self.ssh_signing_key_id = Some(rec.id.clone());
+        self.ssh_signing_key_comment = rec.public_openssh.splitn(3,' ').nth(2).unwrap_or("").to_string();
         self.ssh_signing_key = Some(SigningKey::from_bytes(&rec.seed));
         Ok(())
     }
@@ -488,7 +497,7 @@ impl VaultSession {
         let Some(key) = &self.ssh_signing_key else { return String::new(); };
         let vk: VerifyingKey = key.verifying_key();
         let bytes = vk.to_bytes();
-        credpivot_core::format_ssh_ed25519_openssh(&bytes, "credpivot-m2")
+        credpivot_core::format_ssh_ed25519_openssh(&bytes, &self.ssh_signing_key_comment)
     }
 
     pub fn save_credential(

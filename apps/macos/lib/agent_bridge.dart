@@ -65,6 +65,8 @@ class AgentBridge {
   static Future<void> selectSshKey(String keyId) async {
     await request({'type': 'ssh_select_key', 'key_id': keyId});
   }
+  static Future<String> prepareSshIdentityFile(String keyId) async =>
+      await _channel.invokeMethod<String>('prepareSshIdentityFile', keyId) ?? (throw AgentException('ssh', tr('ssh.git.failed')));
 
   static Map<String, dynamic> payloadOf(Map<String, dynamic> resp) =>
       resp['payload'] as Map<String, dynamic>? ?? resp;
@@ -348,12 +350,14 @@ class AgentBridge {
     return items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
-  static Future<void> createCredentialGroup(String scope, String name) async {
-    await request({'type': 'credential_group_create', 'scope': scope, 'name': name});
+  static Future<void> createCredentialGroup(String scope, String name, {String? partitionId}) async {
+    await request({'type': 'credential_group_create', 'scope': scope, 'name': name}, partitionId: partitionId);
+    notifyVaultChanged();
   }
 
   static Future<void> deleteCredentialGroup(String id) async {
     await request({'type': 'credential_group_delete', 'id': id});
+    notifyVaultChanged();
   }
 
   static Future<void> setItemGroup(String itemId, String? groupId) async {
@@ -362,6 +366,7 @@ class AgentBridge {
       'item_id': itemId,
       'group_id': groupId ?? '',
     });
+    notifyVaultChanged();
   }
 
   static Future<Map<String, dynamic>> fetchDiagnosticLog({int maxLines = 400, String? file}) async {
@@ -401,11 +406,13 @@ class AgentBridge {
     required String host,
     required int port,
     required String username,
+    String? identityFile,
   }) async {
     return await _channel.invokeMethod<String>('openSshInTerminal', {
       'host': host,
       'port': port,
       'username': username,
+      if (identityFile != null) 'identityFile': identityFile,
     });
   }
 
@@ -620,11 +627,17 @@ class AgentBridge {
     required String label,
     bool setDefault = false,
     String? groupId,
+    String comment = '',
+    String signPolicy = '',
+    List<String> gitRules = const [],
   }) async {
     final resp = await request({
       'type': 'ssh_key_generate',
       'label': label,
       'set_default': setDefault,
+      'comment': comment,
+      'sign_policy': signPolicy,
+      'git_rules': gitRules,
       if (groupId != null && groupId.isNotEmpty) 'group_id': groupId,
     });
     return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});

@@ -349,5 +349,6 @@ BEGIN INSERT OR REPLACE INTO sync_tombstones VALUES ('partition:' || OLD.id, CAS
         crate::mark_restore_dirty(c)?;
         Ok(())
     })?;
+    crate::credential_groups::install_constraints(conn)?;
     Ok(())
 }

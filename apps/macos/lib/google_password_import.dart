@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'agent_bridge.dart';
 import 'app_ui.dart';
 import 'credential_confirm.dart';
+import 'credential_group_ui.dart';
 import 'vault_tools.dart' show vaultAction, vaultMessage;
 
 Future<bool> importGooglePasswords(BuildContext context) async {
@@ -173,13 +174,13 @@ class _GooglePasswordImportState extends State<_GooglePasswordImport> {
         items: [
           const DropdownMenuItem(value: '__none__', child: LText('common.ungroupedOption')),
           const DropdownMenuItem(value: '__new__', child: LText('import.google.newGroup')),
-          for (final row in _groups) DropdownMenuItem(value: row['id'].toString(), child: Text(row['name'].toString())),
+          for (final row in _groups) DropdownMenuItem(value: row['id'].toString(), child: Text(credentialGroupLabel(row), overflow: TextOverflow.ellipsis)),
         ],
         onChanged: _busy ? null : (value) {
           if (value != null) setState(() { _group = value; _dirty = true; _error = ''; });
         },
       )),
-      if (_group == '__new__') AppFieldRow(label: tr('import.google.groupName'),
+      if (_group == '__new__') AppFieldRow(label: tr('import.google.groupName'), help: tr('groups.type.sharedHelp'),
         child: TextField(controller: _groupName, enabled: !_busy, maxLength: 80,
           decoration: InputDecoration(hintText: tr('import.google.groupHint')),
           onChanged: (_) => _dirty = true,

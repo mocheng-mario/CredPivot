@@ -55,7 +55,9 @@ pub fn export_key(conn: &Connection, id: &str, passphrase: &str) -> Result<Value
     }
     let record = crate::repo_m2::load_ssh_key_by_id(conn, id)?;
     let seed = Zeroizing::new(record.seed);
-    let key = PrivateKey::new(Ed25519Keypair::from_seed(&seed).into(), record.label)
+    // 备注不参与密钥计算，但导出后应与复制出的公钥一致。
+    let comment = record.public_openssh.splitn(3, ' ').nth(2).unwrap_or(&record.label);
+    let key = PrivateKey::new(Ed25519Keypair::from_seed(&seed).into(), comment)
         .map_err(|_| CoreError::format("密钥编码失败"))?;
     let key = if passphrase.is_empty() {
         key

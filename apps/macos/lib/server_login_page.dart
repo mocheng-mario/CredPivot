@@ -169,15 +169,10 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     return manual.isEmpty ? null : manual;
   }
 
-  Future<String?> _activateLinkedSshKey(Map<String, dynamic> row) async {
+  Future<String?> _linkedSshIdentityFile(Map<String, dynamic> row) async {
     final keyId = dropdownValueIfPresent(row['linked_ssh_key_id'] as String?, _sshKeys);
     if (keyId == null || keyId.isEmpty) return null;
-    try {
-      await AgentBridge.selectSshKey(keyId);
-      return null;
-    } on AgentException catch (e) {
-      return AgentBridge.friendlyMessage(e);
-    }
+    return AgentBridge.prepareSshIdentityFile(keyId);
   }
 
   Future<void> _openSshAuto() async {
@@ -204,11 +199,6 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     }
     if (!await requireTouchId(context, reason: tr('server.openSshAuto.reason'))) return;
     final totpId = _resolveTotpIdForServer(row);
-    final sshErr = await _activateLinkedSshKey(row);
-    if (sshErr != null) {
-      setState(() => _status = sshErr);
-      return;
-    }
     final port = row['port'] is int ? row['port'] as int : int.tryParse('${row['port']}') ?? 22;
     String sessionId;
     try {
@@ -258,13 +248,11 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
       setState(() => _status = tr('server.openSshAuto.text.item4'));
       return;
     }
-    final sshErr = await _activateLinkedSshKey(row);
-    if (sshErr != null) {
-      setState(() => _status = sshErr);
-      return;
-    }
+    String? identityFile;
+    try { identityFile = await _linkedSshIdentityFile(row); }
+    catch (e) { if (mounted) setState(() => _status = e is AgentException ? AgentBridge.friendlyMessage(e) : tr('ssh.git.failed')); return; }
     final port = row['port'] is int ? row['port'] as int : int.tryParse('${row['port']}') ?? 22;
-    final err = await AgentBridge.openSshInTerminal(host: host, port: port, username: username);
+    final err = await AgentBridge.openSshInTerminal(host: host, port: port, username: username, identityFile: identityFile);
     if (err != null && err.isNotEmpty) {
       setState(() => _status = err);
       return;
@@ -618,7 +606,7 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
                     const DropdownMenuItem(value: null, child: LText('common.ungroupedOption')),
                     for (final group in groups)
                       DropdownMenuItem(value: group['id'] as String,
-                          child: Text(group['name'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                          child: Text(credentialGroupLabel(group), maxLines: 1, overflow: TextOverflow.ellipsis)),
                   ],
                   onChanged: (value) => setLocal(() => groupId = value),
                 )),

@@ -4,7 +4,8 @@ import 'app_ui.dart';
 import 'touch_id_gate.dart';
 
 class AndroidDiagnosticsPage extends StatefulWidget {
-  const AndroidDiagnosticsPage({super.key});
+  const AndroidDiagnosticsPage({super.key, this.readOnly = false});
+  final bool readOnly;
   @override
   State<AndroidDiagnosticsPage> createState() => _AndroidDiagnosticsPageState();
 }
@@ -49,7 +50,7 @@ class _AndroidDiagnosticsPageState extends State<AndroidDiagnosticsPage> {
           AppFieldRow(label: tr('android.diagnostics.minimum'), child: DropdownButtonFormField<String>(initialValue: minimum,
             items: levels.map((level) => DropdownMenuItem(value: level, child: Text(level.toUpperCase()))).toList(),
             onChanged: (value) => setState(() => minimum = value ?? 'debug'))),
-          AppFieldRow(label: tr('android.diagnostics.recording'), child: DropdownButtonFormField<String>(
+          if (!widget.readOnly) AppFieldRow(label: tr('android.diagnostics.recording'), child: DropdownButtonFormField<String>(
             key: ValueKey(data['level']), initialValue: levels.contains(data['level']) ? data['level'] as String : 'info',
             items: levels.map((level) => DropdownMenuItem(value: level, child: Text(level.toUpperCase()))).toList(),
             onChanged: busy ? null : (value) async {

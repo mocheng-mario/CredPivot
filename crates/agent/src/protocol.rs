@@ -27,8 +27,12 @@ pub enum AgentRequest {
     SyncPublishAuthorize { location: String, head: credpivot_core::sync::Head },
     SyncAcknowledge { location: String, head: credpivot_core::sync::Head },
     SyncDisconnect,
+    SyncBootstrapPrepare { location: String, head: credpivot_core::sync::Head, remote_ovb: String, password: String },
+    SyncBootstrapApply { plan_id: String },
+    SyncBootstrapCancel,
+    SyncBootstrapFinish { location: String, head: credpivot_core::sync::Head },
     SshAuthorizationsPending,
-    SshAuthorizationResolve { request_id: String, approved: bool },
+    SshAuthorizationResolve { request_id: String, approved: bool, #[serde(default)] key_id: String, #[serde(default)] remember: bool },
     AppSettingsGet,
     AppSettingsBackup,
     AppSettingsSet { settings: credpivot_core::AppSettings },
@@ -195,6 +199,12 @@ pub enum AgentRequest {
         set_default: Option<bool>,
         #[serde(default)]
         group_id: Option<String>,
+        #[serde(default)]
+        comment: String,
+        #[serde(default)]
+        sign_policy: String,
+        #[serde(default)]
+        git_rules: Vec<String>,
     },
     /// 将 CredPivot SSH Agent 当前身份切换为指定库内密钥。
     SshSelectKey { key_id: String },
@@ -289,6 +299,10 @@ impl AgentRequest {
             Self::SyncPublishAuthorize { .. } => "sync_publish_authorize",
             Self::SyncAcknowledge { .. } => "sync_acknowledge",
             Self::SyncDisconnect => "sync_disconnect",
+            Self::SyncBootstrapPrepare { .. } => "sync_bootstrap_prepare",
+            Self::SyncBootstrapApply { .. } => "sync_bootstrap_apply",
+            Self::SyncBootstrapCancel => "sync_bootstrap_cancel",
+            Self::SyncBootstrapFinish { .. } => "sync_bootstrap_finish",
             Self::SshAuthorizationsPending => "ssh_authorizations_pending",
             Self::SshAuthorizationResolve { .. } => "ssh_authorization_resolve",
             Self::AppSettingsGet => "app_settings_get",

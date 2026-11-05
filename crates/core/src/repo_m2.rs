@@ -445,6 +445,13 @@ pub fn insert_ssh_key_in_partition(
     is_default: bool,
     group_id: Option<&str>,
 ) -> Result<SshKeyRecord> {
+    insert_ssh_key_with_details(conn,partition_id,label,public_openssh,seed,is_default,group_id,"{}")
+}
+
+fn insert_ssh_key_with_details(
+    conn: &Connection, partition_id: &str, label: &str, public_openssh: &str,
+    seed: &[u8;32], is_default: bool, group_id: Option<&str>, details: &str,
+) -> Result<SshKeyRecord> {
     crate::partitions::require(conn, partition_id)?;
     let item_id = Uuid::new_v4().to_string();
     let key_id = Uuid::new_v4().to_string();
@@ -461,9 +468,9 @@ pub fn insert_ssh_key_in_partition(
         .map_err(|e| CoreError::format(e.to_string()))?;
     }
     tx.execute(
-        "INSERT INTO items (id, kind, title, trashed, group_id, current_revision, created_at_ms, updated_at_ms, partition_id)
-         VALUES (?1, 'ssh_key', ?2, 0, ?3, ?4, ?5, ?5, ?6)",
-        params![item_id, label, group_id, revision, ts, partition_id],
+        "INSERT INTO items (id, kind, title, trashed, group_id, current_revision, created_at_ms, updated_at_ms, partition_id, details_json)
+         VALUES (?1, 'ssh_key', ?2, 0, ?3, ?4, ?5, ?5, ?6, ?7)",
+        params![item_id, label, group_id, revision, ts, partition_id, details],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     tx.execute(
@@ -671,14 +678,29 @@ pub fn generate_ssh_key_in_partition(
     set_default: bool,
     group_id: Option<&str>,
 ) -> Result<SshKeyListRow> {
+    generate_ssh_key_with_options_in_partition(conn,partition_id,label,set_default,group_id,"","",&[])
+}
+
+pub fn generate_ssh_key_with_options_in_partition(
+    conn: &Connection, partition_id: &str, label: &str, set_default: bool,
+    group_id: Option<&str>, comment: &str, sign_policy: &str, git_rules: &[String],
+) -> Result<SshKeyListRow> {
     crate::partitions::require(conn, partition_id)?;
+    let label=label.trim(); let comment=comment.trim();
+    if label.is_empty() || label.len()>200 || label.chars().any(char::is_control) { return Err(CoreError::format("ssh.errors.name")); }
+    if comment.chars().count()>256 || comment.chars().any(char::is_control) { return Err(CoreError::format("ssh.errors.comment")); }
+    if !matches!(sign_policy,""|"session"|"confirm"|"biometric") { return Err(CoreError::format("ssh.errors.policy")); }
     use ed25519_dalek::SigningKey;
     use rand::rngs::OsRng;
     let signing = SigningKey::generate(&mut OsRng);
-    let seed = signing.to_bytes();
+    let seed = zeroize::Zeroizing::new(signing.to_bytes());
     let vk = signing.verifying_key();
-    let public = format_ssh_ed25519_openssh(vk.as_bytes(), "credpivot");
-    let rec = insert_ssh_key_in_partition(conn, partition_id, label, &public, &seed, set_default, group_id)?;
+    let public = format_ssh_ed25519_openssh(vk.as_bytes(), if comment.is_empty() { "credpivot" } else { comment });
+    let details=serde_json::to_string(&crate::credential_management::ItemDetails {
+        ssh_sign_policy:sign_policy.into(), ssh_git_rules:crate::ssh_git::normalize_rules(git_rules)?, ..Default::default()
+    }).map_err(|_|CoreError::format("ssh.errors.policy"))?;
+    // 身份、分组和策略一起提交，不能在策略保存失败后留下已生成的半条记录。
+    let rec = insert_ssh_key_with_details(conn, partition_id, label, &public, &seed, set_default, group_id, &details)?;
     Ok(SshKeyListRow {
         id: rec.id,
         item_id: rec.item_id,

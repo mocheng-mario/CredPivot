@@ -6,5 +6,6 @@ include make/macos.mk
 include make/android.mk
 include make/chrome.mk
 include make/release.mk
+include make/build.mk
 include make/clean.mk
 include make/help.mk

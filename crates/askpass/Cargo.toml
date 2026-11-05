@@ -9,6 +9,10 @@ license.workspace = true
 name = "credpivot-askpass"
 path = "src/main.rs"
 
+[[bin]]
+name = "credpivot-git-ssh"
+path = "src/git_ssh.rs"
+
 [dependencies]
 credpivot-agent = { path = "../agent" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }

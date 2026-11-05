@@ -19,6 +19,8 @@ import 'settings_page.dart';
 import 'shortcuts_page.dart';
 import 'vault_tools.dart';
 import 'webdav_sync.dart';
+import 'webdav_bootstrap.dart';
+import 'vault_setup.dart';
 import 'credential_partitions.dart';
 import 'main_android.dart' as android;
 
@@ -81,6 +83,9 @@ class _VaultHomePageState extends State<VaultHomePage> {
   Map<String, dynamic> _status = {};
   int _memoryBytes = 0;
   bool _busy = false;
+  bool _skippedSetup = false;
+  bool _creatingVault = false;
+  bool _openingRemote = false;
   bool _initializing = true;
   bool _bootstrapping = false;
   bool _wakeUnlockInProgress = false;
@@ -149,7 +154,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
       final payload = AgentBridge.payloadOf(raw);
       final gen = (payload['vault_lock_generation'] as num?)?.toInt() ?? 0;
       final agentUnlocked = payload['unlocked'] == true;
-      WebDavSync.instance.setUnlocked(agentUnlocked);
+      WebDavSync.instance.setUnlocked(agentUnlocked && !_openingRemote);
       CredentialPartitions.instance.setUnlocked(agentUnlocked);
       final revision = payload['data_revision']?.toString();
       if (agentUnlocked && _lastDataRevision != null && revision != _lastDataRevision) AgentBridge.notifyVaultChanged();
@@ -286,7 +291,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
         'agent': payload,
       });
     });
-    WebDavSync.instance.setUnlocked(payload['unlocked'] == true);
+    WebDavSync.instance.setUnlocked(payload['unlocked'] == true && !_openingRemote);
   }
 
   Future<void> _bootstrap() async {
@@ -590,24 +595,66 @@ class _VaultHomePageState extends State<VaultHomePage> {
   }
 
   Future<void> _recoverOvb({required bool useRecovery}) async {
+    final initial = !_vaultExists;
     final ovb = await AgentBridge.pickOpenFile();
     if (ovb == null) return;
     final target = await AgentBridge.pickDirectory();
-    if (target == null) return;
+    if (target == null || !mounted) return;
+    var password = _recoveryPassword.text;
+    if (initial && !useRecovery && password.isEmpty) {
+      final supplied = await askInitialBackupPassword(context);
+      if (supplied == null || !mounted) return;
+      password = supplied;
+    }
     await _run(tr('vault.recoverOvb.text'), () async {
       await AgentBridge.vaultRecoverOvb(
         ovbPath: ovb,
         targetDir: target,
-        password: useRecovery ? null : _recoveryPassword.text,
+        password: useRecovery ? null : password,
         recoveryKey: useRecovery ? _recoveryKey.text.trim() : null,
       );
       await AgentBridge.lockVault();
       await AgentBridge.vaultOpenDir(target);
       _onVaultLockedExternally();
+      if (initial && !useRecovery && !await AgentBridge.unlockWithPassword(password)) {
+        throw AgentException('bad_unlock', tr('sync.bootstrap.openFailed'));
+      }
       await _refreshStatus();
       _appendLog(tr('vault.recoverOvb.text.item2', args: {'target': target}));
     });
   }
+
+  Future<void> _openRemote() async {
+    if (_busy) return;
+    WebDavBootstrapOutcome? outcome;
+    setState(() { _busy = true; _openingRemote = true; _operationMessage = ''; });
+    try {
+      outcome = await openWebDavBootstrap(context);
+    } on AgentException catch (error) {
+      _appendLog(AgentBridge.diagnosticMessage(error));
+    } catch (_) {
+      _appendLog(tr('sync.errors.operation'));
+    } finally {
+      _openingRemote = false;
+      try { await _refreshStatus(); }
+      catch (_) { _appendLog(tr('sync.errors.operation')); }
+      if (mounted) setState(() => _busy = false);
+    }
+    if (mounted && outcome == WebDavBootstrapOutcome.createNew) setState(() => _creatingVault = true);
+  }
+
+  Widget _initialVaultView() => SafeArea(child: _creatingVault ? Column(children: [
+    Align(alignment: Alignment.centerLeft, child: TextButton.icon(
+      onPressed: _busy ? null : () => setState(() { _creatingVault = false; _password.clear(); _syncHostName.clear(); }),
+      icon: const Icon(Icons.arrow_back), label: const LText('setup.back'))),
+    if (_operationMessage.isNotEmpty) Padding(padding: const EdgeInsets.all(16), child: AppNotice(_operationMessage)),
+    Expanded(child: _vaultOverview()),
+  ]) : _skippedSetup ? UnconfiguredVaultPage(onSetup: () => setState(() => _skippedSetup = false)) : Column(children: [
+    if (_operationMessage.isNotEmpty) Padding(padding: const EdgeInsets.all(16), child: AppNotice(_operationMessage)),
+    Expanded(child: VaultSetupChoices(busy: _busy, onCreate: () => setState(() => _creatingVault = true),
+      onWebDav: _openRemote, onRestore: () => _recoverOvb(useRecovery: false),
+      onSkip: () => setState(() => _skippedSetup = true))),
+  ]));
 
   Future<void> _openVaultDir() async {
     final dir = await AgentBridge.pickDirectory();
@@ -657,7 +704,9 @@ class _VaultHomePageState extends State<VaultHomePage> {
             ? const Center(child: CircularProgressIndicator())
             : !agentReady || _status.isEmpty
                 ? _connectionUnavailable()
-                : _vaultExists && !_unlocked
+                : !_vaultExists
+                    ? _initialVaultView()
+                    : !_unlocked
                     ? _lockedView()
                     : SafeArea(
           child: LayoutBuilder(builder: (context, constraints) {

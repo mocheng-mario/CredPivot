@@ -16,6 +16,7 @@ class AndroidWebDav {
   int _epoch = 0;
   String _cancellationKey = 'sync.errors.locked';
   bool _busy = false;
+  bool _bootstrapRead = false;
   String? _verifiedLocation;
   String? _cleanupLocation;
   DateTime _cleanupDue = DateTime.fromMillisecondsSinceEpoch(0);
@@ -43,7 +44,10 @@ class AndroidWebDav {
 
   Future<void> _check(int epoch, {Map<String, dynamic>? publishing}) async {
     if (epoch != _epoch) _fail(_cancellationKey);
-    if ((await _agent({'type': 'status'}))['unlocked'] != true) _fail('sync.errors.locked');
+    final state = await _agent({'type': 'status'});
+    if (_bootstrapRead) {
+      if (state['vault_exists'] != false || state['unlocked'] == true) _fail('sync.bootstrap.existing');
+    } else if (state['unlocked'] != true) { _fail('sync.errors.locked'); }
     if (publishing != null) await _agent({'type': 'sync_publish_authorize', ...publishing});
     if (epoch != _epoch) _fail(_cancellationKey);
   }
@@ -95,6 +99,7 @@ class AndroidWebDav {
   Future<_DavReply> _request(Map<String, dynamic> config, String path, int epoch,
       {String method = 'GET', List<int>? body, Map<String, String> headers = const {}, int limit = 64 * 1024 * 1024,
       Map<String, dynamic>? publishing}) async {
+    if (_bootstrapRead && method != 'GET') _fail('sync.errors.operation');
     await _check(epoch, publishing: publishing);
     final location = config['location'] as String;
     final retry = _retryAfter[location];
@@ -287,11 +292,15 @@ class AndroidWebDav {
       if (reply.status == 304) return {'not_modified': true, 'location': config['location']};
       if (reply.status == 404) return {'empty': true, 'location': config['location']};
       if (reply.status != 200) _fail('sync.errors.format');
-      final head = _json(reply), tag = _tag(reply);
+      final head = _json(reply);
+      String? tag;
+      if (_bootstrapRead) { try { tag = _tag(reply); } on PlatformException { tag = null; } }
+      else { tag = _tag(reply); }
       final snapshot = await _request(config, _snapshot(head), epoch);
       if (snapshot.status == 404 && attempt < 2) continue;
       if (snapshot.status != 200 || await _hash(snapshot.body) != head['sha256']) _fail('sync.errors.integrity');
-      return {'head': head, 'etag': tag, 'remote_ovb': base64Encode(snapshot.body), 'location': config['location']};
+      return {'head': head, if (tag != null) 'etag': tag, 'remote_ovb': base64Encode(snapshot.body), 'location': config['location'],
+        if (_bootstrapRead && reply.headers.value('last-modified') != null) 'modified': reply.headers.value('last-modified')};
     }
     _fail('sync.errors.remoteChanged');
   }
@@ -533,10 +542,17 @@ class AndroidWebDav {
     }
     if (_busy) _fail('sync.errors.busy');
     _busy = true;
+    _bootstrapRead = method == 'webdavBootstrapRead';
     final epoch = _epoch, args = arguments ?? <String, dynamic>{};
     final checks = <Map<String, dynamic>>[];
     try {
       await _check(epoch);
+      if (_bootstrapRead) {
+        final draft = await _normalize(args);
+        final password = args['password']?.toString() ?? '';
+        if (password.isEmpty) _fail('sync.errors.passwordMissing');
+        return {...await _read({...draft, '_password': password}, args, epoch), 'configuration': draft};
+      }
       final settings = await _settings();
       var config = Map<String, dynamic>.from(settings['webdav'] as Map? ?? {});
       if (method == 'webdavSettings') return {...config, 'password_saved': config.isNotEmpty && (await _channel.invokeMethod<String>('androidSecureRead', config['location'])) != null};
@@ -577,7 +593,7 @@ class AndroidWebDav {
       if (method == 'webdavTest') { throw PlatformException(code: error.code, message: error.message,
         details: {if (error.details is Map) ...Map<String, dynamic>.from(error.details as Map), 'checks': checks}); }
       rethrow;
-    } finally { _busy = false; }
+    } finally { _bootstrapRead = false; _busy = false; }
   }
 }
 

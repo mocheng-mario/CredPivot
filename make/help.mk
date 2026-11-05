@@ -3,6 +3,12 @@
 help:
 	@echo "CredPivot Make 目标（能力拆分在 make/*.mk）"
 	@echo ""
+	@echo "全部平台（macOS、Android、独立 CLI；Chrome 扩展在 Release 步骤打包）:"
+	@echo "  make build-all           顺序编译 Debug 与 Release 全部版本"
+	@echo "  make build-all-debug     仅编译全部 Debug 版本"
+	@echo "  make build-all-release   仅编译全部 Release 版本（需 Android 发布签名）"
+	@echo "  不安装 App、不替换用户目录内的开发版辅助程序；DMG 等发布包仍使用 make release"
+	@echo ""
 	@echo "Rust:"
 	@echo "  make rust-build          编译 workspace（release）"
 	@echo "  make rust-dev            编译 workspace（debug）"

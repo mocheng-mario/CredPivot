@@ -174,6 +174,68 @@ pub struct Binding {
     pub previous_remote_vmk: Option<String>,
 }
 
+/// 首次接入没有本地数据库；预览期间只持有密文和已验证的密钥，不创建临时空库。
+pub struct BootstrapPlan {
+    pub id: String,
+    location: String,
+    head: Head,
+    bytes: Zeroizing<Vec<u8>>,
+    vmk: Zeroizing<[u8; 32]>,
+    created: std::time::Instant,
+    summary: Value,
+}
+
+impl std::fmt::Debug for BootstrapPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("BootstrapPlan([REDACTED])") }
+}
+
+impl BootstrapPlan {
+    pub fn expired(&self) -> bool { self.created.elapsed() >= std::time::Duration::from_secs(300) }
+    pub fn preview(&self) -> Value { self.summary.clone() }
+    pub fn restore(&self, dir: &Path) -> Result<()> {
+        if self.expired() { return Err(CoreError::format("sync.errors.previewExpired")); }
+        let (envelope, config, _) = decode_remote(&self.bytes, &self.head, &self.vmk, "", None)?;
+        restore_with_vmk(&self.bytes, dir, &self.vmk)?;
+        let db = crate::open_database(dir, &self.vmk)?;
+        let tx = db.unchecked_transaction()?;
+        let state = Binding { location:self.location.clone(), head:Some(self.head.clone()), baseline:envelope.document,
+            control_hash:control_hash(&config)?, remote_control_hash:Some(control_hash(&config)?),
+            last_synced_ms:now_ms(), host_name:envelope.host_name, previous_remote_vmk:None };
+        write_state(&tx, "binding", &state)?;
+        remember_head(&tx, &self.head)?;
+        // 完成服务器写入能力检查之前禁止自动同步，即使设备上残留同地址的旧配置。
+        write_state(&tx, "bootstrap_pending", &true)?;
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+pub fn bootstrap_prepare(location: &str, head: Head, bytes: Vec<u8>, password: &str) -> Result<BootstrapPlan> {
+    if password.is_empty() { return Err(CoreError::format("sync.errors.remotePassword")); }
+    if location.len() != 64 || hex::decode(location).is_err() { return Err(invalid()); }
+    let bytes = Zeroizing::new(bytes);
+    let (envelope, config, vmk) = decode_remote(&bytes, &head, &[0;32], password, None)?;
+    let mut counts = BTreeMap::<String, usize>::new();
+    for record in envelope.document.records.values() {
+        for item in record.tables.get("items").into_iter().flatten() {
+            let kind = if item["trashed"].as_i64() == Some(1) { "trash" } else { item["kind"].as_str().unwrap_or("other") };
+            *counts.entry(kind.into()).or_default() += 1;
+        }
+    }
+    let id = Uuid::new_v4().to_string();
+    let summary = json!({"plan_id":id,"vault_id":config.vault_id,"counts":counts,"host_name":envelope.host_name});
+    Ok(BootstrapPlan { id,location:location.into(),head,bytes,vmk,created:std::time::Instant::now(),summary })
+}
+
+pub fn bootstrap_finish(conn: &Connection, config: &CpvcConfig, vmk: &[u8;32], location: &str, head: &Head) -> Result<()> {
+    let state = binding(conn)?.ok_or_else(invalid)?;
+    if read_state::<bool>(conn,"bootstrap_pending")? != Some(true) || state.location != location || state.head.as_ref() != Some(head)
+        || head.vault_id != config.vault_id || state.control_hash != control_hash(config)? { return Err(invalid()); }
+    verify_head(head, vmk)?;
+    conn.execute("DELETE FROM sync_state WHERE key='bootstrap_pending'", [])?;
+    Ok(())
+}
+
 #[derive(Serialize, Deserialize)]
 struct Pending {
     head: Head,
@@ -258,6 +320,7 @@ fn write_state(conn: &Connection, key: &str, value: &impl Serialize) -> Result<(
             String::from_utf8(encoded(value)?).map_err(|_| invalid())?
         ],
     )?;
+    if key == "binding" { conn.execute("DELETE FROM sync_state WHERE key='bootstrap_pending'", [])?; }
     Ok(())
 }
 
@@ -276,7 +339,7 @@ pub fn status(conn: &Connection) -> Result<Value> {
     let state = binding(conn)?;
     let pending: Option<Pending> = read_state(conn, "pending")?;
     Ok(
-        json!({"connected":state.is_some(),"location":state.as_ref().map(|s|&s.location),
+        json!({"connected":state.is_some() && read_state::<bool>(conn,"bootstrap_pending")? != Some(true),"location":state.as_ref().map(|s|&s.location),
         "last_synced_ms":state.as_ref().map(|s|s.last_synced_ms),"pending_upload":pending.is_some(),
         "generation":state.as_ref().and_then(|s|s.head.as_ref()).map(|h|&h.generation),
         "remote_host_name":state.as_ref().map(|s|&s.host_name)}),
@@ -284,7 +347,7 @@ pub fn status(conn: &Connection) -> Result<Value> {
 }
 pub fn disconnect(conn: &Connection) -> Result<()> {
     conn.execute(
-        "DELETE FROM sync_state WHERE key IN ('binding','pending')",
+        "DELETE FROM sync_state WHERE key IN ('binding','pending','bootstrap_pending')",
         [],
     )?;
     Ok(())
@@ -1429,6 +1492,7 @@ pub fn validate_document(doc: &Document) -> Result<()> {
                         let details: crate::credential_management::ItemDetails =
                             serde_json::from_str(row["details_json"].as_str().ok_or_else(invalid)?)
                                 .map_err(|_| CoreError::format("sync.errors.invalidDetails"))?;
+                        crate::ssh_git::normalize_rules(&details.ssh_git_rules)?;
                         crate::website_rules::validate_website_rules(&details.uris)
                             .map_err(|_| CoreError::format("sync.errors.invalidWebsiteRules"))?;
                     }

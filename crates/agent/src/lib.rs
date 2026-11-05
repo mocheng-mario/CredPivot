@@ -11,6 +11,7 @@ mod runtime;
 mod session_guard;
 mod single_writer;
 mod ssh_agent;
+pub mod git_ssh;
 mod ssh_session;
 mod vault_session;
 mod sync;

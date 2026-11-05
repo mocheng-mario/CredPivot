@@ -40,6 +40,24 @@ pub fn peer_is_askpass_executable(path: &Path) -> bool {
         == Some("credpivot-askpass")
 }
 
+/// Git 的仓库上下文只接受 App 分发的适配程序，不能让任意进程伪造选择弹窗。
+pub(crate) fn authorize_git_ssh_peer(pid: u32) -> Result<()> {
+    #[cfg(target_os="macos")]
+    {
+        let peer=peer_executable_path(pid)?;
+        let executable=std::env::current_exe()?;
+        let bundled=executable.parent().and_then(Path::parent).ok_or_else(||AgentError::PeerDenied("App path unavailable".into()))?
+            .join("Resources/credpivot-git-ssh");
+        let installed=crate::paths::runtime_dir().join("git-ssh");
+        let canonical=fs::canonicalize(&peer)?;
+        let own=canonical.parent().and_then(Path::parent).is_some_and(|p|p==installed.as_path());
+        if (own || paths_same_file(&peer,&bundled)?) && sha256_file(&peer)?==sha256_file(&bundled)? { return Ok(()); }
+        Err(AgentError::PeerDenied("Git SSH helper is outdated or untrusted".into()))
+    }
+    #[cfg(not(target_os="macos"))]
+    { let _=pid; Err(AgentError::PeerDenied("Git SSH integration requires macOS".into())) }
+}
+
 pub fn authorize_peer(pid: u32, cfg: &PeerAuthConfig) -> Result<()> {
     // Release 不接受环境变量或调用方构造配置绕过这道身份边界。
     if cfg!(debug_assertions) && cfg.dev_skip_peer_check {

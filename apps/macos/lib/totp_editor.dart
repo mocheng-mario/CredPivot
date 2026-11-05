@@ -6,6 +6,7 @@ import 'agent_bridge.dart';
 import 'app_ui.dart';
 import 'touch_id_gate.dart';
 import 'website_rules_editor.dart';
+import 'credential_group_ui.dart';
 
 Future<bool> showTotpEditor(BuildContext context, {Map<String, dynamic>? existing, List<Map<String, dynamic>> groups = const []}) async {
   final partition = existing?['partition_id']?.toString() ?? AgentBridge.activePartitionId;
@@ -15,6 +16,7 @@ Future<bool> showTotpEditor(BuildContext context, {Map<String, dynamic>? existin
       if (!await requireTouchId(context, reason: tr('mfa.showTotpEditor.reason'))) return false;
       reveal = await AgentBridge.totpReveal(existing['id'].toString());
     }
+    groups = await loadCredentialGroups('totp', partitionId: partition);
     if (!context.mounted) return false;
     return await showDialog<bool>(context: context, barrierDismissible: false,
       builder: (_) => _TotpEditor(existing: existing, reveal: reveal, groups: groups, partitionId: partition)) == true;
@@ -153,7 +155,7 @@ class _TotpEditorState extends State<_TotpEditor> {
         AppFieldRow(label: tr('mfa.fields.accountLabel'), child: TextField(controller: account, enabled: !busy, decoration: InputDecoration())),
         if (widget.existing == null && widget.groups.isNotEmpty) AppFieldRow(label: tr('common.group'), child: DropdownButtonFormField<String>(
           isExpanded: true, value: groupId, decoration: InputDecoration(),
-          items: [const DropdownMenuItem<String>(value: null, child: LText('common.ungroupedOption')), for (final g in widget.groups) DropdownMenuItem(value: g['id'] as String, child: Text(g['name'].toString()))],
+          items: [const DropdownMenuItem<String>(value: null, child: LText('common.ungroupedOption')), for (final g in widget.groups) DropdownMenuItem(value: g['id'] as String, child: Text(credentialGroupLabel(g), overflow: TextOverflow.ellipsis))],
           onChanged: busy ? null : (v) => setState(() => groupId = v))),
         const LText('mfa.build.text.item9'),
         if (pendingRules.isNotEmpty) ...[

@@ -270,6 +270,13 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
   private func unlocked() -> Bool {
     LocalVaultUnlock.request(["type":"status"])?["unlocked"] as? Bool == true
   }
+  private func transferAllowed(_ config: [String: Any]) -> Bool {
+    if config["_bootstrap_read_only"] as? Bool == true {
+      guard let status = LocalVaultUnlock.request(["type":"status"]) else { return false }
+      return status["vault_exists"] as? Bool == false && status["unlocked"] as? Bool != true
+    }
+    return unlocked()
+  }
   private func authorize() throws {
     guard LocalVaultUnlock.request(["type":"sync_control_authorize"]) != nil else { throw WebDAVFailure("sync.errors.authentication") }
   }
@@ -395,7 +402,8 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
   private func request(_ config: [String: Any], _ path: String, method: String = "GET", data: Data? = nil,
                        headers: [String: String] = [:], limit: Int = 64 * 1024 * 1024,
                        listingPage: URL? = nil) async throws -> WebDAVTransfer.Reply {
-    guard unlocked() else { throw WebDAVFailure("sync.errors.locked") }
+    guard transferAllowed(config) else { throw WebDAVFailure("sync.errors.locked") }
+    if config["_bootstrap_read_only"] as? Bool == true, method != "GET" { throw WebDAVFailure("sync.errors.operation") }
     guard config["_transfer_generation"] as? Int == generation else { throw WebDAVFailure(cancellationKey) }
     try authorizePublish(config)
     guard let root = config["root"] as? String, let base = URL(string:root),
@@ -440,11 +448,11 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
     do { reply = try await transfer.run(request) }
     catch {
       // 主动取消产生的 URLSession 错误也要保留取消原因，不能误判为可重试的断网。
-      guard unlocked() else { throw WebDAVFailure("sync.errors.locked") }
+      guard transferAllowed(config) else { throw WebDAVFailure("sync.errors.locked") }
       guard currentGeneration == generation else { throw WebDAVFailure(cancellationKey) }
       throw error
     }
-    guard unlocked() else { throw WebDAVFailure("sync.errors.locked") }
+    guard transferAllowed(config) else { throw WebDAVFailure("sync.errors.locked") }
     guard currentGeneration == generation else { throw WebDAVFailure(cancellationKey) }
     try authorizePublish(config)
     if (method == "GET" || method == "DELETE") && reply.response.statusCode == 404 { recordProbe(config,path:path,pending:false) }
@@ -746,13 +754,19 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
       if reply.response.statusCode == 404 { return ["empty":true,"location":config["location"] ?? ""] }
       guard reply.response.statusCode == 200,
             let head = try JSONSerialization.jsonObject(with:reply.data) as? [String: Any] else { throw WebDAVFailure("sync.errors.format") }
-      let tag = try etag(reply), path = try validSnapshot(head)
+      let tag: String?
+      if config["_bootstrap_read_only"] as? Bool == true { tag = try? etag(reply) }
+      else { tag = try etag(reply) }
+      let path = try validSnapshot(head)
       let snapshot = try await request(config,path,limit:maxSnapshot)
       // 刚读到的旧入口可能已被另一台设备替换并清理；重新读取入口，不能继续使用旧缓存。
       if snapshot.response.statusCode == 404, attempt < 2 { continue }
       guard snapshot.response.statusCode == 200, let expected = head["sha256"] as? String,
             hash(snapshot.data) == expected else { throw WebDAVFailure("sync.errors.integrity") }
-      return ["head":head,"etag":tag,"remote_ovb":snapshot.data.base64EncodedString(),"location":config["location"] ?? ""]
+      var value: [String: Any] = ["head":head,"remote_ovb":snapshot.data.base64EncodedString(),"location":config["location"] ?? ""]
+      if let tag = tag { value["etag"] = tag }
+      if config["_bootstrap_read_only"] as? Bool == true, let modified = reply.response.value(forHTTPHeaderField:"Last-Modified") { value["modified"] = modified }
+      return value
     }
     throw WebDAVFailure("sync.errors.remoteChanged")
   }
@@ -1194,7 +1208,12 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
     }
   }
   func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-    guard unlocked() else { result(FlutterError(code:"locked",message:NativePresentation.tr("sync.errors.locked"),details:nil)); return }
+    let bootstrap = call.method == "webdavBootstrapRead"
+    if bootstrap {
+      guard let state = LocalVaultUnlock.request(["type":"status"]), state["vault_exists"] as? Bool == false, state["unlocked"] as? Bool != true else {
+        result(FlutterError(code:"sync.bootstrap.existing",message:NativePresentation.tr("sync.bootstrap.existing"),details:nil)); return
+      }
+    } else if !unlocked() { result(FlutterError(code:"locked",message:NativePresentation.tr("sync.errors.locked"),details:nil)); return }
     if call.method == "webdavSettings" {
       var value = settings() ?? [:]
       if let location = value["location"] as? String { value["password_saved"] = (try? password(location)) != nil }
@@ -1207,6 +1226,14 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
       var testChecks: [[String: Any]] = []
       do {
         let args = call.arguments as? [String: Any] ?? [:]
+        if bootstrap {
+          let next = try normalized(args)
+          guard let password = args["password"] as? String, !password.isEmpty else { throw WebDAVFailure("sync.errors.passwordMissing") }
+          var config = next
+          config["_password"] = password; config["_bootstrap_read_only"] = true; config["_transfer_generation"] = generation
+          var value = try await read(config,knownETag:args["etag"] as? String)
+          value["configuration"] = next; result(value); return
+        }
         if call.method == "webdavRemove" {
           guard LocalVaultUnlock.request(["type":"sync_disconnect"]) != nil else { throw WebDAVFailure("sync.errors.authentication") }
           try saveSettings(NSNull())
@@ -1365,6 +1392,7 @@ final class CredPivotPlatform: NSObject {
 
   private func startInteractionServices() {
     NativePresentation.reload()
+    DispatchQueue.global(qos: .utility).async { CredPivotGitSsh.refreshIfManaged() }
     shortcutController = CredPivotShortcuts { [weak self] action in
       if action == "lock" {
         (NSApp.delegate as? AppDelegate)?.lockFromMenu()
@@ -1403,12 +1431,29 @@ final class CredPivotPlatform: NSObject {
     NSApp.activate(ignoringOtherApps: true)
     let alert = NSAlert()
     let policy = request["policy"] as? String ?? "confirm"
+    let candidates = request["candidates"] as? [[String: Any]] ?? []
+    let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 520, height: 28), pullsDown: false)
+    let remember = NSButton(checkboxWithTitle: NativePresentation.tr("ssh.git.remember"), target: nil, action: nil)
+    remember.state = .on
+    if policy == "git_select" {
+      for candidate in candidates {
+        picker.addItem(withTitle: "\(candidate["label"] as? String ?? "SSH") · \(candidate["partition"] as? String ?? "") · \(candidate["fingerprint"] as? String ?? "")")
+      }
+      let accessory = NSStackView(views: [picker, remember])
+      accessory.orientation = .vertical; accessory.alignment = .leading; accessory.spacing = 8
+      accessory.frame = NSRect(x: 0, y: 0, width: 520, height: 66)
+      alert.accessoryView = accessory
+    }
     alert.messageText = policy == "unlock" ? NativePresentation.tr("ssh.authorization.unlockTitle") : NativePresentation.tr("ssh.authorization.confirmTitle")
     let scope = policy == "session" ? NativePresentation.tr("ssh.authorization.sessionScope") : NativePresentation.tr("ssh.authorization.onceScope")
     let caller = request["caller"] as? String ?? NativePresentation.tr("common.unknownProcess")
     alert.informativeText = policy == "unlock"
       ? NativePresentation.tr("ssh.authorization.unlockBody", arguments: ["caller": caller])
       : NativePresentation.tr("ssh.authorization.signBody", arguments: ["label": request["key_label"] as? String ?? NativePresentation.tr("common.unknown"), "fingerprint": request["fingerprint"] as? String ?? "", "caller": caller, "scope": scope])
+    if policy == "git_select" {
+      alert.messageText = NativePresentation.tr("ssh.git.chooseTitle")
+      alert.informativeText = NativePresentation.tr("ssh.git.chooseBody", arguments: ["repository": request["repository"] as? String ?? ""])
+    }
     alert.addButton(withTitle: NativePresentation.tr("common.allow"))
     alert.addButton(withTitle: NativePresentation.tr("common.deny"))
     // runModal 使用独立运行循环；请求已断开或过期时主动关闭，避免留下失效弹窗。
@@ -1428,11 +1473,13 @@ final class CredPivotPlatform: NSObject {
       showingSshAuthorization = false
       return
     }
+    let selected = candidates.indices.contains(picker.indexOfSelectedItem) ? candidates[picker.indexOfSelectedItem] : [:]
     let complete: (Bool) -> Void = { [weak self] ok in
-      _ = LocalVaultUnlock.request(["type": "ssh_authorization_resolve", "request_id": id, "approved": ok])
+      _ = LocalVaultUnlock.request(["type": "ssh_authorization_resolve", "request_id": id, "approved": ok,
+        "key_id": selected["id"] as? String ?? "", "remember": policy == "git_select" && remember.state == .on])
       self?.showingSshAuthorization = false
     }
-    if policy == "biometric" {
+    if policy == "biometric" || (policy == "git_select" && selected["policy"] as? String == "biometric") {
       TouchIdGate.shared.authenticateForExtensionGate(reason: NativePresentation.tr("ssh.authorization.biometricReason"), completion: complete)
     } else {
       TouchIdGate.shared.authenticateSensitiveOperation(reason: policy == "unlock" ? NativePresentation.tr("ssh.authorization.unlockReason") : NativePresentation.tr("ssh.authorization.reason"), completion: complete)
@@ -1553,7 +1600,7 @@ final class CredPivotPlatform: NSObject {
         return
       }
       result(nil)
-    case "webdavSettings", "webdavSave", "webdavTest", "webdavRead", "webdavPublish", "webdavProbe", "webdavRemove", "webdavCleanup":
+    case "webdavBootstrapRead", "webdavSettings", "webdavSave", "webdavTest", "webdavRead", "webdavPublish", "webdavProbe", "webdavRemove", "webdavCleanup":
       Task { @MainActor in CredPivotWebDAV.shared.handle(call, result: result) }
     case "webdavCancel":
       Task { @MainActor in CredPivotWebDAV.shared.cancel(); result(nil) }
@@ -1701,6 +1748,28 @@ final class CredPivotPlatform: NSObject {
       result(ChromeHostInstaller.openChromeExtensionsPage())
     case "sshIdentityAgentStatus":
       result(SshIdentityAgentHelper.status())
+    case "gitSshStatus":
+      DispatchQueue.global(qos: .userInitiated).async {
+        let value = CredPivotGitSsh.status()
+        DispatchQueue.main.async { result(value) }
+      }
+    case "prepareSshIdentityFile":
+      guard let id = call.arguments as? String else { result(FlutterError(code: "bad_args", message: "SSH identity required", details: nil)); return }
+      do { result(try CredPivotGitSsh.publicReference(id).path) }
+      catch { result(FlutterError(code: "ssh", message: NativePresentation.tr("ssh.git.failed"), details: nil)) }
+    case "gitSshConfigure":
+      guard LocalVaultUnlock.request(["type": "sync_control_authorize"]) != nil else {
+        result(FlutterError(code: "auth_required", message: NativePresentation.tr("common.unlockFirst"), details: nil)); return
+      }
+      let enabled = call.arguments as? Bool == true
+      DispatchQueue.global(qos: .userInitiated).async {
+        do {
+          let value = try CredPivotGitSsh.configure(enabled: enabled)
+          DispatchQueue.main.async { result(value) }
+        } catch {
+          DispatchQueue.main.async { result(FlutterError(code: "git_ssh", message: NativePresentation.tr("ssh.git.configureFailed"), details: nil)) }
+        }
+      }
     case "appendSshIdentityAgent":
       if !agentIsUnlocked() {
         result([
@@ -1849,7 +1918,7 @@ final class CredPivotPlatform: NSObject {
         return
       }
       let port = args["port"] as? Int ?? 22
-      if let err = TerminalLauncher.openSsh(host: host, port: port, user: username) {
+      if let err = TerminalLauncher.openSsh(host: host, port: port, user: username, identityFile: args["identityFile"] as? String) {
         result(err)
       } else {
         result(nil)
@@ -2625,6 +2694,89 @@ enum ChromeHostInstaller {
   }
 }
 
+// Git 只接入 core.sshCommand；独立恢复 CLI 仍然单独分发。
+enum CredPivotGitSsh {
+  private static let lock = NSRecursiveLock()
+  private static var directory: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".credpivot") }
+  private static var record: URL { directory.appendingPathComponent("git-ssh-installation.json") }
+  static func publicReference(_ id: String) throws -> URL {
+    guard UUID(uuidString: id) != nil, LocalVaultUnlock.request(["type": "status"])?["unlocked"] as? Bool == true,
+      let keys = LocalVaultUnlock.request(["type": "ssh_key_list"])?["items"] as? [[String: Any]],
+      let publicKey = keys.first(where: { $0["id"] as? String == id })?["public_openssh"] as? String else { throw NSError(domain: "GitSSH", code: 7) }
+    let folder = directory.appendingPathComponent("ssh-public", isDirectory: true)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    let path = folder.appendingPathComponent(id + ".pub")
+    try (publicKey + "\n").write(to: path, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path)
+    return path
+  }
+  private static func run(_ arguments: [String]) throws -> (Int32, String) {
+    let task = Process(), output = Pipe()
+    task.executableURL = URL(fileURLWithPath: "/usr/bin/git"); task.arguments = ["config", "--global"] + arguments
+    task.standardOutput = output; task.standardError = FileHandle.nullDevice; task.standardInput = FileHandle.nullDevice
+    try task.run()
+    let data = output.fileHandleForReading.readDataToEndOfFile(); task.waitUntilExit()
+    guard data.count < 65536, let text = String(data: data, encoding: .utf8) else { throw NSError(domain: "GitSSH", code: 1) }
+    return (task.terminationStatus, text.trimmingCharacters(in: .newlines))
+  }
+  private static func current() throws -> String? {
+    let (code, text) = try run(["--get", "core.sshCommand"])
+    guard code == 0 || code == 1 else { throw NSError(domain: "GitSSH", code: 2) }
+    return code == 0 ? text : nil
+  }
+  private static func saved() -> [String: Any]? {
+    guard let data = try? Data(contentsOf: record) else { return nil }
+    return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+  }
+  static func status() -> [String: Any] {
+    lock.lock(); defer { lock.unlock() }
+    do {
+      let value = try current(), stored = saved()
+      let enabled = value != nil && value == (stored?["current"] as? String)
+      return ["enabled": enabled, "current": value ?? "", "backup": stored == nil ? "" : record.path,
+              "helper_available": Bundle.main.path(forResource: "credpivot-git-ssh", ofType: nil) != nil]
+    } catch { return ["enabled": false, "error": NativePresentation.tr("ssh.git.configureFailed")] }
+  }
+  static func configure(enabled: Bool) throws -> [String: Any] {
+    lock.lock(); defer { lock.unlock() }
+    let actual = try current(), stored = saved()
+    if !enabled {
+      guard let stored = stored, actual == (stored["current"] as? String) else { throw NSError(domain: "GitSSH", code: 3) }
+      let previous = stored["previous"] as? String
+      let result = try run(previous.map { ["--replace-all", "core.sshCommand", $0] } ?? ["--unset-all", "core.sshCommand"])
+      guard result.0 == 0 || (previous == nil && result.0 == 5) else { throw NSError(domain: "GitSSH", code: 4) }
+      try FileManager.default.removeItem(at: record)
+      return status()
+    }
+    guard let bundled = Bundle.main.url(forResource: "credpivot-git-ssh", withExtension: nil) else { throw NSError(domain: "GitSSH", code: 5) }
+    let binary = try Data(contentsOf: bundled), digest = SHA256.hash(data: binary).map { String(format: "%02x", $0) }.joined()
+    let destination = directory.appendingPathComponent("git-ssh/" + digest, isDirectory: true)
+    try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    let helper = destination.appendingPathComponent("credpivot-git-ssh")
+    if (try? Data(contentsOf: helper)) != binary { try binary.write(to: helper, options: .atomic) }
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+    let command = "'" + helper.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    let managed = actual != nil && actual == (stored?["current"] as? String)
+    var next: [String: Any] = ["current": command, "helper": helper.path]
+    if let previous = managed ? stored?["previous"] as? String : actual { next["previous"] = previous }
+    let oldData = try? Data(contentsOf: record)
+    try JSONSerialization.data(withJSONObject: next).write(to: record, options: .atomic)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: record.path)
+    do {
+      guard try run(["--replace-all", "core.sshCommand", command]).0 == 0 else { throw NSError(domain: "GitSSH", code: 6) }
+    } catch {
+      if let oldData = oldData { try? oldData.write(to: record, options: .atomic) } else { try? FileManager.default.removeItem(at: record) }
+      throw error
+    }
+    try Bundle.main.bundleURL.path.write(to: directory.appendingPathComponent("git-ssh-app.path"), atomically: true, encoding: .utf8)
+    return status()
+  }
+  static func refreshIfManaged() {
+    lock.lock(); defer { lock.unlock() }
+    if status()["enabled"] as? Bool == true { _ = try? configure(enabled: true) }
+  }
+}
+
 enum SshIdentityAgentHelper {
   private static let markerStart = "# >>> CredPivot M0 IdentityAgent"
   private static let markerEnd = "# <<< CredPivot M0"
@@ -2925,23 +3077,26 @@ enum TerminalLauncher {
     try? text.write(to: lastLaunchPlanURL, atomically: true, encoding: .utf8)
   }
 
-  static func sshShellCommand(host: String, port: Int, user: String) -> String {
-    let target = shellQuote("\(user)@\(host)")
-    if port == 22 {
-      return "ssh \(target)"
+  static func sshShellCommand(host: String, port: Int, user: String, identityFile: String? = nil) -> String {
+    var args = ["ssh"]
+    if let file = identityFile {
+      args += ["-o", "IdentityAgent=" + FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".credpivot/ssh.sock").path,
+        "-o", "IdentitiesOnly=yes", "-o", "ControlPath=none", "-i", file]
     }
-    return "ssh -p \(port) \(target)"
+    if port != 22 { args += ["-p", String(port)] }
+    args.append("\(user)@\(host)")
+    return args.map { shellQuote($0) }.joined(separator: " ")
   }
 
   /// 成功返回 nil；失败返回错误文案。
-  static func openSsh(host: String, port: Int, user: String) -> String? {
+  static func openSsh(host: String, port: Int, user: String, identityFile: String? = nil) -> String? {
     guard let appPath = currentAppPath(), !appPath.isEmpty else {
       return NativePresentation.tr("native.openSsh.text")
     }
     if !FileManager.default.fileExists(atPath: appPath) {
       return NativePresentation.tr("native.openSsh.text.item2", arguments: ["appPath": String(describing: appPath)])
     }
-    let sshCmd = sshShellCommand(host: host, port: port, user: user)
+    let sshCmd = sshShellCommand(host: host, port: port, user: user, identityFile: identityFile)
     if let err = launchShellCommand(appPath: appPath, command: sshCmd) {
       let plan = describeLaunchPlan(appPath: appPath, shellCommand: sshCmd)
       return "\(err)\n\n\(plan)"

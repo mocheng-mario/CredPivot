@@ -503,31 +503,33 @@ class WebDavSyncPage extends StatelessWidget {
   const WebDavSyncPage({super.key});
   WebDavSync get sync => WebDavSync.instance;
 
-  Future<void> _configure(BuildContext context) async {
-    final storedServer = sync.settings['server_url']?.toString() ?? '';
+  static Future<Map<String, dynamic>?> configurationDraft(BuildContext context, {bool bootstrap = false, Map<String, dynamic>? initialSettings}) async {
+    final sync = WebDavSync.instance;
+    final stored = initialSettings ?? (bootstrap ? <String, dynamic>{} : sync.settings);
+    final storedServer = stored['server_url']?.toString() ?? '';
     final server = TextEditingController(
         text: storedServer.isEmpty
-            ? sync.settings['root']?.toString() ?? ''
+            ? stored['root']?.toString() ?? ''
             : storedServer);
     final existing = Uri.tryParse(server.text);
     final port = TextEditingController(
-        text: existing?.hasPort == true ? existing!.port.toString() : '');
+        text: stored['port']?.toString() ?? (existing?.hasPort == true ? existing!.port.toString() : ''));
     final directory = TextEditingController(
         text: storedServer.isEmpty
-            ? (sync.configured ? '' : 'CredPivot')
-            : sync.settings['directory']?.toString() ?? '');
+            ? ((stored['location'] is String) ? '' : 'CredPivot')
+            : stored['directory']?.toString() ?? '');
     final username = TextEditingController(
-        text: sync.settings['username']?.toString() ?? '');
-    final password = TextEditingController();
+        text: stored['username']?.toString() ?? '');
+    final password = TextEditingController(text: bootstrap ? stored['password']?.toString() ?? '' : '');
     final dailyHistoryCount = TextEditingController(
-        text: ((sync.settings['daily_history_count'] as num?)?.toInt() ?? 5).toString());
+        text: ((stored['daily_history_count'] as num?)?.toInt() ?? 5).toString());
     // 下一项实现 S3 / S3 兼容存储；目前仅展示入口，不提交为 WebDAV 配置。
     const providers = ['custom', 'nutstore', 'nextcloud', 'owncloud', 's3'];
-    var provider = sync.settings['provider']?.toString() ?? 'custom';
+    var provider = stored['provider']?.toString() ?? 'custom';
     if (!providers.contains(provider)) provider = 'custom';
-    var interval = (sync.settings['interval_seconds'] as num?)?.toInt() ?? 300;
+    var interval = (stored['interval_seconds'] as num?)?.toInt() ?? 300;
     final intervals = {60, 300, 900, 1800, 3600, interval}.toList()..sort();
-    var automatic = sync.settings['automatic'] != false;
+    var automatic = stored['automatic'] != false;
     final initial = [
       server.text,
       port.text,
@@ -649,7 +651,7 @@ class WebDavSyncPage extends StatelessWidget {
                   .any((entry) => entry.value != initial[entry.key]),
           builder: (ctx) => StatefulBuilder(
               builder: (ctx, setLocal) => AlertDialog(
-                    title: const LText('sync.configure.title'),
+                    title: LText(bootstrap ? 'sync.bootstrap.configure' : 'sync.configure.title'),
                     content: SizedBox(
                         width: appEditDialogWidth(ctx),
                         child: AbsorbPointer(
@@ -774,14 +776,14 @@ class WebDavSyncPage extends StatelessWidget {
                                                 enableSuggestions: false,
                                                 validator: (v) => (v == null ||
                                                             v.isEmpty) &&
-                                                        (sync.settings['password_saved'] !=
+                                                        (stored['password_saved'] !=
                                                                 true ||
                                                             previewUrl() !=
-                                                                sync.settings[
+                                                                stored[
                                                                     'root'] ||
                                                             username.text
                                                                     .trim() !=
-                                                                sync.settings[
+                                                                stored[
                                                                     'username'])
                                                     ? tr(
                                                         'sync.errors.passwordMissing')
@@ -839,7 +841,7 @@ class WebDavSyncPage extends StatelessWidget {
                                                       automatic = value;
                                                     })))),
                                             const SizedBox(height: 16),
-                                            const LText('sync.test.help'),
+                                            LText(bootstrap ? 'sync.bootstrap.connectionHelp' : 'sync.test.help'),
                                             if (testing) ...[
                                               const SizedBox(height: 12),
                                               const LinearProgressIndicator(),
@@ -942,7 +944,7 @@ class WebDavSyncPage extends StatelessWidget {
                                 },
                           child: LText(
                               testing ? 'sync.test.stop' : 'common.cancel')),
-                      OutlinedButton.icon(
+                      if (!bootstrap) OutlinedButton.icon(
                           onPressed: testing || provider == 's3'
                               ? null
                               : () async {
@@ -996,7 +998,7 @@ class WebDavSyncPage extends StatelessWidget {
                                     Navigator.pop(ctx, draftValues());
                                   }
                                 },
-                          child: const LText('sync.configure.save')),
+                          child: LText(bootstrap ? 'common.continue' : 'sync.configure.save')),
                     ],
                   )));
     } finally {
@@ -1007,16 +1009,18 @@ class WebDavSyncPage extends StatelessWidget {
       password.dispose();
       dailyHistoryCount.dispose();
     }
+    return values;
+  }
+
+  Future<void> _configure(BuildContext context) async {
+    final values = await configurationDraft(context);
     if (values == null || !context.mounted) return;
     if (!await requireTouchId(context, reason: 'sync.auth.configure')) {
       values['password'] = '';
       return;
     }
-    try {
-      await sync.save(values);
-    } finally {
-      values['password'] = '';
-    }
+    try { await sync.save(values); }
+    finally { values['password'] = ''; }
   }
 
   Future<void> _initial(BuildContext context) async {

@@ -14348,6 +14348,1234 @@
       "locations": [
         "AndroidStrings.kt"
       ]
+    },
+    "setup.title": {
+      "source": "欢迎使用 CredPivot",
+      "translation": "欢迎使用 CredPivot",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "setup.description": {
+      "source": "创建保险库，或接入已有的加密数据。主密码相同并不代表是同一个保险库。",
+      "translation": "创建保险库，或接入已有的加密数据。主密码相同并不代表是同一个保险库。",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "setup.create": {
+      "source": "新建保险库",
+      "translation": "新建保险库",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "setup.createHelp": {
+      "source": "创建独立的保险库与主密码。",
+      "translation": "创建独立的保险库与主密码。",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "setup.webdav": {
+      "source": "从 WebDAV 打开保险库",
+      "translation": "从 WebDAV 打开保险库",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "setup.webdavHelp": {
+      "source": "连接已有远端，使用该保险库的主密码解密并保存到本机。",
+      "translation": "连接已有远端，使用该保险库的主密码解密并保存到本机。",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "setup.restore": {
+      "source": "从加密备份恢复",
+      "translation": "从加密备份恢复",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "setup.restoreHelp": {
+      "source": "选择已有的 CredPivot 加密备份文件。",
+      "translation": "选择已有的 CredPivot 加密备份文件。",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "setup.skip": {
+      "source": "稍后设置",
+      "translation": "稍后设置",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "setup.unconfigured": {
+      "source": "尚未设置保险库",
+      "translation": "尚未设置保险库",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "setup.unconfiguredHelp": {
+      "source": "可以先调整外观或查看日志。保存凭据前，需要新建、恢复或从 WebDAV 打开保险库。",
+      "translation": "可以先调整外观或查看日志。保存凭据前，需要新建、恢复或从 WebDAV 打开保险库。",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "setup.continue": {
+      "source": "设置保险库",
+      "translation": "设置保险库",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "setup.back": {
+      "source": "返回设置方式",
+      "translation": "返回设置方式",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "setup.backupPassword": {
+      "source": "输入备份所属保险库的主密码",
+      "translation": "输入备份所属保险库的主密码",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.configure": {
+      "source": "连接已有的 WebDAV 保险库",
+      "translation": "连接已有的 WebDAV 保险库",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.connectionHelp": {
+      "source": "下一步仅读取远端保险库，不会创建或覆盖远端数据。WebDAV 账号密码用于连接服务器；保险库主密码将在本机输入并解密。",
+      "translation": "下一步仅读取远端保险库，不会创建或覆盖远端数据。WebDAV 账号密码用于连接服务器；保险库主密码将在本机输入并解密。",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.existing": {
+      "source": "本机已有保险库，请在同步页面接入 WebDAV，选择并预览合并策略。",
+      "translation": "本机已有保险库，请在同步页面接入 WebDAV，选择并预览合并策略。",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.localWrite": {
+      "source": "无法创建本地保险库目录，未改变远端数据。",
+      "translation": "无法创建本地保险库目录，未改变远端数据。",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.title": {
+      "source": "从 WebDAV 打开保险库",
+      "translation": "从 WebDAV 打开保险库",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.recordError": {
+      "source": "记录：{record}\n{reason}",
+      "translation": "记录：{record}\n{reason}",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {
+        "record": "Text",
+        "reason": "Text"
+      },
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.reading": {
+      "source": "正在读取远端加密数据…",
+      "translation": "正在读取远端加密数据…",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.decrypting": {
+      "source": "正在本机解密并校验保险库…",
+      "translation": "正在本机解密并校验保险库…",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.opening": {
+      "source": "正在保存并打开本地保险库…",
+      "translation": "正在保存并打开本地保险库…",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.connecting": {
+      "source": "正在检查服务器同步能力并保存连接配置…",
+      "translation": "正在检查服务器同步能力并保存连接配置…",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.changed": {
+      "source": "远端保险库已更新，请重新解密并核对预览。尚未应用此次结果。",
+      "translation": "远端保险库已更新，请重新解密并核对预览。尚未应用此次结果。",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.offlineReason": {
+      "source": "保险库已保存到本机，但自动同步尚未接入：{reason}",
+      "translation": "保险库已保存到本机，但自动同步尚未接入：{reason}",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {
+        "reason": "Text"
+      },
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.opened": {
+      "source": "保险库已在本机打开",
+      "translation": "保险库已在本机打开",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.connected": {
+      "source": "已接入 WebDAV。后续变更将按照同步设置进行同步，本次打开没有上传新版本。",
+      "translation": "已接入 WebDAV。后续变更将按照同步设置进行同步，本次打开没有上传新版本。",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.offline": {
+      "source": "保险库可在本机离线使用。请在同步页面重新检查配置并完成接入，当前不会自动同步。",
+      "translation": "保险库可在本机离线使用。请在同步页面重新检查配置并完成接入，当前不会自动同步。",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.empty": {
+      "source": "此目录没有已有的 CredPivot 保险库。可以修改连接信息，或返回新建保险库；新建后再选择同步接入策略。",
+      "translation": "此目录没有已有的 CredPivot 保险库。可以修改连接信息，或返回新建保险库；新建后再选择同步接入策略。",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.previewHelp": {
+      "source": "请核对即将在本机打开的保险库。本次操作保留其身份、加密密钥和数据。",
+      "translation": "请核对即将在本机打开的保险库。本次操作保留其身份、加密密钥和数据。",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.identity": {
+      "source": "保险库标识：{id}",
+      "translation": "保险库标识：{id}",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {
+        "id": "Text"
+      },
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.publisher": {
+      "source": "最近发布主机：{host}",
+      "translation": "最近发布主机：{host}",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {
+        "host": "Text"
+      },
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.modified": {
+      "source": "远端更新时间：{time}",
+      "translation": "远端更新时间：{time}",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {
+        "time": "Text"
+      },
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.passwordHelp": {
+      "source": "已读取远端加密数据。请输入该保险库的主密码，仅用于本机解密，不会发送到 WebDAV。",
+      "translation": "已读取远端加密数据。请输入该保险库的主密码，仅用于本机解密，不会发送到 WebDAV。",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.reconfigure": {
+      "source": "修改连接",
+      "translation": "修改连接",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.reload": {
+      "source": "重新读取远端",
+      "translation": "重新读取远端",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.decrypt": {
+      "source": "解密并预览",
+      "translation": "解密并预览",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.open": {
+      "source": "确认并在本机打开",
+      "translation": "确认并在本机打开",
+      "description": "Vault setup and WebDAV bootstrap.",
+      "placeholders": {},
+      "locations": [
+        "vault_setup.dart",
+        "webdav_bootstrap.dart",
+        "main.dart",
+        "main_android.dart"
+      ]
+    },
+    "sync.bootstrap.openFailed": {
+      "source": "保险库已保存到本机，但未能解锁。请重试，或关闭此窗口后在解锁页输入主密码。",
+      "translation": "保险库已保存到本机，但未能解锁。请重试，或关闭此窗口后在解锁页输入主密码。",
+      "description": "Vault setup unlock failure.",
+      "placeholders": {},
+      "locations": [
+        "webdav_bootstrap.dart",
+        "main.dart"
+      ]
+    },
+    "groups.optionLabel": {
+      "source": "{name} · {type}",
+      "translation": "{name} · {type}",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {
+        "name": "Text",
+        "type": "Text"
+      },
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "groups.type.label": {
+      "source": "可用范围",
+      "translation": "可用范围",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "groups.type.shared": {
+      "source": "共享",
+      "translation": "共享",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "groups.type.exclusive": {
+      "source": "子模块独享",
+      "translation": "子模块独享",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "groups.type.sharedHelp": {
+      "source": "同一分区内的密码、MFA、SSH、服务器、通行密钥等凭据都可以使用，创建一次即可。",
+      "translation": "同一分区内的密码、MFA、SSH、服务器、通行密钥等凭据都可以使用，创建一次即可。",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "groups.type.exclusiveHelp": {
+      "source": "只在当前子模块中使用。其他子模块不会显示这个分组。",
+      "translation": "只在当前子模块中使用。其他子模块不会显示这个分组。",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "groups.manage.help": {
+      "source": "新建默认共享。已有独享分组可编辑为共享；同名分组仍是不同分组，不会自动合并。",
+      "translation": "新建默认共享。已有独享分组可编辑为共享；同名分组仍是不同分组，不会自动合并。",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "groups.edit": {
+      "source": "编辑分组",
+      "translation": "编辑分组",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "groups.edit.sharedHelp": {
+      "source": "改名会同时更新所有子模块。改为独享前，需先移出其他类型的凭据（包括回收站记录）。",
+      "translation": "改名会同时更新所有子模块。改为独享前，需先移出其他类型的凭据（包括回收站记录）。",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "groups.kind.totp": {
+      "source": "MFA / TOTP",
+      "translation": "MFA / TOTP",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "groups.usage.empty": {
+      "source": "尚无凭据使用此分组",
+      "translation": "尚无凭据使用此分组",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "groups.usage.summary": {
+      "source": "使用情况（含回收站）：{items}",
+      "translation": "使用情况（含回收站）：{items}",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {
+        "items": "Text"
+      },
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "groups.delete.sharedConfirmation": {
+      "source": "删除共享分组“{name}”将影响同一分区内所有子模块。\n\n{usage}\n\n凭据不会删除，会全部移至未分组。是否继续？",
+      "translation": "删除共享分组“{name}”将影响同一分区内所有子模块。\n\n{usage}\n\n凭据不会删除，会全部移至未分组。是否继续？",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {
+        "name": "Text",
+        "usage": "Text"
+      },
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "partitions.errors.groupScope": {
+      "source": "分组不可用于此类凭据，或不在同一分区。请选择当前子模块的独享分组或共享分组。",
+      "translation": "分组不可用于此类凭据，或不在同一分区。请选择当前子模块的独享分组或共享分组。",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "partitions.errors.groupInUse": {
+      "source": "此分组仍有关联的其他类型凭据（可能在回收站中），无法改为当前子模块独享。请先移出这些记录。",
+      "translation": "此分组仍有关联的其他类型凭据（可能在回收站中），无法改为当前子模块独享。请先移出这些记录。",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "ssh.create.nameHint": {
+      "source": "例如：公司 Git、生产服务器",
+      "translation": "例如：公司 Git、生产服务器",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "ssh.create.algorithm": {
+      "source": "密钥算法",
+      "translation": "密钥算法",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "ssh.create.algorithmHelp": {
+      "source": "当前使用 Ed25519，长度固定，无需设置位数。",
+      "translation": "当前使用 Ed25519，长度固定，无需设置位数。",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "ssh.create.comment": {
+      "source": "公钥备注（可选）",
+      "translation": "公钥备注（可选）",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "ssh.create.commentHint": {
+      "source": "例如：user@device；留空使用 credpivot",
+      "translation": "例如：user@device；留空使用 credpivot",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "ssh.create.commentHelp": {
+      "source": "附在公钥末尾，方便识别用途，不影响密钥本身。复制公钥与导出私钥时会保留此备注。",
+      "translation": "附在公钥末尾，方便识别用途，不影响密钥本身。复制公钥与导出私钥时会保留此备注。",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "ssh.create.policyHelp": {
+      "source": "选择此密钥签名时的授权方式；跟随全局设置时，将使用设置页面中的策略。",
+      "translation": "选择此密钥签名时的授权方式；跟随全局设置时，将使用设置页面中的策略。",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "ssh.create.defaultHelp": {
+      "source": "设为当前保险库的默认 SSH 身份；其他已保存的密钥仍会保留。",
+      "translation": "设为当前保险库的默认 SSH 身份；其他已保存的密钥仍会保留。",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "ssh.create.storageHelp": {
+      "source": "私钥保存在加密保险库中，不会自动写出私钥文件。需要导出时，可单独设置导出文件密码。",
+      "translation": "私钥保存在加密保险库中，不会自动写出私钥文件。需要导出时，可单独设置导出文件密码。",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "ssh.errors.name": {
+      "source": "请输入有效的密钥名称，不超过 200 字节且不能包含控制字符。",
+      "translation": "请输入有效的密钥名称，不超过 200 字节且不能包含控制字符。",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "ssh.errors.comment": {
+      "source": "公钥备注不能超过 256 个字符，且不能包含换行或控制字符。",
+      "translation": "公钥备注不能超过 256 个字符，且不能包含换行或控制字符。",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "ssh.errors.policy": {
+      "source": "请选择有效的 SSH 签名授权策略。",
+      "translation": "请选择有效的 SSH 签名授权策略。",
+      "description": "Shared credential groups and SSH creation.",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart",
+        "vault_tools.dart",
+        "repo_m2.rs",
+        "credential_groups.rs"
+      ]
+    },
+    "ssh.git.rules": {
+      "source": "Git 使用范围（可选）",
+      "translation": "Git 使用范围（可选）",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.rulesHelp": {
+      "source": "每行一条，支持账户／组织范围或具体仓库。匹配唯一时自动选择；多把匹配或没有匹配时，在执行 Git 命令时选择。需先启用 Git 接入。",
+      "translation": "每行一条，支持账户／组织范围或具体仓库。匹配唯一时自动选择；多把匹配或没有匹配时，在执行 Git 命令时选择。需先启用 Git 接入。",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.rulesHint": {
+      "source": "github.com:mocheng-mario\ngithub.com/organization/repository",
+      "translation": "github.com:mocheng-mario\ngithub.com/organization/repository",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.normalized": {
+      "source": "识别结果：\n{rules}",
+      "translation": "识别结果：\n{rules}",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {
+        "rules": "Text"
+      },
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.testTarget": {
+      "source": "测试仓库地址（可选）",
+      "translation": "测试仓库地址（可选）",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.testHint": {
+      "source": "git@github.com:mocheng-mario/CredPivot.git",
+      "translation": "git@github.com:mocheng-mario/CredPivot.git",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.matches": {
+      "source": "此仓库能匹配以上使用范围。",
+      "translation": "此仓库能匹配以上使用范围。",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.noMatch": {
+      "source": "此仓库未匹配以上使用范围。",
+      "translation": "此仓库未匹配以上使用范围。",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.invalidRule": {
+      "source": "Git 使用范围无效。请填写主机与账户／组织或仓库，例如 github.com:mocheng-mario；自定义端口使用 ssh://git@example.com:2222/team。暂不支持空格、通配符或正则。",
+      "translation": "Git 使用范围无效。请填写主机与账户／组织或仓库，例如 github.com:mocheng-mario；自定义端口使用 ssh://git@example.com:2222/team。暂不支持空格、通配符或正则。",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.invalidBinding": {
+      "source": "Git 密钥选择记忆无效，请在 Git 接入中删除该记录后重试。",
+      "translation": "Git 密钥选择记忆无效，请在 Git 接入中删除该记录后重试。",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.failed": {
+      "source": "Git SSH 请求失败或已取消，请检查 App、密钥与连接配置。",
+      "translation": "Git SSH 请求失败或已取消，请检查 App、密钥与连接配置。",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.settings": {
+      "source": "Git 接入与密钥记忆",
+      "translation": "Git 接入与密钥记忆",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.integrationHelp": {
+      "source": "启用后，系统 Git 的 SSH 连接交给 CredPivot 选择密钥，保留原来的 clone、pull、fetch、push 命令和仓库地址。私钥始终留在保险库中。已有仓库自己的 core.sshCommand 或终端 GIT_SSH_COMMAND 会优先于此设置。",
+      "translation": "启用后，系统 Git 的 SSH 连接交给 CredPivot 选择密钥，保留原来的 clone、pull、fetch、push 命令和仓库地址。私钥始终留在保险库中。已有仓库自己的 core.sshCommand 或终端 GIT_SSH_COMMAND 会优先于此设置。",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.enabled": {
+      "source": "Git 接入已启用",
+      "translation": "Git 接入已启用",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.disabled": {
+      "source": "Git 接入尚未启用",
+      "translation": "Git 接入尚未启用",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.current": {
+      "source": "当前 Git SSH 命令：{command}",
+      "translation": "当前 Git SSH 命令：{command}",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {
+        "command": "Text"
+      },
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.backup": {
+      "source": "原配置及接入记录：{path}",
+      "translation": "原配置及接入记录：{path}",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {
+        "path": "Text"
+      },
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.enable": {
+      "source": "启用 Git 接入",
+      "translation": "启用 Git 接入",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.disable": {
+      "source": "撤销 Git 接入",
+      "translation": "撤销 Git 接入",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.enableConfirm": {
+      "source": "将备份当前全局 core.sshCommand，并改为 CredPivot Git SSH 适配程序。其他 Git 配置保持不变；撤销时会恢复原设置。是否继续？",
+      "translation": "将备份当前全局 core.sshCommand，并改为 CredPivot Git SSH 适配程序。其他 Git 配置保持不变；撤销时会恢复原设置。是否继续？",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.disableConfirm": {
+      "source": "恢复启用前的全局 Git SSH 命令。若该配置已被其他工具修改，会停止恢复以保留新的设置。是否继续？",
+      "translation": "恢复启用前的全局 Git SSH 命令。若该配置已被其他工具修改，会停止恢复以保留新的设置。是否继续？",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.configureFailed": {
+      "source": "无法更新 Git 接入，请检查 Git 是否可用、全局配置是否可写，以及 App 是否包含 Git SSH 适配程序。若配置已被其他工具修改，请先核对当前 SSH 命令。",
+      "translation": "无法更新 Git 接入，请检查 Git 是否可用、全局配置是否可写，以及 App 是否包含 Git SSH 适配程序。若配置已被其他工具修改，请先核对当前 SSH 命令。",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.bindings": {
+      "source": "已记住的仓库选择",
+      "translation": "已记住的仓库选择",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.bindingsHelp": {
+      "source": "记忆保存在本机加密保险库中。本地仓库副本优先于远端仓库记忆；创建时填写的 Git 使用范围则随凭据备份、同步。",
+      "translation": "记忆保存在本机加密保险库中。本地仓库副本优先于远端仓库记忆；创建时填写的 Git 使用范围则随凭据备份、同步。",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.noBindings": {
+      "source": "尚无手动选择的仓库记忆。",
+      "translation": "尚无手动选择的仓库记忆。",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.missingKey": {
+      "source": "原密钥已删除或在回收站中",
+      "translation": "原密钥已删除或在回收站中",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.forget": {
+      "source": "忘记此选择",
+      "translation": "忘记此选择",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.forgetConfirm": {
+      "source": "删除这条密钥选择记忆。下次连接将重新匹配使用范围，无法唯一匹配时再次选择；不会删除密钥。",
+      "translation": "删除这条密钥选择记忆。下次连接将重新匹配使用范围，无法唯一匹配时再次选择；不会删除密钥。",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.remember": {
+      "source": "记住此仓库使用的密钥",
+      "translation": "记住此仓库使用的密钥",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.chooseTitle": {
+      "source": "为 Git 仓库选择 SSH 密钥",
+      "translation": "为 Git 仓库选择 SSH 密钥",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.chooseBody": {
+      "source": "仓库：{repository}\n请选择本次 Git 操作使用的 SSH 密钥。主机和路径来自本机 Git 调用；选择后将继续当前命令。",
+      "translation": "仓库：{repository}\n请选择本次 Git 操作使用的 SSH 密钥。主机和路径来自本机 Git 调用；选择后将继续当前命令。",
+      "description": "Git SSH integration and repository identity selection.",
+      "placeholders": {
+        "repository": "Text"
+      },
+      "locations": [
+        "ssh_git_ui.dart",
+        "ssh_git.rs",
+        "git_ssh.rs",
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "ssh.git.rechoose": {
+      "source": "下次重新选择",
+      "translation": "下次重新选择",
+      "description": "Git SSH identity reselection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart"
+      ]
+    },
+    "ssh.git.rechooseConfirm": {
+      "source": "下次执行此仓库的 Git 操作时，忽略已记住的选择及自动规则，重新选择密钥；不会删除密钥。",
+      "translation": "下次执行此仓库的 Git 操作时，忽略已记住的选择及自动规则，重新选择密钥；不会删除密钥。",
+      "description": "Git SSH identity reselection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart"
+      ]
+    },
+    "ssh.git.rechoosePending": {
+      "source": "下次连接时将重新选择密钥",
+      "translation": "下次连接时将重新选择密钥",
+      "description": "Git SSH identity reselection.",
+      "placeholders": {},
+      "locations": [
+        "ssh_git_ui.dart"
+      ]
     }
   }
 }

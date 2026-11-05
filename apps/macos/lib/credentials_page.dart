@@ -13,6 +13,7 @@ import 'totp_editor.dart';
 import 'app_ui.dart';
 import 'credential_confirm.dart';
 import 'credential_group_ui.dart';
+import 'ssh_git_ui.dart';
 import 'credential_list_tile.dart';
 import 'linked_refs.dart';
 import 'server_login_page.dart';
@@ -134,7 +135,7 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
                     (g) => DropdownMenuItem(
                       value: g['id'] as String,
                       child: Text(
-                        g['name']?.toString() ?? '',
+                        credentialGroupLabel(g),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -984,10 +985,14 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
           AppSectionHeader(
             title: tr('credentials.ssh.title'),
             subtitle: tr('credentials.ssh.count', args: {'count': visibleItems.length}),
-            action: FilledButton.icon(
+            action: Wrap(spacing: 8, runSpacing: 8, children: [
+              if (Theme.of(context).platform == TargetPlatform.macOS)
+                OutlinedButton.icon(onPressed: () => showGitSshSettings(context), icon: const Icon(Icons.settings_ethernet), label: const LText('ssh.git.settings')),
+              FilledButton.icon(
                 onPressed: _generate,
                 icon: const Icon(Icons.add_rounded),
                 label: const LText('credentials.build.text.item21')),
+            ]),
           ),
           TextButton.icon(onPressed: () async { await transferSshKey(context); if (mounted) await _refresh(); }, icon: const Icon(Icons.file_open_outlined), label: const LText('credentials.build.text.item22')),
           if (_status.isNotEmpty) AppNotice(_status),

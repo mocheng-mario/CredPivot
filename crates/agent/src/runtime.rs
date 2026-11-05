@@ -29,6 +29,19 @@ impl AgentRuntime {
     pub async fn start() -> Result<Self> {
         let lock = SingleWriterLock::acquire()?;
         ensure_runtime_dir()?;
+        #[cfg(not(target_os="android"))]
+        {
+            // 单写者锁已经持有；这里只移除上次进程异常退出留下的短期 Git socket。
+            use std::os::unix::fs::FileTypeExt;
+            if let Ok(entries)=std::fs::read_dir(crate::paths::runtime_dir().join("git-sockets")) {
+                for entry in entries.flatten() {
+                    let name=entry.file_name(); let name=name.to_string_lossy();
+                    if name.len()==12 && name.bytes().all(|c|c.is_ascii_hexdigit()) && entry.file_type().is_ok_and(|t|t.is_socket()) {
+                        let _=std::fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
         if !credpivot_core::app_settings_path().exists() {
             let settings = credpivot_core::read_app_settings()?;
             credpivot_core::write_app_settings(&settings)?;

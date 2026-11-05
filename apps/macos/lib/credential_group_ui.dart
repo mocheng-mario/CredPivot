@@ -5,33 +5,71 @@ import 'app_ui.dart';
 import 'linked_refs.dart';
 import 'credential_confirm.dart';
 
-/// 凭据子模块 scope：login | totp | ssh | server | passkey
+/// shared 在同一分区内跨子模块复用；其余 scope 仍属于指定类型。
 Future<List<Map<String, dynamic>>> loadCredentialGroups(String scope, {String? partitionId}) async {
   return AgentBridge.listCredentialGroups(scope, partitionId: partitionId);
 }
 
-Future<bool> _renameGroup(BuildContext context, Map<String, dynamic> group) async {
-  final controller = TextEditingController(text: group['name']?.toString() ?? '');
+String credentialGroupLabel(Map group) => tr('groups.optionLabel', args: {
+  'name': group['name']?.toString() ?? '',
+  'type': tr(group['scope'] == 'shared' ? 'groups.type.shared' : 'groups.type.exclusive'),
+});
+
+String credentialGroupScope(String kind) => const {'ssh_key': 'ssh', 'server_login': 'server'}[kind] ?? kind;
+
+String credentialGroupUsage(Map group) {
+  const kinds = {'login': 'credentials.login.title', 'totp': 'groups.kind.totp', 'ssh_key': 'credentials.ssh.title',
+    'server_login': 'credentials.server.title', 'passkey': 'credentials.passkey.title',
+    'recovery_codes': 'credentials.recovery.title', 'secure_note': 'credentials.notes.title'};
+  final counts = group['usage_counts'] as Map? ?? {};
+  if (counts.isEmpty) return tr('groups.usage.empty');
+  return tr('groups.usage.summary', args: {'items': counts.entries.map((entry) =>
+    '${tr(kinds[entry.key] ?? 'credentials.trash.other')} ${entry.value}').join(' · ')});
+}
+
+Future<void> _groupFailure(BuildContext context, Object error) async {
+  if (!context.mounted) return;
+  await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+    title: const LText('common.operationFailed'), content: LText(error is AgentException ? error.message : 'common.operationFailed'),
+    actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.close'))]));
+}
+
+Future<bool> _editGroup(BuildContext context, String scope, String partition, {Map<String, dynamic>? group}) async {
+  final controller = TextEditingController(text: group?['name']?.toString() ?? '');
+  final originalScope = group?['scope']?.toString() ?? 'shared';
+  var selectedScope = originalScope;
   var busy = false;
   var error = '';
   try {
     return await showDraftDialog<bool>(context: context,
-      hasChanges: () => controller.text != group['name'], isBusy: () => busy,
+      hasChanges: () => controller.text != (group?['name'] ?? '') || selectedScope != originalScope, isBusy: () => busy,
       builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
-        title: const LText('groups.rename'),
-        content: SizedBox(width: appEditDialogWidth(ctx), child: Column(mainAxisSize: MainAxisSize.min, children: [
-          AppFieldRow(label: tr('common.name'), child: TextField(controller: controller, autofocus: true, enabled: !busy, maxLength: 80,
-            decoration: InputDecoration())),
+        title: LText(group == null ? 'groups.showManageGroupsDialog.text.item3' : 'groups.edit'),
+        content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch, children: appFormFields([
+          AppFieldRow(label: tr('common.name'), child: TextField(controller: controller, autofocus: true, enabled: !busy, maxLength: 80)),
+          AppFieldRow(label: tr('groups.type.label'), help: tr(selectedScope == 'shared' ? 'groups.type.sharedHelp' : 'groups.type.exclusiveHelp'),
+            child: DropdownButtonFormField<String>(value: selectedScope, isExpanded: true,
+              items: [const DropdownMenuItem(value: 'shared', child: LText('groups.type.shared')),
+                if (scope != 'shared') DropdownMenuItem(value: scope, child: const LText('groups.type.exclusive'))],
+              onChanged: busy ? null : (value) { if (value != null) update(() => selectedScope = value); })),
+          if (group != null) Text(credentialGroupUsage(group)),
+          if (originalScope == 'shared' && group != null) const LText('groups.edit.sharedHelp'),
           if (error.isNotEmpty) LText(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
-        ])),
+        ])))),
         actions: [
           TextButton(onPressed: busy ? null : () => Navigator.maybePop(ctx), child: const LText('common.cancel')),
           FilledButton(onPressed: busy ? null : () async {
+            if (controller.text.trim().isEmpty) { update(() => error = 'groups.showManageGroupsDialog.text.item5'); return; }
             update(() { busy = true; error = ''; });
             try {
-              await AgentBridge.manage({'action': 'group_rename', 'id': group['id'],
-                'expected_updated_at_ms': group['updated_at_ms'], 'name': controller.text.trim()});
-              AgentBridge.notifyVaultChanged();
+              if (group == null) {
+                await AgentBridge.createCredentialGroup(selectedScope, controller.text.trim(), partitionId: partition);
+              } else {
+                await AgentBridge.manage({'action': 'group_rename', 'id': group['id'], 'scope': selectedScope,
+                  'expected_updated_at_ms': group['updated_at_ms'], 'name': controller.text.trim()});
+                AgentBridge.notifyVaultChanged();
+              }
               if (ctx.mounted) Navigator.pop(ctx, true);
             } catch (e) {
               if (ctx.mounted) update(() { busy = false; error = e is AgentException ? e.message : 'common.operationFailed'; });
@@ -43,89 +81,60 @@ Future<bool> _renameGroup(BuildContext context, Map<String, dynamic> group) asyn
 }
 
 Future<void> showManageGroupsDialog(BuildContext context, String scope) async {
-  var groups = await loadCredentialGroups(scope);
+  final partition = AgentBridge.activePartitionId;
+  var groups = await loadCredentialGroups(scope, partitionId: partition);
+  var busy = false;
   if (!context.mounted) return;
-  await showDialog<void>(
-    context: context,
-    builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setLocal) => AlertDialog(
-        title: const LText('groups.showManageGroupsDialog.text'),
-        content: SizedBox(
-          width: appEditDialogWidth(ctx),
-          child: groups.isEmpty
-              ? const LText('groups.showManageGroupsDialog.text.item2')
-              : ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: groups.length,
-                  itemBuilder: (_, i) {
-                    final g = groups[i];
-                    return ListTile(
-                      title: Text(g['name']?.toString() ?? ''),
-                      trailing: Wrap(children: [
-                        IconButton(icon: const Icon(Icons.edit_outlined), tooltip: tr('groups.rename'), onPressed: () async {
-                          if (await _renameGroup(ctx, g) && ctx.mounted) {
-                            groups = await loadCredentialGroups(scope);
-                            if (ctx.mounted) setLocal(() {});
-                          }
-                        }),
-                        IconButton(
-                        icon: const Icon(Icons.delete_outline),
-                        onPressed: () async {
-                          if (!await confirmCredentialDanger(ctx, title: tr('groups.showManageGroupsDialog.title'),
-                              message: tr('groups.delete.confirmation', args: {'name': g['name']}), confirmLabel: tr('groups.showManageGroupsDialog.title'))) return;
-                          if (!ctx.mounted) return;
-                          try {
-                            await AgentBridge.deleteCredentialGroup(g['id'] as String);
-                            groups = await loadCredentialGroups(scope);
-                            if (ctx.mounted) setLocal(() {});
-                          } on AgentException catch (e) {
-                            if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: LText(e.message)));
-                          }
-                        },
-                      )]),
-                    );
-                  },
-                ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              final nameCtl = TextEditingController();
-              var busy = false;
-              var error = '';
-              try {
-                final created = await showDraftDialog<bool>(context: ctx,
-                  hasChanges: () => nameCtl.text.isNotEmpty, isBusy: () => busy,
-                  builder: (d) => StatefulBuilder(builder: (d, update) => AlertDialog(
-                    title: const LText('groups.showManageGroupsDialog.text.item3'),
-                    content: SizedBox(width: appEditDialogWidth(d), child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      AppFieldRow(label: tr('groups.showManageGroupsDialog.text.item4'), child: TextField(controller: nameCtl, enabled: !busy, decoration: InputDecoration())),
-                      if (error.isNotEmpty) LText(error),
-                    ])),
-                    actions: [
-                      TextButton(onPressed: busy ? null : () => Navigator.maybePop(d), child: const LText('common.cancel')),
-                      FilledButton(onPressed: busy ? null : () async {
-                        if (nameCtl.text.trim().isEmpty) { update(() => error = tr('groups.showManageGroupsDialog.text.item5')); return; }
-                        update(() => busy = true);
-                        try {
-                          await AgentBridge.createCredentialGroup(scope, nameCtl.text.trim());
-                          if (d.mounted) Navigator.pop(d, true);
-                        } on AgentException catch (e) { if (d.mounted) update(() { error = e.message; busy = false; }); }
-                      }, child: const LText('groups.showManageGroupsDialog.text.item6')),
-                    ],
-                  )));
-                if (created == true && ctx.mounted) {
-                  groups = await loadCredentialGroups(scope);
-                  if (ctx.mounted) setLocal(() {});
-                }
-              } finally { nameCtl.dispose(); }
-            },
-            child: const LText('groups.showManageGroupsDialog.text.item3'),
-          ),
-          FilledButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.done')),
-        ],
-      ),
-    ),
+  await showDialog<void>(context: context, barrierDismissible: false,
+    builder: (ctx) => StatefulBuilder(builder: (ctx, update) => PopScope(canPop: !busy, child: AlertDialog(
+      title: const LText('groups.showManageGroupsDialog.text'),
+      content: SizedBox(width: appEditDialogWidth(ctx), child: Column(mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const LText('groups.manage.help'), const SizedBox(height: 12),
+        if (busy) const LinearProgressIndicator(),
+        Flexible(child: groups.isEmpty ? const LText('groups.showManageGroupsDialog.text.item2') : ListView.builder(
+          shrinkWrap: true, itemCount: groups.length, itemBuilder: (_, i) {
+            final group = groups[i];
+            return ListTile(title: Text(credentialGroupLabel(group)), subtitle: Text(credentialGroupUsage(group)),
+              trailing: Wrap(children: [
+                IconButton(icon: const Icon(Icons.edit_outlined), tooltip: tr('groups.edit'), onPressed: busy ? null : () async {
+                  update(() => busy = true);
+                  try {
+                    if (await _editGroup(ctx, scope, partition, group: group)) groups = await loadCredentialGroups(scope, partitionId: partition);
+                  } catch (e) { await _groupFailure(ctx, e);
+                  } finally { if (ctx.mounted) update(() => busy = false); }
+                }),
+                IconButton(icon: const Icon(Icons.delete_outline), tooltip: tr('groups.showManageGroupsDialog.title'), onPressed: busy ? null : () async {
+                  update(() => busy = true);
+                  try {
+                    // 重新读取跨模块用量，不能用当前页面的旧数量做删除确认。
+                    groups = await loadCredentialGroups(scope, partitionId: partition);
+                    final matches = groups.where((value) => value['id'] == group['id']);
+                    if (matches.isEmpty || !ctx.mounted) return;
+                    final current = matches.first;
+                    if (!await confirmCredentialDanger(ctx, title: tr('groups.showManageGroupsDialog.title'),
+                      message: tr(current['scope'] == 'shared' ? 'groups.delete.sharedConfirmation' : 'groups.delete.confirmation',
+                        args: {'name': current['name'], 'usage': credentialGroupUsage(current)}), confirmLabel: tr('groups.showManageGroupsDialog.title'))) return;
+                    await AgentBridge.deleteCredentialGroup(current['id'] as String);
+                    groups = await loadCredentialGroups(scope, partitionId: partition);
+                  } catch (e) {
+                    await _groupFailure(ctx, e);
+                  } finally { if (ctx.mounted) update(() => busy = false); }
+                }),
+              ]));
+          })),
+      ])),
+      actions: [
+        TextButton(onPressed: busy ? null : () async {
+          update(() => busy = true);
+          try {
+            if (await _editGroup(ctx, scope, partition)) groups = await loadCredentialGroups(scope, partitionId: partition);
+          } catch (e) { await _groupFailure(ctx, e);
+          } finally { if (ctx.mounted) update(() => busy = false); }
+        }, child: const LText('groups.showManageGroupsDialog.text.item3')),
+        FilledButton(onPressed: busy ? null : () => Navigator.pop(ctx), child: const LText('common.done')),
+      ],
+    ))),
   );
 }
 
@@ -149,7 +158,7 @@ Future<void> showMoveItemToGroupDialog(
         AppFieldRow(label: tr('groups.showMoveItemToGroupDialog.text'), child: DropdownButtonFormField<String?>(isExpanded: true, value: selected,
           decoration: InputDecoration(),
           items: [const DropdownMenuItem(value: null, child: LText('common.ungroupedOption')),
-            for (final group in groups) DropdownMenuItem(value: group['id'] as String, child: Text(group['name'].toString()))],
+            for (final group in groups) DropdownMenuItem(value: group['id'] as String, child: Text(credentialGroupLabel(group), overflow: TextOverflow.ellipsis))],
           onChanged: busy ? null : (value) => update(() => selected = value))),
         if (error.isNotEmpty) LText(error),
       ])),
@@ -188,7 +197,7 @@ Widget buildGroupFilterBar({
                 (g) => DropdownMenuItem(
                   value: g['id'] as String,
                   child: Text(
-                    g['name']?.toString() ?? '',
+                    credentialGroupLabel(g),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -217,7 +226,7 @@ List<Widget> buildGroupedListTiles({
 }) {
   final groupName = <String, String>{};
   for (final g in groups) {
-    groupName[g['id'] as String] = g['name']?.toString() ?? '';
+    groupName[g['id'] as String] = credentialGroupLabel(g);
   }
   final buckets = <String?, List<Map<String, dynamic>>>{};
   for (final row in items) {

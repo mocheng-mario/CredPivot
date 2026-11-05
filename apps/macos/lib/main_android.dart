@@ -12,6 +12,8 @@ import 'vault_lock_coordinator.dart';
 import 'webdav_sync.dart';
 import 'theme_color_picker.dart';
 import 'android_diagnostics.dart';
+import 'vault_setup.dart';
+import 'webdav_bootstrap.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -53,6 +55,7 @@ class _AndroidHomeState extends State<_AndroidHome> {
   String home = '', message = '';
   int page = 0, generation = 0;
   bool initializing = true, busy = false, polling = false;
+  bool skippedSetup = false, openingRemote = false;
   bool get unlocked => status['unlocked'] == true;
   bool get exists => status['vault_exists'] == true;
   Timer? timer;
@@ -107,7 +110,7 @@ class _AndroidHomeState extends State<_AndroidHome> {
       if (unlocked && next['unlocked'] != true) notifyVaultLocked();
       setState(() => status = next);
       partitions.setUnlocked(unlocked);
-      WebDavSync.instance.setUnlocked(unlocked);
+      WebDavSync.instance.setUnlocked(unlocked && !openingRemote);
     } catch (_) { if (unlocked) notifyVaultLocked(); }
     finally { polling = false; }
   }
@@ -170,6 +173,20 @@ class _AndroidHomeState extends State<_AndroidHome> {
       await refresh();
       if (mounted) await _notice(tr('android.vault.recoveryTitle'), tr('android.vault.recoveryBody', args: {'key': recovery}));
     });
+  }
+
+  Future<void> _openRemote() async {
+    if (busy) return;
+    WebDavBootstrapOutcome? outcome;
+    setState(() { busy = true; openingRemote = true; message = ''; });
+    try { outcome = await openWebDavBootstrap(context); }
+    catch (problem) { if (mounted) setState(() => message = problem is AgentException ? tr(problem.message) : tr('common.operationFailed')); }
+    finally {
+      openingRemote = false;
+      await refresh();
+      if (mounted) setState(() => busy = false);
+    }
+    if (mounted && outcome == WebDavBootstrapOutcome.createNew) await _create();
   }
 
   Future<void> _restore() async {
@@ -277,7 +294,12 @@ class _AndroidHomeState extends State<_AndroidHome> {
         notifyVaultLocked(); await AgentBridge.lockVault();
       }),
     ]),
-    body: SafeArea(child: initializing ? const Center(child: CircularProgressIndicator()) : !unlocked ? _unlockView() : Column(children: [
+    body: SafeArea(child: initializing ? const Center(child: CircularProgressIndicator()) : !exists ?
+      (skippedSetup ? UnconfiguredVaultPage(onSetup: () => setState(() => skippedSetup = false)) : Column(children: [
+        if (message.isNotEmpty) Padding(padding: const EdgeInsets.all(16), child: AppNotice(message)),
+        Expanded(child: VaultSetupChoices(busy: busy, onCreate: _create, onWebDav: _openRemote, onRestore: _restore,
+          onSkip: () => setState(() => skippedSetup = true))),
+      ])) : !unlocked ? _unlockView() : Column(children: [
       if (message.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: AppNotice(message)),
       if (page == 0) ListenableBuilder(listenable: partitions, builder: (context, _) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16), child: Row(children: [

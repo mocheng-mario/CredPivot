@@ -253,6 +253,10 @@ pub async fn handle_request(
     };
     let moving_partition=matches!(&req,AgentRequest::VaultManage {action:credpivot_core::VaultAction::PartitionMoveApply {..}});
     let operation = req.operation();
+    {
+        let mut vault = st.vault.lock().await;
+        if vault.bootstrap_plan.as_ref().is_some_and(|p|p.expired()) { vault.bootstrap_plan = None; }
+    }
     crate::diagnostics::debug(operation, "request started");
     let mutates = matches!(&req,
         AgentRequest::CredentialSave { .. } | AgentRequest::CredentialUpdate { .. } | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::AppCredentialPasswordUpdate { .. }
@@ -378,6 +382,7 @@ async fn handle_request_inner(
         | AgentRequest::SyncStatus | AgentRequest::SyncControlAuthorize | AgentRequest::SyncCancel | AgentRequest::SyncPrepare { .. } | AgentRequest::SyncResolve { .. }
         | AgentRequest::SyncPreviewPage { .. }
         | AgentRequest::SyncApply { .. } | AgentRequest::SyncPublishAuthorize { .. } | AgentRequest::SyncAcknowledge { .. } | AgentRequest::SyncDisconnect
+        | AgentRequest::SyncBootstrapPrepare { .. } | AgentRequest::SyncBootstrapApply { .. } | AgentRequest::SyncBootstrapCancel | AgentRequest::SyncBootstrapFinish { .. }
         | AgentRequest::VaultManage { .. } | AgentRequest::AppCredentialPasswordUpdate { .. } | AgentRequest::AppPasskey { .. }
         | AgentRequest::SshAuthorizationsPending | AgentRequest::SshAuthorizationResolve { .. }
         | AgentRequest::PasskeyRequestsPending | AgentRequest::PasskeyResolve { .. } | AgentRequest::PasskeyList
@@ -442,7 +447,8 @@ async fn handle_request_inner(
     }
     let resp = match req {
         AgentRequest::PartitionRequest {..} => AgentResponse::err("bad_args","nested partition scope is not supported"),
-        request @ (AgentRequest::SyncStatus | AgentRequest::SyncControlAuthorize | AgentRequest::SyncCancel | AgentRequest::SyncPrepare { .. } | AgentRequest::SyncResolve { .. }
+        request @ (AgentRequest::SyncBootstrapPrepare { .. } | AgentRequest::SyncBootstrapApply { .. } | AgentRequest::SyncBootstrapCancel | AgentRequest::SyncBootstrapFinish { .. }
+            | AgentRequest::SyncStatus | AgentRequest::SyncControlAuthorize | AgentRequest::SyncCancel | AgentRequest::SyncPrepare { .. } | AgentRequest::SyncResolve { .. }
             | AgentRequest::SyncPreviewPage { .. }
             | AgentRequest::SyncApply { .. } | AgentRequest::SyncPublishAuthorize { .. } | AgentRequest::SyncAcknowledge { .. } | AgentRequest::SyncDisconnect) => {
             let applies=matches!(&request,AgentRequest::SyncApply { .. });
@@ -690,14 +696,14 @@ async fn handle_request_inner(
             v.ssh_authorization.expire();
             AgentResponse::ok(json!({"requests":v.ssh_authorization.pending.values().collect::<Vec<_>>()}))
         }
-        AgentRequest::SshAuthorizationResolve { request_id, approved } => {
+        AgentRequest::SshAuthorizationResolve { request_id, approved, key_id, remember } => {
             let mut v = st.vault.lock().await;
             v.ssh_authorization.expire();
             if !v.ssh_authorization.pending.contains_key(&request_id) {
                 return AgentResponse::err("request_gone", "SSH 请求已断开或过期");
             }
             if approved && (!v.unlocked || !v.authorize_sensitive_operation()) { return AgentResponse::err("auth_required","请先验证身份"); }
-            if v.ssh_authorization.resolve(&request_id,approved) { AgentResponse::ok(json!({"resolved":true})) }
+            if v.ssh_authorization.resolve(&request_id,approved,key_id,remember) { AgentResponse::ok(json!({"resolved":true})) }
             else { AgentResponse::err("request_gone","SSH 请求已断开或过期") }
         }
         AgentRequest::Status => {
@@ -1221,6 +1227,9 @@ async fn handle_request_inner(
             label,
             set_default,
             group_id,
+            comment,
+            sign_policy,
+            git_rules,
         } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
@@ -1229,16 +1238,19 @@ async fn handle_request_inner(
             v.touch_activity();
             let def = set_default.unwrap_or(false);
             let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","database not attached"); };
-            match credpivot_core::generate_ssh_key_in_partition(db.conn(), partition.unwrap_or(credpivot_core::partitions::PERSONAL),
+            match credpivot_core::generate_ssh_key_with_options_in_partition(db.conn(), partition.unwrap_or(credpivot_core::partitions::PERSONAL),
                 &label,
                 def,
                 group_id.as_deref().and_then(|s| opt_nonempty(s)),
+                &comment,
+                &sign_policy,
+                &git_rules,
             ) {
                 Ok(row) => match v.sync_ssh_from_db() {
                     Ok(()) => AgentResponse::ok(json!({"item":row})),
                     Err(e) => AgentResponse::err("vault",e.to_string()),
                 },
-                Err(e) => AgentResponse::err("vault", e.to_string()),
+                Err(e) => AgentResponse::err("vault", e.to_string().trim_start_matches("invalid format: ")),
             }
         }
         AgentRequest::SshSelectKey { key_id } => {

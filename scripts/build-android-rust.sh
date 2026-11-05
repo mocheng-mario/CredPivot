@@ -2,9 +2,18 @@
 # 不安装 SDK、NDK 或 Rust target；缺少工具链时明确停止，由开发者安装。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
-NDK="${ANDROID_NDK_HOME:-$SDK/ndk/28.2.13676358}"
-[[ -d "$NDK/toolchains/llvm/prebuilt" ]] || { echo "缺少 Android NDK 28.2.13676358，请在 Android Studio SDK Manager 安装并设置 ANDROID_HOME。" >&2; exit 1; }
+SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+# make 不一定经由 mise exec 启动；未显式配置 SDK 时，复用仓库锁定的 mise 安装。
+if [[ -z "$SDK" ]] && command -v mise >/dev/null 2>&1; then
+  SDK="$(cd "$ROOT" && mise where android-sdk 2>/dev/null || true)"
+fi
+SDK="${SDK:-$HOME/Library/Android/sdk}"
+NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-$SDK/ndk/28.2.13676358}}"
+[[ -d "$NDK/toolchains/llvm/prebuilt" ]] || {
+  echo "未找到 Android NDK 28.2.13676358，检查路径：$NDK" >&2
+  echo "请确认 SDK/NDK 路径；确实未安装时，再安装 ndk;28.2.13676358。SDK：$SDK" >&2
+  exit 1
+}
 case "$(uname -s)" in
   Darwin) HOST_TAG=darwin-x86_64 ;;
   Linux) HOST_TAG=linux-x86_64 ;;

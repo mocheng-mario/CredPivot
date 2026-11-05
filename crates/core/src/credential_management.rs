@@ -18,7 +18,11 @@ pub enum VaultAction {
     PartitionReorder { ids: Vec<String>, expected: std::collections::BTreeMap<String,String> },
     PartitionMovePreview { item_ids: Vec<String>, target_partition_id: String },
     PartitionMoveApply { item_ids: Vec<String>, target_partition_id: String, fingerprint: String },
-    GroupRename { id: String, name: String, expected_updated_at_ms: i64 },
+    GroupRename { id: String, name: String, expected_updated_at_ms: i64, #[serde(default)] scope: Option<String> },
+    SshGitRulesTest { rules: Vec<String>, #[serde(default)] target: Option<String> },
+    SshGitBindings,
+    SshGitForget { scope: String },
+    SshGitRechoose { scope: String },
     GeneratePassword {
         length: usize,
         symbols: bool,
@@ -75,6 +79,9 @@ pub enum VaultAction {
         title: Option<String>,
         #[serde(default)]
         password_active_since_ms: Option<i64>,
+        // 缺省保留原分组；空字符串表示移出分组，避免旧客户端保存资料时清空归属。
+        #[serde(default)]
+        group_id: Option<String>,
     },
     NoteCreate {
         title: String,
@@ -155,6 +162,7 @@ impl VaultAction {
                 | Self::PartitionList | Self::PartitionMovePreview { .. }
                 | Self::PartitionCreate { .. } | Self::PartitionRename { .. } | Self::PartitionReorder { .. }
                 | Self::GroupRename { .. }
+                | Self::SshGitRulesTest { .. } | Self::SshGitBindings
                 | Self::LoginWebsiteRules { .. }
                 | Self::WebsiteRulesTest { .. }
                 | Self::TotpParse { .. }
@@ -192,6 +200,8 @@ pub struct ItemDetails {
     pub mfa_state: String,
     // 空值继承本机默认策略，随凭据加密保存。
     pub ssh_sign_policy: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ssh_git_rules: Vec<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomField {
@@ -538,9 +548,38 @@ pub fn manage_credentials(conn: &Connection, action: VaultAction) -> Result<Valu
         PartitionReorder {ids,expected} => crate::partitions::reorder(conn,&ids,&expected),
         PartitionMovePreview {item_ids,target_partition_id} => crate::partitions::preview(conn,&item_ids,&target_partition_id),
         PartitionMoveApply {item_ids,target_partition_id,fingerprint} => crate::partitions::migrate(conn,&item_ids,&target_partition_id,&fingerprint),
-        GroupRename {id,name,expected_updated_at_ms} => {
-            crate::credential_groups::rename_credential_group_checked(conn,&id,&name,Some(expected_updated_at_ms))?;
+        GroupRename {id,name,expected_updated_at_ms,scope} => {
+            crate::credential_groups::update_credential_group_checked(conn,&id,&name,scope.as_deref(),Some(expected_updated_at_ms))?;
             Ok(json!({"renamed":true}))
+        }
+        SshGitRulesTest {rules,target} => {
+            let normalized=crate::ssh_git::normalize_rules(&rules)?;
+            let target=target.as_deref().filter(|s|!s.trim().is_empty()).map(crate::ssh_git::normalize_rule).transpose()?;
+            Ok(json!({"rules":normalized,"target":target,"matches":target.as_ref().map(|target|normalized.iter().any(|r|crate::ssh_git::match_score(r,target)>0))}))
+        }
+        SshGitBindings => {
+            let entries=rows(conn,"SELECT key,value FROM sync_state WHERE key LIKE 'git-ssh:%' ORDER BY key",[])?;
+            let mut result=Vec::new();
+            for entry in entries {
+                let mut value:Value=serde_json::from_str(entry["value"].as_str().unwrap_or("{}")).map_err(|_|CoreError::format("ssh.git.invalidBinding"))?;
+                let id=value["key_id"].as_str().unwrap_or("");
+                let label:Option<String>=conn.query_row("SELECT label FROM ssh_keys s JOIN items i ON i.id=s.item_id WHERE s.id=?1 AND i.trashed=0",[id],|r|r.get(0)).optional()?;
+                value["label"]=json!(label); value["scope"]=entry["key"].clone(); result.push(value);
+            }
+            Ok(json!({"items":result}))
+        }
+        SshGitForget {scope} => {
+            if !scope.starts_with("git-ssh:") || scope.len()>160 { return Err(CoreError::format("ssh.git.invalidBinding")); }
+            conn.execute("DELETE FROM sync_state WHERE key=?1",[scope])?;
+            Ok(json!({"forgotten":true}))
+        }
+        SshGitRechoose {scope} => {
+            if !scope.starts_with("git-ssh:") || scope.len()>160 { return Err(CoreError::format("ssh.git.invalidBinding")); }
+            let raw:String=conn.query_row("SELECT value FROM sync_state WHERE key=?1",[&scope],|r|r.get(0))?;
+            let mut value:Value=serde_json::from_str(&raw).map_err(|_|CoreError::format("ssh.git.invalidBinding"))?;
+            value["reselect"]=json!(true);
+            conn.execute("UPDATE sync_state SET value=?1 WHERE key=?2",params![value.to_string(),scope])?;
+            Ok(json!({"reselect":true}))
         }
         SshImport {
             label,
@@ -744,7 +783,8 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
                 if let Some(uri) = origin { details.uris.push(UriRule { id: id(), uri, match_mode: "exact_origin".into() }); }
             }
             let since: Option<i64> = tx.query_row("SELECT password_active_since_ms FROM login_credentials WHERE item_id=?1", [&item_id], |r|r.get(0)).optional()?;
-            json!({"details":details,"current_revision":rev,"password_active_since_ms":since})
+            let (group,kind,partition):(Option<String>,String,String)=tx.query_row("SELECT group_id,kind,partition_id FROM items WHERE id=?1",[&item_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+            json!({"item_id":item_id,"details":details,"current_revision":rev,"password_active_since_ms":since,"group_id":group,"kind":kind,"partition_id":partition})
         }
         ItemDetailsSave {
             item_id,
@@ -752,6 +792,7 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             mut details,
             title,
             password_active_since_ms,
+            group_id,
         } => {
             check_revision(&active_item(&tx, &item_id)?, &expected_revision)?;
             crate::website_rules::validate_website_rules(&details.uris)?;
@@ -762,6 +803,7 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             details.linked_mfa_ids = stored.linked_mfa_ids;
             details.mfa_bindings = stored.mfa_bindings;
             details.pending_mfa_uris = stored.pending_mfa_uris;
+            details.ssh_git_rules = crate::ssh_git::normalize_rules(&details.ssh_git_rules)?;
             if !matches!(details.ssh_sign_policy.as_str(), "" | "session" | "confirm" | "biometric")
                 || details.notes.len() > 1_000_000
                 || details.otp_extra_parameters.len() > 32
@@ -822,6 +864,10 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
                 "UPDATE items SET details_json=?1,current_revision=?2,updated_at_ms=?3 WHERE id=?4",
                 params![encode(&details)?, revision, now_ms(), item_id],
             )?;
+            if let Some(group) = group_id {
+                let group=group.trim();
+                tx.execute("UPDATE items SET group_id=?1 WHERE id=?2",params![if group.is_empty() { None } else { Some(group) },item_id])?;
+            }
             // 详情与各类基本信息共用 revision，旧弹窗不能覆盖详情保存后的新状态。
             for table in ["login_credentials", "totp_credentials", "ssh_keys", "recovery_code_items", "server_login_profiles"] {
                 tx.execute(&format!("UPDATE {table} SET current_revision=?1,updated_at_ms=?2 WHERE item_id=?3"), params![revision,now_ms(),item_id])?;
@@ -847,7 +893,7 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             // 在内存搜索非秘密元数据，隐藏字段、备注和安全笔记正文不进入列表响应。
             let mut found = Vec::new();
             let q = query.to_lowercase();
-            for mut row in rows(&tx, "SELECT i.id,i.kind,i.title,i.current_revision,i.details_json,
+            for mut row in rows(&tx, "SELECT i.id,i.kind,i.title,i.current_revision,i.details_json,i.group_id,
                 (SELECT last_used_at_ms FROM local_usage u WHERE u.item_id=i.id) AS last_used_at_ms,
                 COALESCE(c.origin,'') || ' ' || COALESCE(c.username,'') || ' ' || COALESCE(c.connection_host,'') || ' ' ||
                 COALESCE(t.issuer,'') || ' ' || COALESCE(t.account,'') || ' ' ||

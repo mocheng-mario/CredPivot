@@ -8,6 +8,8 @@ import 'totp_editor.dart';
 import 'credentials_page.dart' show showLoginEditor;
 import 'server_login_page.dart' show showServerProfileEditor;
 import 'credential_confirm.dart';
+import 'credential_group_ui.dart';
+import 'ssh_git_ui.dart';
 
 Future<Map<String, dynamic>> vaultAction(
     BuildContext context, Map<String, dynamic> action,
@@ -269,12 +271,13 @@ Future<void> editItemDetails(
         {'action': 'item_details', 'item_id': row['item_id'] ?? row['id']});
     final all =
         await AgentBridge.manage({'action': 'item_search', 'query': ''}, partitionId: row['partition_id']?.toString());
+    final groups = await loadCredentialGroups(credentialGroupScope(result['kind'] as String), partitionId: result['partition_id'] as String);
     if (!context.mounted) return;
     await showDialog<void>(
         context: context,
         barrierDismissible: false,
         builder: (_) => _ItemDetailsDialog(
-            row: row, data: result, all: (all['items'] as List).cast<Map>()));
+            row: {...row, 'kind': result['kind']}, data: result, all: (all['items'] as List).cast<Map>(), groups: groups));
   } catch (e) {
     vaultMessage(context, e);
   }
@@ -282,9 +285,10 @@ Future<void> editItemDetails(
 
 class _ItemDetailsDialog extends StatefulWidget {
   const _ItemDetailsDialog(
-      {required this.row, required this.data, required this.all});
+      {required this.row, required this.data, required this.all, required this.groups});
   final Map<String, dynamic> row, data;
   final List<Map> all;
+  final List<Map<String, dynamic>> groups;
   @override
   State<_ItemDetailsDialog> createState() => _ItemDetailsDialogState();
 }
@@ -296,6 +300,7 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
       TextEditingController(text: widget.row['title']?.toString() ?? '');
   late final notes =
       TextEditingController(text: details['notes']?.toString() ?? '');
+  late final gitRules = TextEditingController(text: (details['ssh_git_rules'] as List? ?? []).join('\n'));
   late final tags =
       TextEditingController(text: (details['tags'] as List? ?? []).join(', '));
   late final category =
@@ -309,6 +314,7 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
   bool get isLogin => widget.row['kind'] == 'login' || widget.row.containsKey('origin');
+  late String? groupId = widget.groups.any((group) => group['id'] == widget.data['group_id']) ? widget.data['group_id'] as String? : null;
   late int activeSince = (widget.data['password_active_since_ms'] as num?)?.toInt() ?? 0;
   late final Set<String> related = (details['related_item_ids'] as List? ?? [])
       .map((e) => e.toString())
@@ -317,7 +323,7 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
   String message = '';
   bool closing = false, confirmingDiscard = false;
   late final String initialSnapshot;
-  String snapshot() => jsonEncode([title.text,notes.text,tags.text,category.text,history.text,reminder.text,fields,related.toList()..sort(),activeSince,details['favorite'],details['mfa_state'],details['ssh_sign_policy']]);
+  String snapshot() => jsonEncode([title.text,notes.text,tags.text,category.text,history.text,reminder.text,fields,related.toList()..sort(),activeSince,details['favorite'],details['mfa_state'],details['ssh_sign_policy'],groupId,gitRules.text]);
   @override
   void initState() { super.initState(); initialSnapshot = snapshot(); }
   Future<void> cancel() async {
@@ -330,7 +336,7 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
   }
   @override
   void dispose() {
-    for (final c in [title, notes, tags, category, history, reminder]) {
+    for (final c in [title, notes, tags, category, history, reminder, gitRules]) {
       c.dispose();
     }
     super.dispose();
@@ -357,9 +363,11 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
             'expected_revision': widget.data['current_revision'],
             if (widget.row['kind'] == 'secure_note') 'title': title.text,
             if (isLogin) 'password_active_since_ms': activeSince,
+            'group_id': groupId ?? '',
             'details': {
               ...details,
               'notes': notes.text,
+              'ssh_git_rules': sshGitRules(gitRules),
               'tags': tags.text
                   .split(RegExp('[,，]'))
                   .map((v) => v.trim())
@@ -373,6 +381,7 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
             }
           },
           confirmed: true);
+      AgentBridge.notifyVaultChanged();
       if (mounted) { closing = true; Navigator.pop(context); }
     } catch (e) {
       if (mounted)
@@ -394,6 +403,11 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: appFormFields([
                     LText('vaultTools.build.text.item9', style: Theme.of(context).textTheme.titleMedium),
+                    AppFieldRow(label: tr('common.group'), child: DropdownButtonFormField<String>(value: groupId, isExpanded: true,
+                      items: [const DropdownMenuItem(value: null, child: LText('common.ungroupedOption')),
+                        for (final group in widget.groups) DropdownMenuItem(value: group['id'] as String,
+                          child: Text(credentialGroupLabel(group), overflow: TextOverflow.ellipsis))],
+                      onChanged: busy ? null : (value) => setState(() => groupId = value))),
                     if (widget.row['kind'] == 'secure_note')
                       AppFieldRow(label: tr('common.title'), child: TextField(
                           controller: title,
@@ -459,6 +473,7 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                       decoration: InputDecoration(),
                       items: const [DropdownMenuItem(value:'',child:LText('vaultTools.build.text.item18')),DropdownMenuItem(value:'session',child:LText('settings.build.text.item19')),DropdownMenuItem(value:'confirm',child:LText('settings.build.text.item20')),DropdownMenuItem(value:'biometric',child:LText('settings.build.text.item21'))],
                       onChanged: busy ? null : (v) => setState(() => details['ssh_sign_policy'] = v))),
+                    if (widget.row['kind'] == 'ssh_key') SshGitRulesField(controller: gitRules, enabled: !busy),
                     if (isLogin) ...[
                     const Divider(),
                     LText('vaultTools.build.text.item19', style: Theme.of(context).textTheme.titleMedium),
@@ -551,6 +566,10 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
   bool busy = false, favorites = false, _changingTrash = false;
   bool get _working => busy || _changingTrash;
   List<Map<String, dynamic>> items = [];
+  List<Map<String, dynamic>> groups = [];
+  String? filterGroupId;
+  List<Map<String, dynamic>> get visibleItems => items.where((row) => mode != 'items' ||
+    ((!favorites || row['favorite'] == true) && (filterGroupId == null || row['group_id'] == filterGroupId))).toList();
   void _onVaultChanged() { if (mounted && !_changingTrash) load(); }
 
   @override
@@ -581,11 +600,14 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
                 : 'item_search',
         if (mode == 'items') 'query': query
       });
+      final availableGroups = mode == 'items' ? await loadCredentialGroups('shared') : <Map<String, dynamic>>[];
       if (mounted && generation == _loadGeneration)
         setState(() {
           items = (result['items'] as List? ?? [])
               .map((v) => Map<String, dynamic>.from(v as Map))
               .toList();
+          groups = availableGroups;
+          if (!groups.any((group) => group['id'] == filterGroupId)) filterGroupId = null;
           message =
               mode == 'security' ? result['weak_rule']?.toString() ?? '' : '';
         });
@@ -699,15 +721,17 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
           ]),
         if (message.isNotEmpty)
           Padding(padding: const EdgeInsets.all(12), child: Text(message)),
+        if (mode == 'items') buildGroupFilterBar(groups: groups, selectedGroupId: filterGroupId,
+          onChanged: (value) => setState(() => filterGroupId = value),
+          onManage: () async { await showManageGroupsDialog(context, 'shared'); if (mounted) await load(); }),
         if (_working) const LinearProgressIndicator(),
         Expanded(
             child: ListView(children: [
-          if (items.isEmpty && !_working)
+          if (visibleItems.isEmpty && !_working)
             Padding(
                 padding: EdgeInsets.all(24),
                 child: LText(widget.trashOnly ? 'credentials.trash.empty' : 'vaultTools.build.text.item37')),
-          for (final row in items.where(
-              (r) => mode != 'items' || !favorites || r['favorite'] == true))
+          for (final row in visibleItems)
             Card(
                 child: ListTile(
                     title: Text(row['title']?.toString() ?? ''),
@@ -1549,7 +1573,7 @@ Future<bool> showNoteEditor(BuildContext context) async {
 }
 
 Future<bool> showSshKeyGenerator(BuildContext context, {String? initialGroupId}) async {
-  final label = TextEditingController();
+  final label = TextEditingController(), comment = TextEditingController(), gitRules = TextEditingController();
   try {
     final groups = await AgentBridge.listCredentialGroups('ssh');
     final keys = await AgentBridge.listSshKeys();
@@ -1559,23 +1583,38 @@ Future<bool> showSshKeyGenerator(BuildContext context, {String? initialGroupId})
     var groupId = groups.any((g) => g['id'] == initialGroupId) ? initialGroupId : null;
     final originalGroup = groupId;
     var setDefault = keys.isEmpty, busy = false, closing = false;
+    var signPolicy = '';
     final originalDefault = setDefault;
     String error = '';
     return await showDraftDialog<bool>(context: context,
-      hasChanges: () => label.text != initialLabel || groupId != originalGroup || setDefault != originalDefault,
+      hasChanges: () => label.text != initialLabel || comment.text.isNotEmpty || gitRules.text.isNotEmpty || signPolicy.isNotEmpty || groupId != originalGroup || setDefault != originalDefault,
       isBusy: () => busy,
       builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
         title: const LText('vaultTools.showNewCredentialMenu.text'),
         content: SizedBox(width: appEditDialogWidth(ctx), child: AbsorbPointer(absorbing: busy, child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
-            AppFieldRow(label: tr('common.tags'), child: TextField(controller: label, decoration: InputDecoration())),
+            AppFieldRow(label: tr('common.name'), child: TextField(controller: label, autofocus: true, maxLength: 80,
+              decoration: InputDecoration(hintText: tr('ssh.create.nameHint')))),
+            AppFieldRow(label: tr('ssh.create.algorithm'), help: tr('ssh.create.algorithmHelp'), child: const Text('Ed25519')),
+            AppFieldRow(label: tr('ssh.create.comment'), help: tr('ssh.create.commentHelp'), child: TextField(controller: comment, maxLength: 256,
+              decoration: InputDecoration(hintText: tr('ssh.create.commentHint')))),
             AppFieldRow(label: tr('common.group'), child: DropdownButtonFormField<String>(isExpanded: true, value: groupId,
               decoration: InputDecoration(),
               items: [const DropdownMenuItem(value: null, child: LText('common.ungroupedOption')),
-                for (final group in groups) DropdownMenuItem(value: group['id'] as String, child: Text(group['name'].toString()))],
+                for (final group in groups) DropdownMenuItem(value: group['id'] as String, child: Text(credentialGroupLabel(group), overflow: TextOverflow.ellipsis))],
               onChanged: (value) => update(() => groupId = value))),
+            AppFieldRow(label: tr('vaultTools.build.text.item17'), help: tr('ssh.create.policyHelp'), child: DropdownButtonFormField<String>(
+              isExpanded: true, value: signPolicy,
+              items: const [DropdownMenuItem(value: '', child: LText('vaultTools.build.text.item18')),
+                DropdownMenuItem(value: 'session', child: LText('settings.build.text.item19')),
+                DropdownMenuItem(value: 'confirm', child: LText('settings.build.text.item20')),
+                DropdownMenuItem(value: 'biometric', child: LText('settings.build.text.item21'))],
+              onChanged: (value) => update(() => signPolicy = value ?? ''))),
             CheckboxListTile(value: setDefault, title: const LText('vaultTools.showSshKeyGenerator.text'), contentPadding: EdgeInsets.zero,
+              subtitle: const LText('ssh.create.defaultHelp'),
               onChanged: (value) => update(() => setDefault = value ?? false)),
+            const LText('ssh.create.storageHelp'),
+            SshGitRulesField(controller: gitRules, enabled: !busy),
             if (error.isNotEmpty) LText(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
           ]))))),
         actions: [
@@ -1586,7 +1625,9 @@ Future<bool> showSshKeyGenerator(BuildContext context, {String? initialGroupId})
             try {
               if (!await confirmVaultAction(ctx, tr('vaultTools.showSshKeyGenerator.text.item3'), tr('vaultTools.showSshKeyGenerator.text.item4'))) return;
               if (!ctx.mounted) return;
-              await AgentBridge.generateSshKey(label: label.text.trim(), setDefault: setDefault, groupId: groupId);
+              await AgentBridge.generateSshKey(label: label.text.trim(), setDefault: setDefault, groupId: groupId,
+                comment: comment.text.trim(), signPolicy: signPolicy, gitRules: sshGitRules(gitRules));
+              AgentBridge.notifyVaultChanged();
               if (ctx.mounted) { closing = true; Navigator.pop(ctx, true); }
             } catch (e) { if (ctx.mounted) update(() => error = e is AgentException ? e.message : tr('vaultTools.showSshKeyGenerator.message')); }
             finally { if (ctx.mounted && !closing) update(() => busy = false); }
@@ -1594,7 +1635,7 @@ Future<bool> showSshKeyGenerator(BuildContext context, {String? initialGroupId})
         ],
       ))) == true;
   } catch (e) { vaultMessage(context,e); return false; }
-  finally { label.dispose(); }
+  finally { label.dispose(); comment.dispose(); gitRules.dispose(); }
 }
 
 Future<bool> showRecoveryCodesEditor(BuildContext context) async {

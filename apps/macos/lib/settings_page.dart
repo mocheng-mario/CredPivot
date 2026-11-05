@@ -8,6 +8,7 @@ import 'app_ui.dart';
 import 'terminal_settings.dart';
 import 'touch_id_gate.dart';
 import 'theme_color_picker.dart';
+import 'ssh_git_ui.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage(
@@ -722,6 +723,9 @@ class _SettingsPageState extends State<SettingsPage> {
                           return Row(children: [Expanded(child: name), const SizedBox(width: 12), pick]);
                         }),
                       ),
+                      AppFieldRow(label: tr('ssh.git.settings'), child: OutlinedButton.icon(
+                        onPressed: _busy ? null : () => showGitSshSettings(context),
+                        icon: const Icon(Icons.settings_ethernet), label: const LText('ssh.git.settings'))),
                       AppFieldRow(label: tr('settings.ssh.identityAgent'),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,

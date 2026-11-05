@@ -149,7 +149,7 @@ fn prepare(conn: &Connection, input: &str, partition: &str, group: Option<&str>,
     let new_group = new_group.trim();
     if let Some(group) = group {
         if !new_group.is_empty() || !conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM credential_groups WHERE id=?1 AND partition_id=?2 AND scope='login')",
+            "SELECT EXISTS(SELECT 1 FROM credential_groups WHERE id=?1 AND partition_id=?2 AND scope IN ('login','shared'))",
             params![group, partition], |r| r.get::<_, bool>(0))? {
             return Err(CoreError::format("请选择目标分区内的登录密码分组"));
         }
@@ -159,7 +159,7 @@ fn prepare(conn: &Connection, input: &str, partition: &str, group: Option<&str>,
             || new_group.eq_ignore_ascii_case("internal_work") {
             return Err(CoreError::format("partitions.errors.groupName"));
         }
-        if conn.query_row("SELECT EXISTS(SELECT 1 FROM credential_groups WHERE partition_id=?1 AND scope='login' AND lower(name)=lower(?2))",
+        if conn.query_row("SELECT EXISTS(SELECT 1 FROM credential_groups WHERE partition_id=?1 AND scope='shared' AND lower(name)=lower(?2))",
             params![partition,new_group], |r| r.get::<_,bool>(0))? {
             return Err(CoreError::format("partitions.errors.groupDuplicate"));
         }
@@ -215,7 +215,7 @@ pub(crate) fn apply(conn: &Connection, input: &str, partition: &str, group: Opti
     }
     // 分组与全部凭据处于同一事务，失败或取消不会留下空分组或半批数据。
     let group = if new_group.trim().is_empty() { group.map(str::to_string) } else {
-        Some(crate::credential_groups::create_credential_group_in_partition(&tx,partition,"login",new_group)?.id)
+        Some(crate::credential_groups::create_credential_group_in_partition(&tx,partition,"shared",new_group)?.id)
     };
     let mut copied = 0;
     for index in &selected {

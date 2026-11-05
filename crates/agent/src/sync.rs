@@ -50,6 +50,48 @@ fn apply_error(error: credpivot_core::CoreError, stage: &'static str) -> AgentEr
 }
 
 pub(crate) fn handle(vault: &mut VaultSession, request: AgentRequest) -> Result<Value> {
+    let request = match request {
+        AgentRequest::SyncBootstrapCancel => { vault.bootstrap_plan = None; return Ok(json!({"cancelled":true})); },
+        AgentRequest::SyncBootstrapPrepare { location, head, remote_ovb, password } => {
+            vault.bootstrap_plan = None;
+            if vault.vault_exists() || vault.unlocked { return Err(AgentError::Vault("sync.bootstrap.existing".into())); }
+            if remote_ovb.len() > sync::MAX_SYNC_BYTES * 4 / 3 + 8 { return Err(AgentError::Vault("sync.errors.responseTooLarge".into())); }
+            let password = Zeroizing::new(password);
+            let bytes = STANDARD.decode(remote_ovb).map_err(|_|AgentError::Vault("sync.errors.format".into()))?;
+            let plan = sync::bootstrap_prepare(&location,head,bytes,&password).map_err(vault_error)?;
+            let preview = plan.preview(); vault.bootstrap_plan = Some(plan);
+            return Ok(preview);
+        },
+        AgentRequest::SyncBootstrapApply { plan_id } => {
+            if vault.vault_exists() || vault.unlocked { return Err(AgentError::Vault("sync.bootstrap.existing".into())); }
+            let plan = vault.bootstrap_plan.take().filter(|p|p.id == plan_id && !p.expired())
+                .ok_or_else(||AgentError::Vault("sync.errors.previewExpired".into()))?;
+            let parent = crate::paths::runtime_dir().join("vaults");
+            let target = parent.join(format!("webdav-{}",Uuid::new_v4()));
+            let mut builder = std::fs::DirBuilder::new();
+            #[cfg(unix)] { use std::os::unix::fs::DirBuilderExt; builder.mode(0o700); }
+            builder.recursive(true).create(&parent).map_err(|_|AgentError::Vault("sync.bootstrap.localWrite".into()))?;
+            builder.recursive(false).create(&target).map_err(|_|AgentError::Vault("sync.bootstrap.localWrite".into()))?;
+            if let Err(error) = plan.restore(&target) {
+                // 仅删除本次独占创建的失败目录，不触碰其他保险库。
+                let _ = std::fs::remove_dir_all(&target);
+                return Err(vault_error(error));
+            }
+            return Ok(json!({"target_dir":target.to_string_lossy()}));
+        },
+        AgentRequest::SyncBootstrapFinish { location, head } => {
+            if !vault.unlocked { return Err(AgentError::Locked); }
+            let settings = credpivot_core::read_app_settings().map_err(|_|AgentError::Vault("sync.errors.settingsRead".into()))?;
+            if settings.webdav.as_ref().map(|s|s.location.as_str()) != Some(location.as_str()) {
+                return Err(AgentError::Vault("sync.errors.configuration".into()));
+            }
+            let db = vault.db.as_ref().ok_or(AgentError::Locked)?;
+            let config = credpivot_core::read_vault_json(&vault.vault_dir).map_err(vault_error)?;
+            sync::bootstrap_finish(db.conn(),&config,vault.vmk.as_ref().ok_or(AgentError::Locked)?,&location,&head).map_err(vault_error)?;
+            return Ok(json!({"connected":true}));
+        },
+        request => request,
+    };
     if !vault.unlocked {
         return Err(AgentError::Locked);
     }

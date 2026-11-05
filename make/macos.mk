@@ -15,12 +15,15 @@ macos-sync-artifacts: rust-ffi rust-host rust-askpass
 	@test -f $(RUST_LIB_FFI) || (echo "missing $(RUST_LIB_FFI); run make rust-ffi" >&2; exit 1)
 	@test -f $(RUST_HOST_BIN) || (echo "missing $(RUST_HOST_BIN); run make rust-host" >&2; exit 1)
 	@test -f $(RUST_ASKPASS_BIN) || (echo "missing $(RUST_ASKPASS_BIN); run make rust-askpass" >&2; exit 1)
+	@test -f $(RUST_GIT_SSH_BIN) || (echo "missing $(RUST_GIT_SSH_BIN); run make rust-askpass" >&2; exit 1)
 	mkdir -p $(MACOS_RUNNER)
 	cp $(RUST_LIB_FFI) $(MACOS_RUNNER)/
 	cp $(RUST_HOST_BIN) $(MACOS_RUNNER)/credpivot-native-host
 	chmod +x $(MACOS_RUNNER)/credpivot-native-host
 	cp $(RUST_ASKPASS_BIN) $(MACOS_RUNNER)/credpivot-askpass
 	chmod +x $(MACOS_RUNNER)/credpivot-askpass
+	cp $(RUST_GIT_SSH_BIN) $(MACOS_RUNNER)/credpivot-git-ssh
+	chmod +x $(MACOS_RUNNER)/credpivot-git-ssh
 	rm -rf $(MACOS_RUNNER)/credpivot-chrome-extension
 	cp -R $(CHROME_EXT_DIR) $(MACOS_RUNNER)/credpivot-chrome-extension
 	cp $(ROOT)/assets/ssh-expect-pass.exp $(MACOS_RUNNER)/ssh-expect-pass.exp
