@@ -1126,6 +1126,10 @@ impl Plan {
                 );
             }
         }
+        if self.strategy == "merge" {
+            // 用户选择的另一端版本可能引入新的依赖；把缺失目标加入下一轮确认。
+            related_conflicts(&self.local, &self.remote, &self.result, &mut self.conflicts);
+        }
         Ok(())
     }
     pub fn finish(&mut self) -> Result<()> {

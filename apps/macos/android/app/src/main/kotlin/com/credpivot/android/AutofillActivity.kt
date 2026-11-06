@@ -231,12 +231,15 @@ class AutofillActivity : Activity() {
         val generation = ++listGeneration
         val partition = selectedPartition; val search = query; val pageOffset = offset; val totp = otpMode
         var items = emptyList<JSONObject>()
+        var fetchedCount = 0
         var groups = emptyList<JSONObject>()
         execute({
             val result = NativeAgent.call("partition_request", "partition_id" to partition,
                 "request" to JSONObject().put("type", if (totp) "totp_list" else "credential_list")
                     .put("query", search).put("limit", 100).put("offset", pageOffset))
             val array = result.optJSONArray("items") ?: JSONArray()
+            // 后续账号过滤或插入网站推荐会改变展示数量，分页必须以原始页为准。
+            fetchedCount = array.length()
             items = (0 until array.length()).map { array.getJSONObject(it) }
             if (totp) items = items.filter { "${it.optString("issuer")} ${it.optString("account")}".contains(search, true) }
             val domain = pending.form.domain
@@ -281,7 +284,7 @@ class AutofillActivity : Activity() {
             if (items.isEmpty()) rows.addView(TextView(this).apply { text = strings.get(R.string.autofill_no_results) })
             if (!totp) {
                 if (pageOffset > 0) rows.addView(Button(this).apply { text = strings.get(R.string.autofill_previous); setOnClickListener { offset = (offset - 100).coerceAtLeast(0); loadRows() } })
-                if (items.size >= 100) rows.addView(Button(this).apply { text = strings.get(R.string.autofill_next); setOnClickListener { offset += 100; loadRows() } })
+                if (fetchedCount >= 100) rows.addView(Button(this).apply { text = strings.get(R.string.autofill_next); setOnClickListener { offset += 100; loadRows() } })
             }
         }
     }

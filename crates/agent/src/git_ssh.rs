@@ -143,7 +143,8 @@ pub(crate) async fn serve_selection(stream: &mut UnixStream, vault: Arc<Mutex<Va
         connections.abort_all();
         if succeeded && remember {
             let v=vault.lock().await;
-            if v.unlocked {
+            // 传输期间的“忘记/重新选择”仍须生效，旧任务不能在结束时写回已撤销的记忆。
+            if v.unlocked && v.ssh_authorization.generation==git.authorization_generation {
                 if let Some(db)=v.db.as_ref() {
                     if db.list_ssh().map_err(|_|failure())?.iter().any(|k|k.id==key_id && k.public_openssh==public) {
                         let (local,remote)=scopes(&target)?; let scope=if target.workspace.is_empty() {remote} else {local};

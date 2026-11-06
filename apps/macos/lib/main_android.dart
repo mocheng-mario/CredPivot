@@ -275,14 +275,22 @@ class _AndroidHomeState extends State<_AndroidHome> {
       title: const LText('android.restore.points'), children: points.isEmpty ? [Padding(padding: const EdgeInsets.all(24), child: const LText('android.restore.empty'))] : points.map((point) =>
         SimpleDialogOption(onPressed: () => Navigator.pop(ctx, point), child: Text(DateTime.fromMillisecondsSinceEpoch((point['created_at_ms'] as num).toInt()).toLocal().toString()))).toList()));
     if (selected == null || !mounted) return;
+    final requiresBackupPassword = selected['requires_password'] == true;
     _backupStage('android.backup.stage.password');
-    final secret = await _askPassword(tr('android.vault.restorePassword'));
+    final secret = await _askPassword(tr(requiresBackupPassword ? 'android.vault.restorePassword' : 'android.password.current'));
     if (secret == null || !mounted) return;
     _backupStage('android.backup.stage.authorize');
     if (!await requireTouchId(context, reason: tr('android.restore.points')) || !mounted) return;
+    if (!requiresBackupPassword) {
+      // 同代际恢复保留当前主密码槽；必须先验证，不能切换活动库后才发现密码错误。
+      _backupStage('android.backup.stage.verify');
+      await AgentBridge.request({'type': 'verify_master_password', 'password': secret});
+    }
     final target = '$home/.credpivot/restored-${DateTime.now().microsecondsSinceEpoch}-${Random.secure().nextInt(1 << 30)}';
     _backupStage('android.backup.stage.recover');
-    await AgentBridge.recoverRestorePoint((selected['created_at_ms'] as num).toInt(), target, password: secret);
+    // 跨代际副本的密码由恢复接口校验，校验成功后才会继续切换。
+    await AgentBridge.recoverRestorePoint((selected['created_at_ms'] as num).toInt(), target,
+      password: requiresBackupPassword ? secret : null);
     _backupStage('android.backup.stage.open');
     notifyVaultLocked();
     await AgentBridge.lockVault();
