@@ -227,9 +227,13 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
   private var cleanupRequests = 0
   // 仅记录本机生成的随机临时路径；不是用户配置，也不保存认证信息或文件内容。
   private let probeJournalKey = "credpivot.webdav.pendingProbes"
+  private func testDirectoryPath(_ path: String) -> Bool {
+    let prefix = ".credpivot-test-"
+    return path.hasPrefix(prefix) && UUID(uuidString:String(path.dropFirst(prefix.count))) != nil
+  }
   private func probePath(_ path: String) -> Bool {
     let prefix = ".credpivot-probe-"
-    return path.hasPrefix(prefix) && UUID(uuidString:String(path.dropFirst(prefix.count))) != nil
+    return testDirectoryPath(path) || (path.hasPrefix(prefix) && UUID(uuidString:String(path.dropFirst(prefix.count))) != nil)
   }
   private func recordProbe(_ config: [String: Any], path: String, pending: Bool) {
     guard probePath(path), let location = config["location"] as? String else { return }
@@ -237,20 +241,26 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
     var paths = journal[location] ?? [:]
     if pending {
       if paths[path] == nil { paths[path] = Date().timeIntervalSince1970 }
-      // 极端情况下退回远端 7 天孤立文件清理，避免本机重试账本无限增长。
+      // 限制本机重试账本大小；测试目录中的未知内容始终保留，不递归清理。
       while paths.count > 256, let oldest = paths.min(by: { $0.value < $1.value })?.key { paths.removeValue(forKey:oldest) }
     } else { paths.removeValue(forKey:path) }
     if paths.isEmpty { journal.removeValue(forKey:location) } else { journal[location] = paths }
     UserDefaults.standard.set(journal,forKey:probeJournalKey)
   }
-  private func retryProbeCleanup(_ config: [String: Any]) async {
+  private func retryProbeCleanup(_ config: [String: Any], testDirectoriesOnly: Bool = false) async {
     guard let location = config["location"] as? String,
           let journal = UserDefaults.standard.dictionary(forKey:probeJournalKey) as? [String:[String:Double]] else { return }
     // 只清理本机精确记账的路径，并留出网络迟到窗口；其他设备的临时文件仍遵循 7 天规则。
-    let paths = (journal[location] ?? [:]).filter { probePath($0.key) && $0.value < Date().timeIntervalSince1970 - 600 }
+    let paths = (journal[location] ?? [:]).filter {
+      probePath($0.key) && (!testDirectoriesOnly || testDirectoryPath($0.key)) && $0.value < Date().timeIntervalSince1970 - 600
+    }
       .sorted { $0.value < $1.value }.prefix(8)
     for (path, _) in paths {
       do {
+        if testDirectoryPath(path) {
+          if try await cleanupTestDirectory(config,path) { recordProbe(config,path:path,pending:false) }
+          continue
+        }
         let removed = try await request(config,path,method:"DELETE",limit:1024)
         guard [200,204,404].contains(removed.response.statusCode) else { break }
         let missing = try await request(config,path,limit:1024)
@@ -518,6 +528,70 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
     }
     return try await request(config,source,method:"MOVE",headers:["Destination":target.absoluteString,"Overwrite":"F"],limit:256 * 1024)
   }
+  /// 只用于本次随机测试目录；集合 DELETE 有递归语义，删除前必须验证确实为空。
+  private func removeEmptyTestCollection(_ config: [String: Any], _ path: String) async throws -> Bool {
+    guard let name = config["_test_directory"] as? String, testDirectoryPath(name),
+          path.isEmpty || path == "initial-gate/",
+          let root = URL(string:config["root"] as? String ?? ""), root.lastPathComponent == name,
+          let target = URL(string:path,relativeTo:root)?.absoluteURL else { return false }
+    let reply = try await request(config,path,method:"PROPFIND",
+      data:Data("<?xml version=\"1.0\"?><d:propfind xmlns:d=\"DAV:\"><d:prop><d:resourcetype/></d:prop></d:propfind>".utf8),
+      headers:["Depth":"1","Content-Type":"application/xml"],limit:256 * 1024)
+    if reply.response.statusCode == 404 { return true }
+    let parser = XMLParser(data:reply.data), listing = WebDAVListing()
+    parser.shouldProcessNamespaces = true; parser.shouldResolveExternalEntities = false; parser.delegate = listing
+    guard reply.response.statusCode == 207,
+          !(reply.response.value(forHTTPHeaderField:"Link") ?? "").lowercased().contains("next"),
+          parser.parse(), listing.valid, listing.entries.count == 1,
+          let entry = listing.entries.first, entry.collection,
+          let observed = URL(string:entry.href,relativeTo:target)?.absoluteURL,
+          observed.scheme == target.scheme, observed.host == target.host, (observed.port ?? 443) == (target.port ?? 443),
+          observed.query == nil, observed.fragment == nil, observed.user == nil, observed.password == nil,
+          observed.path == target.path || observed.path + "/" == target.path || observed.path == target.path + "/" else { return false }
+    let deleted = try await request(config,path,method:"DELETE",limit:1024)
+    guard [200,204,404].contains(deleted.response.statusCode) else { return false }
+    return try await request(config,path,method:"PROPFIND",headers:["Depth":"0"],limit:256 * 1024).response.statusCode == 404
+  }
+
+  private func cleanupTestDirectory(_ config: [String: Any], _ name: String) async throws -> Bool {
+    guard testDirectoryPath(name), let root = URL(string:config["root"] as? String ?? ""),
+          let target = URL(string:name + "/",relativeTo:root)?.absoluteURL else { return false }
+    var scratch = config
+    scratch["root"] = target.absoluteString; scratch["_test_directory"] = name
+    let reply = try await request(scratch,"",method:"PROPFIND",
+      data:Data("<?xml version=\"1.0\"?><d:propfind xmlns:d=\"DAV:\"><d:prop><d:resourcetype/></d:prop></d:propfind>".utf8),
+      headers:["Depth":"1","Content-Type":"application/xml"],limit:256 * 1024)
+    if reply.response.statusCode == 404 { return true }
+    let parser = XMLParser(data:reply.data), listing = WebDAVListing()
+    parser.shouldProcessNamespaces = true; parser.shouldResolveExternalEntities = false; parser.delegate = listing
+    guard reply.response.statusCode == 207,
+          !(reply.response.value(forHTTPHeaderField:"Link") ?? "").lowercased().contains("next"),
+          parser.parse(), listing.valid else { return false }
+    let allowed = ["probe","move-a","move-b","move-target-a","move-target-b"]
+    var files = Set<String>(), foundRoot = false, foundGate = false
+    for entry in listing.entries {
+      guard let url = URL(string:entry.href,relativeTo:target)?.absoluteURL,
+            url.scheme == target.scheme, url.host == target.host, (url.port ?? 443) == (target.port ?? 443),
+            url.query == nil, url.fragment == nil, url.user == nil, url.password == nil else { return false }
+      if url.path == target.path || url.path + "/" == target.path || url.path == target.path + "/" {
+        guard entry.collection, !foundRoot else { return false }; foundRoot = true
+      } else if let file = allowed.first(where: { target.appendingPathComponent($0).path == url.path }) {
+        guard !entry.collection, files.insert(file).inserted else { return false }
+      } else if url.path == target.appendingPathComponent("initial-gate").path || url.path == target.appendingPathComponent("initial-gate").path + "/" {
+        guard entry.collection, !foundGate else { return false }; foundGate = true
+      } else { return false } // 有未知内容就保留，不递归删除整个目录。
+    }
+    guard foundRoot else { return false }
+    for file in files {
+      let deleted = try await request(scratch,file,method:"DELETE",limit:1024)
+      guard [200,204,404].contains(deleted.response.statusCode) else { return false }
+    }
+    if foundGate {
+      guard try await removeEmptyTestCollection(scratch,"initial-gate/") else { return false }
+    }
+    return try await removeEmptyTestCollection(scratch,"")
+  }
+
   private func probe(_ config: [String: Any], onCheck: (([String: Any]) -> Void)? = nil) async throws {
     let policy = WebDAVProviderPolicy(config)
     func checked(_ key: String, _ statuses: [Int] = [], passed: Bool = true, skipped: Bool = false) {
@@ -542,149 +616,170 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
       }
     } else { try await directory(config,"") }
     checked("directory")
-    let path = ".credpivot-probe-" + UUID().uuidString.lowercased()
-    let first = Data(("credpivot-probe-one-" + UUID().uuidString).utf8)
-    let second = Data(("credpivot-probe-two-" + UUID().uuidString).utf8)
-    var stage = "create"
-    var createOnly = false
+    let testDirectory = ".credpivot-test-" + UUID().uuidString.lowercased()
+    let prior = try await request(config,testDirectory + "/",method:"PROPFIND",headers:["Depth":"0"],limit:256 * 1024)
+    guard prior.response.statusCode == 404 else { throw WebDAVFailure("sync.errors.probeDirectory", stage:"testDirectory", status:prior.response.statusCode) }
+    let made = try await request(config,testDirectory + "/",method:"MKCOL",limit:1024)
+    guard made.response.statusCode == 201 else { throw WebDAVFailure("sync.errors.probeDirectory", stage:"testDirectory", status:made.response.statusCode) }
+    recordProbe(config,path:testDirectory,pending:true)
+    let original = config
+    var scratch = config
+    guard let root = URL(string:config["root"] as? String ?? ""),
+          let target = URL(string:testDirectory + "/",relativeTo:root)?.absoluteURL else { throw WebDAVFailure("sync.errors.configuration") }
+    scratch["root"] = target.absoluteString; scratch["_test_directory"] = testDirectory
+    var outerStage = "testDirectory"
     do {
-      let create = try await request(config,path,method:"PUT",data:first,limit:1024)
-      guard [200,201,204].contains(create.response.statusCode) else {
-        throw WebDAVFailure("sync.errors.probeCreate", status:create.response.statusCode)
-      }
-      let created = try await request(config,path,limit:1024)
-      guard created.response.statusCode == 200, created.data == first else { throw WebDAVFailure("sync.errors.probeReadback", status:created.response.statusCode) }
-      checked("readWrite",[create.response.statusCode,created.response.statusCode])
-      stage = "createCondition"
-      if policy == .nutstore {
-        // 此渠道不依赖 If-None-Match 或重复 MKCOL 互斥；首次入口直接验证禁止覆盖的 MOVE。
-        checked("nutstoreCreateSkipped",passed:false,skipped:true)
-      } else {
-        do {
-          let duplicate = try await request(config,path,method:"PUT",data:second,headers:["If-None-Match":"*"],limit:1024)
-          let observed = try await request(config,path,limit:1024)
-          createOnly = duplicate.response.statusCode == 412
-          let ignored = [200,201,204].contains(duplicate.response.statusCode)
-          let unsupported = [400,405,501].contains(duplicate.response.statusCode)
-          guard observed.response.statusCode == 200,
-                (createOnly && observed.data == first) || (ignored && observed.data == second) || (unsupported && observed.data == first) else {
-            throw WebDAVFailure("sync.errors.probeCreateCondition", status:duplicate.response.statusCode)
+      let config = scratch
+      try await directory(config,"",create:false)
+      checked("testDirectory")
+      let path = "probe"
+      let first = Data(("credpivot-probe-one-" + UUID().uuidString).utf8)
+      let second = Data(("credpivot-probe-two-" + UUID().uuidString).utf8)
+      var stage = "create"
+      var createOnly = false
+      do {
+        let create = try await request(config,path,method:"PUT",data:first,limit:1024)
+        guard [200,201,204].contains(create.response.statusCode) else {
+          throw WebDAVFailure("sync.errors.probeCreate", status:create.response.statusCode)
+        }
+        let created = try await request(config,path,limit:1024)
+        guard created.response.statusCode == 200, created.data == first else { throw WebDAVFailure("sync.errors.probeReadback", status:created.response.statusCode) }
+        checked("readWrite",[create.response.statusCode,created.response.statusCode])
+        stage = "createCondition"
+        if policy == .nutstore {
+          // 此渠道不依赖 If-None-Match 或重复 MKCOL 互斥；首次入口直接验证禁止覆盖的 MOVE。
+          checked("nutstoreCreateSkipped",passed:false,skipped:true)
+        } else {
+          do {
+            let duplicate = try await request(config,path,method:"PUT",data:second,headers:["If-None-Match":"*"],limit:1024)
+            let observed = try await request(config,path,limit:1024)
+            createOnly = duplicate.response.statusCode == 412
+            let ignored = [200,201,204].contains(duplicate.response.statusCode)
+            let unsupported = [400,405,501].contains(duplicate.response.statusCode)
+            guard observed.response.statusCode == 200,
+                  (createOnly && observed.data == first) || (ignored && observed.data == second) || (unsupported && observed.data == first) else {
+              throw WebDAVFailure("sync.errors.probeCreateCondition", status:duplicate.response.statusCode)
+            }
+            checked("createCondition",[duplicate.response.statusCode],passed:createOnly)
+          } catch let error as WebDAVFailure where error.status == 501 {
+            // 明确拒绝此条件头的服务仍可用 MKCOL 保护首次发布，更新保护另行验证。
+            createOnly = false
+            checked("createCondition",[501],passed:false)
           }
-          checked("createCondition",[duplicate.response.statusCode],passed:createOnly)
-        } catch let error as WebDAVFailure where error.status == 501 {
-          // 明确拒绝此条件头的服务仍可用 MKCOL 保护首次发布，更新保护另行验证。
-          createOnly = false
-          checked("createCondition",[501],passed:false)
+        }
+        // If-None-Match 可能被忽略并写入第二份内容；重置随机探针后再独立检查 If-Match。
+        stage = "readback"
+        let reset = try await request(config,path,method:"PUT",data:first,limit:1024)
+        let old = try await request(config,path,limit:1024)
+        guard [200,201,204].contains(reset.response.statusCode), old.response.statusCode == 200, old.data == first else {
+          throw WebDAVFailure("sync.errors.probeReadback", status:old.response.statusCode)
+        }
+        let tag = try etag(old)
+        checked("readback",[old.response.statusCode])
+        stage = "matchWrong"
+        let invalid = "credpivot-invalid-" + UUID().uuidString
+        let wrongTag = tag.hasPrefix("\"") ? "\"\(invalid)\"" : invalid
+        let wrong = try await request(config,path,method:"PUT",data:second,headers:["If-Match":wrongTag],limit:1024)
+        let unchanged = try await request(config,path,limit:1024)
+        guard wrong.response.statusCode == 412, unchanged.response.statusCode == 200,
+              unchanged.data == first, try etag(unchanged) == tag else {
+          throw WebDAVFailure("sync.errors.probeMatchWrong", status:wrong.response.statusCode)
+        }
+        checked("matchWrong",[wrong.response.statusCode])
+        stage = "matchUpdate"
+        let update = try await request(config,path,method:"PUT",data:second,headers:["If-Match":tag],limit:1024)
+        guard [200,201,204].contains(update.response.statusCode) else {
+          throw WebDAVFailure("sync.errors.probeMatchUpdate", status:update.response.statusCode)
+        }
+        let updated = try await request(config,path,limit:1024)
+        guard updated.response.statusCode == 200, updated.data == second, try etag(updated) != tag else {
+          throw WebDAVFailure("sync.errors.probeReadback", status:updated.response.statusCode)
+        }
+        checked("matchUpdate",[update.response.statusCode])
+        stage = "matchStale"
+        let stale = try await request(config,path,method:"PUT",data:first,headers:["If-Match":tag],limit:1024)
+        let final = try await request(config,path,limit:1024)
+        guard stale.response.statusCode == 412, final.response.statusCode == 200,
+              final.data == second, try etag(final) == etag(updated) else {
+          throw WebDAVFailure("sync.errors.probeMatchStale", status:stale.response.statusCode)
+        }
+        checked("matchStale",[stale.response.statusCode])
+        stage = "matchConcurrent"
+        let concurrentTag = try etag(final), third = Data(("credpivot-probe-three-" + UUID().uuidString).utf8)
+        async let one = request(config,path,method:"PUT",data:first,headers:["If-Match":concurrentTag],limit:1024)
+        async let two = request(config,path,method:"PUT",data:third,headers:["If-Match":concurrentTag],limit:1024)
+        let (a,b) = try await (one,two)
+        let aWon = [200,201,204].contains(a.response.statusCode), bWon = [200,201,204].contains(b.response.statusCode)
+        let concurrent = try await request(config,path,limit:1024)
+        guard aWon != bWon, (aWon ? b.response.statusCode : a.response.statusCode) == 412,
+              concurrent.response.statusCode == 200, concurrent.data == (aWon ? first : third) else {
+          throw WebDAVFailure("sync.errors.probeMatchConcurrent", statuses:[a.response.statusCode,b.response.statusCode])
+        }
+        checked("matchConcurrent",[a.response.statusCode,b.response.statusCode])
+        stage = "cleanup"
+        let deleted = try await request(config,path,method:"DELETE",limit:1024)
+        guard [200,204,404].contains(deleted.response.statusCode) else { throw WebDAVFailure("sync.errors.probeCleanup") }
+        let removed = try await request(config,path,limit:1024)
+        guard removed.response.statusCode == 404 else { throw WebDAVFailure("sync.errors.probeCleanup", status:removed.response.statusCode) }
+      } catch {
+        _ = try? await request(config,path,method:"DELETE",limit:1024)
+        if let failure = error as? WebDAVFailure {
+          throw WebDAVFailure(failure.key, retryAfter:failure.retryAfter, stage:stage, status:failure.status, statuses:failure.statuses)
+        }
+        throw WebDAVFailure("sync.errors.network", stage:stage)
+      }
+      var initialCreation = createOnly ? "conditional" : "directory"
+      if !createOnly {
+        var exclusive = false
+        if policy == .nutstore {
+          checked("nutstoreGateSkipped",passed:false,skipped:true)
+        } else {
+          // 仅需在首次创建共享入口时互斥。随机目录用于确认 MKCOL 确实只允许一个创建者。
+          let gate = "initial-gate/"
+          var statuses: [Int] = []
+          do {
+            async let one = request(config,gate,method:"MKCOL",limit:1024)
+            async let two = request(config,gate,method:"MKCOL",limit:1024)
+            let (a,b) = try await (one,two)
+            statuses = [a.response.statusCode,b.response.statusCode]
+            exclusive = statuses == [201,405] || statuses == [405,201]
+            guard try await removeEmptyTestCollection(config,gate) else { throw WebDAVFailure("sync.errors.probeCleanup") }
+          } catch {
+            _ = try? await removeEmptyTestCollection(config,gate)
+            if let failure = error as? WebDAVFailure {
+              throw WebDAVFailure(failure.key, retryAfter:failure.retryAfter, stage:"initialGate", status:failure.status, statuses:failure.statuses)
+            }
+            throw WebDAVFailure("sync.errors.network", stage:"initialGate")
+          }
+          checked("initialGate",statuses,passed:exclusive)
+        }
+        if !exclusive {
+          // 某些服务的 MKCOL 是幂等创建，并不互斥。只能在禁止覆盖的 MOVE 也通过实测后接入。
+          do { try await probeInitialMove(config,onCheck:onCheck) }
+          catch let failure as WebDAVFailure {
+            throw WebDAVFailure(failure.key, retryAfter:failure.retryAfter, stage:failure.stage ?? "initialMove", status:failure.status, statuses:failure.statuses)
+          }
+          catch { throw WebDAVFailure("sync.errors.network", stage:"initialMove") }
+          initialCreation = "move"
         }
       }
-      // If-None-Match 可能被忽略并写入第二份内容；重置随机探针后再独立检查 If-Match。
-      stage = "readback"
-      let reset = try await request(config,path,method:"PUT",data:first,limit:1024)
-      let old = try await request(config,path,limit:1024)
-      guard [200,201,204].contains(reset.response.statusCode), old.response.statusCode == 200, old.data == first else {
-        throw WebDAVFailure("sync.errors.probeReadback", status:old.response.statusCode)
-      }
-      let tag = try etag(old)
-      checked("readback",[old.response.statusCode])
-      stage = "matchWrong"
-      let invalid = "credpivot-invalid-" + UUID().uuidString
-      let wrongTag = tag.hasPrefix("\"") ? "\"\(invalid)\"" : invalid
-      let wrong = try await request(config,path,method:"PUT",data:second,headers:["If-Match":wrongTag],limit:1024)
-      let unchanged = try await request(config,path,limit:1024)
-      guard wrong.response.statusCode == 412, unchanged.response.statusCode == 200,
-            unchanged.data == first, try etag(unchanged) == tag else {
-        throw WebDAVFailure("sync.errors.probeMatchWrong", status:wrong.response.statusCode)
-      }
-      checked("matchWrong",[wrong.response.statusCode])
-      stage = "matchUpdate"
-      let update = try await request(config,path,method:"PUT",data:second,headers:["If-Match":tag],limit:1024)
-      guard [200,201,204].contains(update.response.statusCode) else {
-        throw WebDAVFailure("sync.errors.probeMatchUpdate", status:update.response.statusCode)
-      }
-      let updated = try await request(config,path,limit:1024)
-      guard updated.response.statusCode == 200, updated.data == second, try etag(updated) != tag else {
-        throw WebDAVFailure("sync.errors.probeReadback", status:updated.response.statusCode)
-      }
-      checked("matchUpdate",[update.response.statusCode])
-      stage = "matchStale"
-      let stale = try await request(config,path,method:"PUT",data:first,headers:["If-Match":tag],limit:1024)
-      let final = try await request(config,path,limit:1024)
-      guard stale.response.statusCode == 412, final.response.statusCode == 200,
-            final.data == second, try etag(final) == etag(updated) else {
-        throw WebDAVFailure("sync.errors.probeMatchStale", status:stale.response.statusCode)
-      }
-      checked("matchStale",[stale.response.statusCode])
-      stage = "matchConcurrent"
-      let concurrentTag = try etag(final), third = Data(("credpivot-probe-three-" + UUID().uuidString).utf8)
-      async let one = request(config,path,method:"PUT",data:first,headers:["If-Match":concurrentTag],limit:1024)
-      async let two = request(config,path,method:"PUT",data:third,headers:["If-Match":concurrentTag],limit:1024)
-      let (a,b) = try await (one,two)
-      let aWon = [200,201,204].contains(a.response.statusCode), bWon = [200,201,204].contains(b.response.statusCode)
-      let concurrent = try await request(config,path,limit:1024)
-      guard aWon != bWon, (aWon ? b.response.statusCode : a.response.statusCode) == 412,
-            concurrent.response.statusCode == 200, concurrent.data == (aWon ? first : third) else {
-        throw WebDAVFailure("sync.errors.probeMatchConcurrent", statuses:[a.response.statusCode,b.response.statusCode])
-      }
-      checked("matchConcurrent",[a.response.statusCode,b.response.statusCode])
-      stage = "cleanup"
-      let deleted = try await request(config,path,method:"DELETE",limit:1024)
-      guard [200,204,404].contains(deleted.response.statusCode) else { throw WebDAVFailure("sync.errors.probeCleanup") }
-      let removed = try await request(config,path,limit:1024)
-      guard removed.response.statusCode == 404 else { throw WebDAVFailure("sync.errors.probeCleanup", status:removed.response.statusCode) }
+      outerStage = "cleanup"
+      guard try await cleanupTestDirectory(original,testDirectory) else { throw WebDAVFailure("sync.errors.probeCleanup", stage:"cleanup") }
+      recordProbe(original,path:testDirectory,pending:false)
+      checked("cleanup")
+      writeCapabilities = (location:config["location"] as? String ?? "", policy:policy, createOnly:createOnly, initialCreation:initialCreation)
     } catch {
-      _ = try? await request(config,path,method:"DELETE",limit:1024)
+      if (try? await cleanupTestDirectory(original,testDirectory)) == true { recordProbe(original,path:testDirectory,pending:false) }
       if let failure = error as? WebDAVFailure {
-        throw WebDAVFailure(failure.key, retryAfter:failure.retryAfter, stage:stage, status:failure.status, statuses:failure.statuses)
+        throw WebDAVFailure(failure.key, retryAfter:failure.retryAfter, stage:failure.stage ?? outerStage, status:failure.status, statuses:failure.statuses)
       }
-      throw WebDAVFailure("sync.errors.network", stage:stage)
+      throw WebDAVFailure("sync.errors.network", stage:outerStage)
     }
-    var initialCreation = createOnly ? "conditional" : "directory"
-    if !createOnly {
-      var exclusive = false
-      if policy == .nutstore {
-        checked("nutstoreGateSkipped",passed:false,skipped:true)
-      } else {
-        // 仅需在首次创建共享入口时互斥。随机目录用于确认 MKCOL 确实只允许一个创建者。
-        let gate = ".credpivot-init-probe-" + UUID().uuidString.lowercased() + "/"
-        var statuses: [Int] = []
-        do {
-          async let one = request(config,gate,method:"MKCOL",limit:1024)
-          async let two = request(config,gate,method:"MKCOL",limit:1024)
-          let (a,b) = try await (one,two)
-          statuses = [a.response.statusCode,b.response.statusCode]
-          exclusive = statuses == [201,405] || statuses == [405,201]
-          let deleted = try await request(config,gate,method:"DELETE",limit:1024)
-          guard [200,204,404].contains(deleted.response.statusCode) else { throw WebDAVFailure("sync.errors.probeCleanup") }
-          let removed = try await request(config,gate,method:"PROPFIND",headers:["Depth":"0"],limit:256 * 1024)
-          guard removed.response.statusCode == 404 else { throw WebDAVFailure("sync.errors.probeCleanup", status:removed.response.statusCode) }
-        } catch {
-          _ = try? await request(config,gate,method:"DELETE",limit:1024)
-          if let failure = error as? WebDAVFailure {
-            throw WebDAVFailure(failure.key, retryAfter:failure.retryAfter, stage:"initialGate", status:failure.status, statuses:failure.statuses)
-          }
-          throw WebDAVFailure("sync.errors.network", stage:"initialGate")
-        }
-        checked("initialGate",statuses,passed:exclusive)
-      }
-      if !exclusive {
-        // 某些服务的 MKCOL 是幂等创建，并不互斥。只能在禁止覆盖的 MOVE 也通过实测后接入。
-        do { try await probeInitialMove(config,onCheck:onCheck) }
-        catch let failure as WebDAVFailure {
-          throw WebDAVFailure(failure.key, retryAfter:failure.retryAfter, stage:failure.stage ?? "initialMove", status:failure.status, statuses:failure.statuses)
-        }
-        catch { throw WebDAVFailure("sync.errors.network", stage:"initialMove") }
-        initialCreation = "move"
-      }
-    }
-    try await directory(config,"snapshots/")
-    try await directory(config,"backups/")
-    checked("layout")
-    checked("cleanup")
-    writeCapabilities = (location:config["location"] as? String ?? "", policy:policy, createOnly:createOnly, initialCreation:initialCreation)
   }
   private func probeInitialMove(_ config: [String: Any], onCheck: (([String: Any]) -> Void)?) async throws {
-    // 所有源和目标均为本次随机探针；不触碰 head.json，也不移动任何已有同步数据。
-    let paths = (0..<4).map { _ in ".credpivot-probe-" + UUID().uuidString.lowercased() }
+    // 固定文件名只用于本次随机测试目录，不触碰 head.json 或已有同步数据。
+    guard let name = config["_test_directory"] as? String, testDirectoryPath(name) else { throw WebDAVFailure("sync.errors.probeDirectory") }
+    let paths = ["move-a","move-b","move-target-a","move-target-b"]
     let first = Data(("credpivot-move-one-" + UUID().uuidString).utf8)
     let second = Data(("credpivot-move-two-" + UUID().uuidString).utf8)
     let policy = WebDAVProviderPolicy(config)
@@ -861,6 +956,8 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
     guard let capabilities = writeCapabilities, capabilities.location == config["location"] as? String, capabilities.policy == policy else {
       throw WebDAVFailure("sync.errors.conditionalWrite")
     }
+    try await directory(publishing,"snapshots/")
+    try await directory(publishing,"backups/")
     try await uploadUnique(publishing,path:path,data:archive,limit:maxSnapshot,createOnly:capabilities.createOnly)
     let prior = try await request(publishing,"head.json",limit:64 * 1024)
     var condition: [String: String]
@@ -1256,7 +1353,7 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
             var draft = next
             draft["_transfer_generation"] = generation
             draft["_password"] = credential
-            await retryProbeCleanup(draft)
+            await retryProbeCleanup(draft,testDirectoriesOnly:true)
             try await probe(draft,onCheck:{ testChecks.append($0) })
             result(["ok":true,"checks":testChecks,"initial_creation":writeCapabilities?.initialCreation ?? ""])
             return
@@ -1265,7 +1362,7 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
             var draft = next
             draft["_transfer_generation"] = generation
             draft["_password"] = credential
-            await retryProbeCleanup(draft)
+            await retryProbeCleanup(draft,testDirectoriesOnly:true)
             try await probe(draft)
           }
           guard unlocked() else { throw WebDAVFailure("sync.errors.locked") }
@@ -1478,7 +1575,8 @@ final class CredPivotPlatform: NSObject {
         alert.informativeText += "\n" + NativePresentation.tr("ssh.git.authorization.matchedRule", arguments: ["rule": rule])
       }
     }
-    alert.addButton(withTitle: NativePresentation.tr("common.allow"))
+    alert.informativeText += "\n\n" + NativePresentation.tr("ssh.authorization.verificationNotice")
+    alert.addButton(withTitle: NativePresentation.tr("common.continue"))
     alert.addButton(withTitle: NativePresentation.tr("common.deny"))
     // runModal 使用独立运行循环；请求已断开或过期时主动关闭，避免留下失效弹窗。
     let expiry = Timer(timeInterval: 0.5, repeats: true) { _ in
@@ -1500,7 +1598,7 @@ final class CredPivotPlatform: NSObject {
     let selected = candidates.indices.contains(picker.indexOfSelectedItem) ? candidates[picker.indexOfSelectedItem] : [:]
     let complete: (Bool) -> Void = { [weak self] ok in
       _ = LocalVaultUnlock.request(["type": "ssh_authorization_resolve", "request_id": id, "approved": ok,
-        "key_id": selected["id"] as? String ?? "", "remember": policy == "git_select" && remember.state == .on])
+        "key_id": selected["id"] as? String ?? "", "remember": ok && policy == "git_select" && remember.state == .on])
       self?.showingSshAuthorization = false
     }
     if policy == "biometric" || (policy == "git_select" && selected["policy"] as? String == "biometric") {

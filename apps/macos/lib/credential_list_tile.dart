@@ -12,6 +12,7 @@ Widget selectableCredentialTile({
   Widget? trailing,
   IconData icon = Icons.key_outlined,
 }) {
+  final mobile = defaultTargetPlatform == TargetPlatform.android;
   return Padding(
     padding: const EdgeInsets.only(bottom: 8),
     child: AnimatedContainer(
@@ -45,19 +46,19 @@ Widget selectableCredentialTile({
           title: DefaultTextStyle.merge(
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: mobile ? 14 : 13, fontWeight: FontWeight.w600),
               child: title),
           subtitle: subtitle == null
               ? null
               : DefaultTextStyle.merge(
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 11, color: AppColors.muted),
+                  style: TextStyle(fontSize: mobile ? 12 : 11, color: AppColors.muted),
                   child: subtitle),
           trailing: trailing ??
-              (selected
+              (selected || (mobile && onTap != null)
                   ? Icon(Icons.chevron_right_rounded,
-                      size: 18, color: AppColors.primary)
+                      size: 18, color: selected ? AppColors.primary : AppColors.muted)
                   : null),
           onTap: onTap,
         ),
@@ -66,18 +67,84 @@ Widget selectableCredentialTile({
   );
 }
 
-/// 宽窗口将详情放在右侧；窄窗口只固定操作区，让列表保留可滚动空间。
+/// Android 的标题、筛选随列表一起滚动，避免固定表头占满小屏。
+class CredentialPanel extends StatelessWidget {
+  const CredentialPanel({super.key, required this.header, required this.body,
+    this.detailsOnly = false, this.detailNotice,
+    this.desktopPadding = const EdgeInsets.fromLTRB(24, 12, 24, 20)});
+
+  final List<Widget> header;
+  final Widget body;
+  final bool detailsOnly;
+  final Widget? detailNotice;
+  final EdgeInsetsGeometry desktopPadding;
+
+  @override
+  Widget build(BuildContext context) {
+    final mobile = defaultTargetPlatform == TargetPlatform.android;
+    return Padding(
+      padding: mobile ? const EdgeInsets.fromLTRB(16, 8, 16, 8) : desktopPadding,
+      child: detailsOnly
+          ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              if (detailNotice != null) detailNotice!,
+              Expanded(child: body),
+            ])
+          : mobile
+              ? NestedScrollView(
+                  headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                    SliverToBoxAdapter(child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch, children: header)),
+                  ],
+                  body: body,
+                )
+              : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  ...header, Expanded(child: body),
+                ]),
+    );
+  }
+}
+
+/// 复用原面板的编辑、验证和刷新流程，弹层状态与列表筛选互不干扰。
+Future<void> showCredentialDetailSheet(BuildContext context, Widget child) =>
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (context) => FractionallySizedBox(
+        heightFactor: .94,
+        child: Column(children: [
+          const Align(alignment: Alignment.centerRight, child: CloseButton()),
+          Expanded(child: child),
+        ]),
+      ),
+    );
+
+/// 宽窗口将详情放在右侧；Android 在独立弹层中展示详情和操作。
 class CredentialWorkspace extends StatelessWidget {
   const CredentialWorkspace(
-      {super.key, required this.list, this.detail, this.actions});
+      {super.key, required this.list, this.detail, this.actions, this.detailsOnly = false});
 
   final Widget list;
   final Widget? detail;
   final Widget? actions;
+  final bool detailsOnly;
 
   @override
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (context, constraints) {
+        if (detailsOnly) {
+          return SingleChildScrollView(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (detail == null) const Padding(
+                padding: EdgeInsets.all(24), child: LText('common.noRecords')),
+              if (detail != null) detail!,
+              if (actions != null) ...[const Divider(height: 24), actions!],
+            ],
+          ));
+        }
+        if (defaultTargetPlatform == TargetPlatform.android) return list;
         if (constraints.maxWidth >= 800) {
           return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Expanded(child: list),
@@ -108,7 +175,7 @@ class CredentialWorkspace extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(child: list),
-              if (actions != null || (defaultTargetPlatform == TargetPlatform.android && detail != null)) ...[
+              if (actions != null) ...[
                 const SizedBox(height: 8),
                 ConstrainedBox(
                   constraints:
@@ -118,9 +185,7 @@ class CredentialWorkspace extends StatelessWidget {
                           child: Padding(
                               padding: const EdgeInsets.all(12),
                               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                                if (defaultTargetPlatform == TargetPlatform.android && detail != null) detail!,
                                 if (actions != null) ...[
-                                  if (defaultTargetPlatform == TargetPlatform.android && detail != null) const Divider(height: 24),
                                   actions!,
                                 ],
                               ])))),
@@ -187,8 +252,34 @@ class CredentialDetails extends StatelessWidget {
   final IconData icon;
 
   @override
-  Widget build(BuildContext context) =>
-      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+  Widget build(BuildContext context) {
+    final mobile = defaultTargetPlatform == TargetPlatform.android;
+    if (mobile) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(12)),
+            child: Icon(icon, size: 24, color: AppColors.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Text(title, style: Theme.of(context).textTheme.titleMedium)),
+        ]),
+        const SizedBox(height: 12),
+        for (final field in fields.entries)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SizedBox(width: 96, child: LText(field.key,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.muted))),
+              const SizedBox(width: 12),
+              Expanded(child: SelectableText(field.value.isEmpty ? tr('common.empty') : field.value,
+                style: Theme.of(context).textTheme.bodyMedium)),
+            ]),
+          ),
+      ]);
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -206,4 +297,5 @@ class CredentialDetails extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodyMedium)),
         ]),
       ]);
+  }
 }

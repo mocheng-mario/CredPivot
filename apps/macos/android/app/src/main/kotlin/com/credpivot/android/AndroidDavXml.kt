@@ -3,17 +3,28 @@ package com.credpivot.android
 import java.io.ByteArrayInputStream
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
+import org.xmlpull.v1.XmlPullParser
 
 internal object AndroidDavXml {
     fun parse(bytes: ByteArray): List<Map<String, Any>> {
+        // Android DOM 不支持 Apache 的禁用 DTD/外部实体开关；先用系统 PullParser
+        // 拒绝 DTD，再构建 DOM，不能忽略不支持的安全开关后继续解析不可信响应。
+        if (bytes.size > 4 * 1024 * 1024) throw AgentFailure("sync.errors.directory", "WebDAV 目录响应过大")
+        val preflight = android.util.Xml.newPullParser()
+        preflight.setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL, false)
+        preflight.setInput(ByteArrayInputStream(bytes), null)
+        var event = preflight.eventType
+        while (event != XmlPullParser.END_DOCUMENT) {
+            if (event == XmlPullParser.DOCDECL || preflight.depth > 128) {
+                throw AgentFailure("sync.errors.directory", "WebDAV 目录响应包含不允许的 XML 结构")
+            }
+            event = preflight.nextToken()
+        }
         val factory = DocumentBuilderFactory.newInstance().apply {
             isNamespaceAware = true
-            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            setFeature("http://xml.org/sax/features/external-general-entities", false)
-            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            isExpandEntityReferences = false
         }
         val builder = factory.newDocumentBuilder()
+        builder.setEntityResolver { _, _ -> throw org.xml.sax.SAXException("External entities are not allowed") }
         builder.setErrorHandler(object : org.xml.sax.ErrorHandler {
             override fun warning(e: org.xml.sax.SAXParseException) { throw e }
             override fun error(e: org.xml.sax.SAXParseException) { throw e }
@@ -22,6 +33,11 @@ internal object AndroidDavXml {
         val document = builder.parse(ByteArrayInputStream(bytes))
         val root = document.documentElement
         if (root.namespaceURI != "DAV:" || root.localName != "multistatus") throw AgentFailure("sync.errors.directory", "WebDAV 目录响应无效")
+        // 不能把被截断或带错误的列表当作空目录，否则集合 DELETE 可能误删未列出的内容。
+        if (root.getElementsByTagNameNS("DAV:", "error").length > 0 ||
+            root.getElementsByTagNameNS("DAV:", "number-of-matches-within-limits").length > 0) {
+            throw AgentFailure("sync.cleanup.incomplete", "WebDAV 目录响应不完整，已停止操作")
+        }
         val rows = root.getElementsByTagNameNS("DAV:", "response")
         return (0 until rows.length).map { index ->
             val response = rows.item(index) as Element

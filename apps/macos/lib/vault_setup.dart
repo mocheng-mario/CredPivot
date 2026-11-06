@@ -92,7 +92,7 @@ Future<String?> askInitialBackupPassword(BuildContext context) async {
       return AlertDialog(title: const LText('setup.backupPassword'), content: Form(key: form, child: TextFormField(controller: input, obscureText: true, autofocus: true,
         autocorrect: false, enableSuggestions: false, enableIMEPersonalizedLearning: false,
         validator: (value) => (value ?? '').isEmpty ? tr('vault.recoverOvb.passwordRequired') : null,
-        onSubmitted: (value) { if (form.currentState?.validate() == true) Navigator.pop(ctx, value); })),
+        onFieldSubmitted: (value) { if (form.currentState?.validate() == true) Navigator.pop(ctx, value); })),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.cancel')),
           FilledButton(onPressed: () { if (form.currentState?.validate() == true) Navigator.pop(ctx, input.text); }, child: const LText('common.continue'))]);
     });

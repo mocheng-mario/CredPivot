@@ -1,10 +1,15 @@
 use crate::extension_gate::{clear_persisted_extension_gate, extension_gate_idle_secs};
-use crate::error::{AgentError, Result};
-use crate::peer_auth::{authorize_peer, PeerAuthConfig};
+use crate::error::AgentError;
+#[cfg(not(target_os = "android"))]
+use crate::error::Result;
+use crate::peer_auth::PeerAuthConfig;
+#[cfg(not(target_os = "android"))]
+use crate::peer_auth::authorize_peer;
 #[cfg(target_os = "macos")]
 use crate::peer_auth::{peer_executable_path, peer_is_askpass_executable, peer_is_native_host_executable};
 use crate::ssh_session::{prepare_session, consume_askpass_secret, SSH_SESSION_TTL_MS};
 use crate::ssh_session::SshSessionGrant;
+#[cfg(not(target_os = "android"))]
 use crate::session_guard::expire_idle_session;
 use crate::protocol::{AgentRequest, AgentResponse};
 use crate::vault_session::{FillGrant, VaultSession};
@@ -12,7 +17,9 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(not(target_os = "android"))]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(not(target_os = "android"))]
 use tokio::net::UnixListener;
 use tokio::sync::Mutex;
 
@@ -137,6 +144,7 @@ fn req_requires_extension_gate(req: &AgentRequest) -> bool {
     )
 }
 
+#[cfg(not(target_os = "android"))]
 pub async fn serve_ipc(listener: UnixListener, state: Arc<Mutex<IpcState>>) -> Result<()> {
     loop {
         let (mut stream, _) = listener.accept().await?;
@@ -149,6 +157,7 @@ pub async fn serve_ipc(listener: UnixListener, state: Arc<Mutex<IpcState>>) -> R
     }
 }
 
+#[cfg(not(target_os = "android"))]
 async fn handle_ipc_connection(
     stream: &mut tokio::net::UnixStream,
     state: Arc<Mutex<IpcState>>,
@@ -199,6 +208,7 @@ async fn handle_ipc_connection(
     write_ipc_response(stream, resp).await
 }
 
+#[cfg(not(target_os = "android"))]
 async fn write_ipc_response(
     stream: &mut tokio::net::UnixStream,
     resp: AgentResponse,
@@ -210,6 +220,7 @@ async fn write_ipc_response(
     Ok(())
 }
 
+#[cfg(not(target_os = "android"))]
 async fn peer_context_for_pid(
     peer_pid: u32,
     state: &Arc<Mutex<IpcState>>,
@@ -1696,7 +1707,7 @@ fn peer_pid(stream: &tokio::net::UnixStream) -> Result<u32> {
     Ok(pid as u32)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "android")))]
 fn peer_pid(_stream: &tokio::net::UnixStream) -> Result<u32> {
     // Android 仅允许进程内调用，不能把缺少桌面进程身份校验解释为授权成功。
     Err(AgentError::PeerDenied("external IPC is unavailable on this platform".into()))

@@ -11,7 +11,8 @@ import 'touch_id_gate.dart';
 import 'vault_tools.dart';
 
 class PasskeysPanel extends StatefulWidget {
-  const PasskeysPanel({super.key});
+  const PasskeysPanel({super.key, this.initialSelection});
+  final Map<String, dynamic>? initialSelection;
   @override
   State<PasskeysPanel> createState() => _PasskeysPanelState();
 }
@@ -29,6 +30,7 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
   @override
   void initState() {
     super.initState();
+    _selected = widget.initialSelection;
     AgentBridge.vaultChanges.addListener(_changed);
     _refresh();
   }
@@ -96,6 +98,7 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
       if (mounted) {
         _selected = null;
         await _refresh();
+        if (mounted && widget.initialSelection != null && ModalRoute.of(context)?.isCurrent == true) Navigator.pop(context);
       }
     } catch (e) {
       if (mounted)
@@ -104,6 +107,15 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _select(Map<String, dynamic> row) async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      await showCredentialDetailSheet(context, PasskeysPanel(initialSelection: row));
+      if (mounted) await _refresh();
+      return;
+    }
+    setState(() => _selected = row);
   }
 
   @override
@@ -115,22 +127,36 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                 .any((value) => value.toString().toLowerCase().contains(query)))
         .toList();
     final selected = _selected;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    return CredentialPanel(
+      detailsOnly: widget.initialSelection != null,
+      detailNotice: _error.isEmpty ? null : AppNotice(_error),
+      header: [
         AppSectionHeader(
+            compact: defaultTargetPlatform == TargetPlatform.android,
             title: tr('credentials.passkey.title'),
             subtitle: tr('passkey.list.count', args: {'count': visible.length}),
-            action: IconButton(
+            action: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (defaultTargetPlatform == TargetPlatform.android) IconButton(
+                tooltip: tr('android.passkey.title'),
+                icon: const Icon(Icons.info_outline),
+                onPressed: () => showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+                  title: const LText('android.passkey.title'),
+                  content: const LText('android.passkey.listHelp'),
+                  actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.close'))],
+                ))),
+              IconButton(
                 onPressed: _busy ? null : _refresh,
                 tooltip: tr('passkey.build.text'),
-                icon: const Icon(Icons.refresh_rounded))),
-        AppNotice(
-            tr(defaultTargetPlatform == TargetPlatform.android ? 'android.passkey.listHelp' : 'passkey.build.text.item2')),
-        const SizedBox(height: 12),
+                icon: const Icon(Icons.refresh_rounded)),
+            ])),
+        if (defaultTargetPlatform != TargetPlatform.android) ...[
+          AppNotice(tr('passkey.build.text.item2')),
+          const SizedBox(height: 12),
+        ],
         TextField(
             onChanged: (value) => setState(() => _query = value),
             decoration: InputDecoration(
+                isDense: defaultTargetPlatform == TargetPlatform.android,
                 hintText: tr('passkey.build.text.item3'),
                 prefixIcon: const Icon(Icons.search_rounded))),
         if (_error.isNotEmpty) AppNotice(_error),
@@ -143,8 +169,9 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
           }),
           onManage: () => showManageGroupsDialog(context, 'passkey').then((_) => _refresh()),
         ),
-        Expanded(
-            child: CredentialWorkspace(
+      ],
+      body: CredentialWorkspace(
+          detailsOnly: widget.initialSelection != null,
           list: visible.isEmpty
               ? AppEmptyState(
                   icon: Icons.fingerprint_rounded,
@@ -164,7 +191,7 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                             subtitle: Text(row['username']?.toString() ?? ''),
                             onTap: _busy
                                 ? null
-                                : () => setState(() => _selected = row),
+                                : () => _select(row),
                           ))),
           detail: selected == null
               ? null
@@ -204,8 +231,7 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                           child: const LText('passkey.delete.title'))
                     ]),
                 ]),
-        )),
-      ]),
+      ),
     );
   }
 }

@@ -1,23 +1,38 @@
+#[cfg(not(target_os = "android"))]
 use crate::error::{AgentError, Result};
+#[cfg(not(target_os = "android"))]
 use crate::vault_session::VaultSession;
+#[cfg(not(target_os = "android"))]
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
+#[cfg(not(target_os = "android"))]
 use zeroize::Zeroize;
+#[cfg(not(target_os = "android"))]
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::oneshot;
+#[cfg(not(target_os = "android"))]
 use base64::Engine;
+#[cfg(not(target_os = "android"))]
 use sha2::{Digest, Sha256};
+#[cfg(not(target_os = "android"))]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(not(target_os = "android"))]
 use tokio::net::UnixListener;
+#[cfg(not(target_os = "android"))]
 use tokio::sync::Mutex;
 
+#[cfg(not(target_os = "android"))]
 const SSH_AGENT_FAILURE: u8 = 5;
 /// SSH2 agent identities answer (OpenSSH authfd.h).
+#[cfg(not(target_os = "android"))]
 const SSH2_AGENT_IDENTITIES_ANSWER: u8 = 12;
+#[cfg(not(target_os = "android"))]
 const SSH_AGENT_SIGN_RESPONSE: u8 = 14;
 
+#[cfg(not(target_os = "android"))]
 const SSH_AGENTC_REQUEST_IDENTITIES: u8 = 11;
+#[cfg(not(target_os = "android"))]
 const SSH_AGENTC_SIGN_REQUEST: u8 = 13;
 
 const AUTH_TIMEOUT: Duration = Duration::from_secs(90);
@@ -28,8 +43,10 @@ pub(crate) struct GitContext {
     pub repository: String,
     // 包含 SSH 用户、主机、端口及仓库；不与普通 SSH 请求共享授权。
     #[serde(skip)]
+    #[cfg(not(target_os = "android"))]
     pub authorization_scope: String,
     #[serde(skip)]
+    #[cfg(not(target_os = "android"))]
     pub authorization_generation: u64,
     pub selection_source: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -55,6 +72,8 @@ pub struct PendingAuthorization {
     pub(crate) reply: oneshot::Sender<AuthorizationDecision>,
 }
 
+// Android 共用 IPC 的授权状态，但不启动消费这些决策的桌面 SSH 服务。
+#[cfg_attr(target_os = "android", allow(dead_code))]
 #[derive(Debug)]
 pub(crate) struct AuthorizationDecision { pub approved: bool, pub key_id: String, pub remember: bool }
 
@@ -80,6 +99,7 @@ impl SshAuthorization {
         self.git_grants.retain(|_,until|*until > Instant::now());
         self.approved_once.retain(|_,(at,_)|at.elapsed()<Duration::from_secs(120));
     }
+    #[cfg(not(target_os = "android"))]
     pub(crate) fn approve_once(&mut self, key_id: String, scope: String, policy: String) {
         self.approved_once.insert((key_id,scope),(Instant::now(),policy));
     }
@@ -90,6 +110,7 @@ impl SshAuthorization {
 }
 
 /// 仅在明确批准且成功签名后建立固定期限，复用本身不会延长授权。
+#[cfg(not(target_os = "android"))]
 fn grant_session_authorization(v: &mut VaultSession, key_id: &str, scope: &str, git: Option<&GitContext>) {
     let settings=credpivot_core::effective_app_settings();
     if settings.sensitive_auth_seconds>0 {
@@ -102,6 +123,7 @@ fn grant_session_authorization(v: &mut VaultSession, key_id: &str, scope: &str, 
     }
 }
 
+#[cfg(not(target_os = "android"))]
 fn signing_policy(v: &VaultSession, id: &str) -> Result<(String, String)> {
     let db = v.db.as_ref().ok_or(AgentError::Locked)?;
     // 授权信息只需要公有元数据，不再次读取私钥 seed。
@@ -114,6 +136,7 @@ fn signing_policy(v: &VaultSession, id: &str) -> Result<(String, String)> {
     Ok((key.label,policy))
 }
 
+#[cfg(not(target_os = "android"))]
 async fn authorized_sign(stream: &mut tokio::net::UnixStream, vault: &Arc<Mutex<VaultSession>>, msg: &[u8], caller: &str, scope: &str, selected: Option<&str>, git: Option<&GitContext>) -> Result<Vec<u8>> {
     let (id, key_id, expected_key, policy, generation, receiver) = {
         let mut v = vault.lock().await;
@@ -171,6 +194,7 @@ async fn authorized_sign(stream: &mut tokio::net::UnixStream, vault: &Arc<Mutex<
     Ok(result)
 }
 
+#[cfg(not(target_os = "android"))]
 pub(crate) async fn authorized_identities(stream: &mut tokio::net::UnixStream, vault: &Arc<Mutex<VaultSession>>, caller: &str, selected: Option<&str>, git: Option<&GitContext>) -> Result<Vec<u8>> {
     let (id, receiver) = {
         let mut v = vault.lock().await;
@@ -206,6 +230,7 @@ pub(crate) async fn authorized_identities(stream: &mut tokio::net::UnixStream, v
     identities_answer(&v,selected)
 }
 
+#[cfg(not(target_os = "android"))]
 pub async fn serve_ssh_agent(listener: UnixListener, vault: Arc<Mutex<VaultSession>>) -> Result<()> {
     loop {
         let (mut stream, _) = listener.accept().await?;
@@ -218,6 +243,7 @@ pub async fn serve_ssh_agent(listener: UnixListener, vault: Arc<Mutex<VaultSessi
     }
 }
 
+#[cfg(not(target_os = "android"))]
 async fn handle_ssh_connection(stream: &mut tokio::net::UnixStream, vault: Arc<Mutex<VaultSession>>) -> Result<()> {
     let pid=stream.peer_cred().ok().and_then(|c|c.pid()).map(|v|v as u32);
     let Some(first)=read_message(stream).await? else { return Ok(()); };
@@ -227,10 +253,12 @@ async fn handle_ssh_connection(stream: &mut tokio::net::UnixStream, vault: Arc<M
     normal_connection(stream,vault,None,Some(first)).await
 }
 
+#[cfg(not(target_os = "android"))]
 pub(crate) async fn selected_connection(mut stream: tokio::net::UnixStream, vault: Arc<Mutex<VaultSession>>, key_id: String, scope: String, git: GitContext) -> Result<()> {
     normal_connection_with_scope(&mut stream,vault,Some(key_id),None,scope,Some(git)).await
 }
 
+#[cfg(not(target_os = "android"))]
 async fn read_message(stream: &mut tokio::net::UnixStream) -> Result<Option<Vec<u8>>> {
     let mut size=[0;4];
     if stream.read_exact(&mut size).await.is_err() { return Ok(None); }
@@ -239,10 +267,12 @@ async fn read_message(stream: &mut tokio::net::UnixStream) -> Result<Option<Vec<
     let mut message=vec![0;size]; stream.read_exact(&mut message).await?; Ok(Some(message))
 }
 
+#[cfg(not(target_os = "android"))]
 async fn normal_connection(stream: &mut tokio::net::UnixStream, vault: Arc<Mutex<VaultSession>>, selected: Option<String>, mut first: Option<Vec<u8>>) -> Result<()> {
     normal_connection_with_scope(stream,vault,selected,first.take(),uuid::Uuid::new_v4().to_string(),None).await
 }
 
+#[cfg(not(target_os = "android"))]
 async fn normal_connection_with_scope(stream: &mut tokio::net::UnixStream, vault: Arc<Mutex<VaultSession>>, selected: Option<String>, mut first: Option<Vec<u8>>, connection: String, git: Option<GitContext>) -> Result<()> {
     let caller=stream.peer_cred().ok().and_then(|c|c.pid()).map(|pid| {
         #[cfg(target_os="macos")]
@@ -263,6 +293,7 @@ async fn normal_connection_with_scope(stream: &mut tokio::net::UnixStream, vault
     Ok(())
 }
 
+#[cfg(not(target_os = "android"))]
 fn session_denied(v: &mut VaultSession) -> bool {
     if v.idle_expired() {
         v.lock();
@@ -271,11 +302,13 @@ fn session_denied(v: &mut VaultSession) -> bool {
     !v.unlocked
 }
 
+#[cfg(not(target_os = "android"))]
 fn failure_packet() -> Vec<u8> {
     let body = vec![SSH_AGENT_FAILURE];
     frame(&body)
 }
 
+#[cfg(not(target_os = "android"))]
 fn frame(body: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(4 + body.len());
     out.extend_from_slice(&(body.len() as u32).to_be_bytes());
@@ -283,6 +316,7 @@ fn frame(body: &[u8]) -> Vec<u8> {
     out
 }
 
+#[cfg(not(target_os = "android"))]
 fn identities_answer(vault: &VaultSession, selected: Option<&str>) -> Result<Vec<u8>> {
     let db=vault.db.as_ref().ok_or(AgentError::Locked)?;
     let mut keys=db.list_ssh().map_err(|_|AgentError::Protocol("SSH identity read failed".into()))?;
@@ -300,12 +334,14 @@ fn identities_answer(vault: &VaultSession, selected: Option<&str>) -> Result<Vec
     Ok(frame(&body))
 }
 
+#[cfg(not(target_os = "android"))]
 pub(crate) fn public_blob(public: &str) -> Result<Vec<u8>> {
     let mut parts=public.split_whitespace();
     if parts.next()!=Some("ssh-ed25519") { return Err(AgentError::Protocol("SSH identity invalid".into())); }
     base64::engine::general_purpose::STANDARD.decode(parts.next().unwrap_or("")).map_err(|_|AgentError::Protocol("SSH identity invalid".into()))
 }
 
+#[cfg(not(target_os = "android"))]
 fn requested_identity(vault: &VaultSession, msg: &[u8], selected: Option<&str>) -> Result<Option<(String,Vec<u8>)>> {
     let db=vault.db.as_ref().ok_or(AgentError::Locked)?;
     for key in db.list_ssh().map_err(|_|AgentError::Protocol("SSH identity read failed".into()))? {
@@ -316,6 +352,7 @@ fn requested_identity(vault: &VaultSession, msg: &[u8], selected: Option<&str>) 
     Ok(None)
 }
 
+#[cfg(not(target_os = "android"))]
 fn ed25519_key_blob(vk: &VerifyingKey) -> Vec<u8> {
     let mut blob = Vec::new();
     let type_name = b"ssh-ed25519";
@@ -327,6 +364,7 @@ fn ed25519_key_blob(vk: &VerifyingKey) -> Vec<u8> {
     blob
 }
 
+#[cfg(not(target_os = "android"))]
 fn sign_data<'a>(msg: &'a [u8], expected: &[u8]) -> Result<Option<&'a [u8]>> {
     let mut idx = 1;
     let key_len = read_u32_be(msg,&mut idx)? as usize;
@@ -340,6 +378,7 @@ fn sign_data<'a>(msg: &'a [u8], expected: &[u8]) -> Result<Option<&'a [u8]>> {
     Ok(Some(data))
 }
 
+#[cfg(not(target_os = "android"))]
 fn sign_request(vault: &VaultSession, msg: &[u8], key_id: &str) -> Result<Vec<u8>> {
     let db=vault.db.as_ref().ok_or(AgentError::Locked)?;
     let mut record=db.load_ssh_key(key_id).map_err(|_|AgentError::Protocol("SSH identity unavailable".into()))?;
@@ -352,6 +391,7 @@ fn sign_request(vault: &VaultSession, msg: &[u8], key_id: &str) -> Result<Vec<u8
     Ok(frame(&body))
 }
 
+#[cfg(not(target_os = "android"))]
 fn ssh_ed25519_signature_blob(sig: &[u8; 64]) -> Vec<u8> {
     let mut blob = Vec::new();
     let type_name = b"ssh-ed25519";
@@ -362,6 +402,7 @@ fn ssh_ed25519_signature_blob(sig: &[u8; 64]) -> Vec<u8> {
     blob
 }
 
+#[cfg(not(target_os = "android"))]
 fn read_u32_be(buf: &[u8], idx: &mut usize) -> Result<u32> {
     if *idx + 4 > buf.len() {
         return Err(AgentError::Protocol("truncated ssh agent message".into()));

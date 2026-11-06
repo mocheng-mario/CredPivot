@@ -1,12 +1,20 @@
 #include <jni.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 extern int credpivot_agent_start(void);
 extern int credpivot_agent_stop(void);
 extern int credpivot_agent_is_running(void);
 extern char *credpivot_agent_request_json(const char *request);
 extern void credpivot_string_free(char *response);
+extern void credpivot_webdav_error(uint32_t operation, uint32_t phase, uint32_t directory, uint32_t status, uint32_t reason);
+
+JNIEXPORT void JNICALL Java_com_credpivot_android_NativeAgent_webDavError(
+    JNIEnv *env, jobject self, jint operation, jint phase, jint directory, jint status, jint reason) {
+    (void)env; (void)self;
+    credpivot_webdav_error((uint32_t)operation, (uint32_t)phase, (uint32_t)directory, (uint32_t)status, (uint32_t)reason);
+}
 
 JNIEXPORT jint JNICALL Java_com_credpivot_android_NativeAgent_initialize(
     JNIEnv *env, jobject self, jstring directory, jstring temporary) {

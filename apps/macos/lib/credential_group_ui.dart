@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import 'agent_bridge.dart';
 import 'app_ui.dart';
@@ -182,38 +183,34 @@ Widget buildGroupFilterBar({
   required ValueChanged<String?> onChanged,
   required VoidCallback onManage,
 }) {
-  return Padding(
-    padding: const EdgeInsets.symmetric(vertical: 12),
-    child: Row(
-      children: [
-        Expanded(
-          child: AppFieldRow(label: tr('common.group'), child: DropdownButtonFormField<String?>(
-            value: dropdownValueIfPresent(selectedGroupId, groups),
-            isExpanded: true,
-            decoration: InputDecoration(prefixIcon: Icon(Icons.folder_outlined)),
-            items: [
-              const DropdownMenuItem(value: null, child: LText('common.all')),
-              ...groups.map(
-                (g) => DropdownMenuItem(
-                  value: g['id'] as String,
-                  child: Text(
-                    credentialGroupLabel(g),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-            ],
-            onChanged: onChanged,
-          )),
-        ),
-        const SizedBox(width: 8),
-        IconButton(
-            onPressed: onManage,
-            icon: const Icon(Icons.folder_outlined),
-            tooltip: tr('groups.showManageGroupsDialog.text')),
-      ],
+  final mobile = defaultTargetPlatform == TargetPlatform.android;
+  final dropdown = DropdownButtonFormField<String?>(
+    value: dropdownValueIfPresent(selectedGroupId, groups),
+    isExpanded: true,
+    decoration: InputDecoration(
+      prefixIcon: const Icon(Icons.folder_outlined),
+      labelText: mobile ? tr('common.group') : null,
+      isDense: mobile,
     ),
+    items: [
+      const DropdownMenuItem(value: null, child: LText('common.all')),
+      ...groups.map((g) => DropdownMenuItem(
+        value: g['id'] as String,
+        child: Text(credentialGroupLabel(g), maxLines: 1, overflow: TextOverflow.ellipsis),
+      )),
+    ],
+    onChanged: onChanged,
+  );
+  return Padding(
+    padding: EdgeInsets.symmetric(vertical: mobile ? 8 : 12),
+    child: Row(children: [
+      Expanded(child: mobile ? dropdown : AppFieldRow(label: tr('common.group'), child: dropdown)),
+      const SizedBox(width: 8),
+      IconButton(
+        onPressed: onManage,
+        icon: const Icon(Icons.folder_outlined),
+        tooltip: tr('groups.showManageGroupsDialog.text')),
+    ]),
   );
 }
 

@@ -323,23 +323,25 @@ class AppSectionHeader extends StatelessWidget {
       {super.key,
       required this.title,
       required this.subtitle,
-      required this.action});
+      required this.action,
+      this.compact = false});
 
   final String title;
   final String subtitle;
   final Widget action;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 16),
+        padding: EdgeInsets.only(bottom: compact ? 12 : 16),
         child: LayoutBuilder(builder: (context, constraints) {
           final heading =
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            LText(title, style: Theme.of(context).textTheme.titleLarge),
+            LText(title, style: compact ? Theme.of(context).textTheme.titleMedium : Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 4),
             LText(subtitle, style: Theme.of(context).textTheme.bodySmall),
           ]);
-          if (constraints.maxWidth < 480) {
+          if (!compact && constraints.maxWidth < 480) {
             return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [heading, const SizedBox(height: 12), action]);

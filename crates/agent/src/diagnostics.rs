@@ -80,6 +80,30 @@ pub fn browser_auth_event(event: &'static str, elapsed_ms: u64) {
     log(LogLevel::Info, "browser_auth", &format!("{event}; elapsed_ms={elapsed_ms}"));
 }
 
+/// Android 网络层只上报固定分类和 HTTP 状态，不能把远端地址或异常原文写进日志。
+pub fn webdav_error(operation: u32, phase: u32, directory: u32, status: u32, reason: u32) {
+    let operation = match operation {
+        1 => "test", 2 => "save", 3 => "read", 4 => "publish", 5 => "probe",
+        6 => "cleanup", 7 => "bootstrap_read", 8 => "settings", 9 => "remove", _ => "other",
+    };
+    let phase = match phase {
+        1 => "directory_propfind", 2 => "directory_mkcol", 3 => "directory_xml",
+        4 => "directory_verify", 5 => "test_cleanup", _ => "operation",
+    };
+    let directory = match directory {
+        1 => "endpoint", 2 => "configured_directory", 3 => "snapshots", 4 => "backups",
+        5 => "test_directory", _ => "unspecified",
+    };
+    let reason = match reason {
+        1 => "unexpected_http_status", 2 => "invalid_xml", 3 => "directory_mismatch",
+        4 => "request_failed", _ => "operation_failed",
+    };
+    let status = if (100..=599).contains(&status) { status } else { 0 };
+    log(LogLevel::Error, "webdav", &format!(
+        "operation={operation}; phase={phase}; directory={directory}; http_status={status}; reason={reason}"
+    ));
+}
+
 fn log(level: LogLevel, target: &'static str, event: &str) {
     if level < self::level() {
         return;

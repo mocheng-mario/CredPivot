@@ -20,10 +20,12 @@ pub fn materialized_askpass_path() -> PathBuf {
     runtime_dir().join("credpivot-askpass")
 }
 
+#[cfg(target_os = "macos")]
 pub fn materialized_askpass_digest_path() -> PathBuf {
     runtime_dir().join("askpass.sha256")
 }
 
+#[cfg(target_os = "macos")]
 pub fn materialized_askpass_trusted_ref_path() -> PathBuf {
     runtime_dir().join("askpass_trusted.path")
 }

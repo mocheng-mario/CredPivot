@@ -2,8 +2,7 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    // Flutter 插件必须在 Android 插件之后应用；Kotlin 由 AGP 9 内置提供。
     id("dev.flutter.flutter-gradle-plugin")
 }
 

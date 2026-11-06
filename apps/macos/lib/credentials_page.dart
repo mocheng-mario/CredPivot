@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -265,16 +266,17 @@ class CredentialsTab extends StatelessWidget {
       length: mobile ? 5 : 7,
       child: Column(
         children: [
-          Align(alignment: Alignment.centerRight, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 24),
+          if (!mobile) Align(alignment: Alignment.centerRight, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 24),
             child: OutlinedButton.icon(onPressed: () => showPartitionMigration(context, AgentBridge.activePartitionId),
               icon: const Icon(Icons.drive_file_move_outlined, size: 18), label: const LText('partitions.move')))),
-          Container(
-            margin: const EdgeInsets.fromLTRB(24, 4, 24, 8),
+          Row(children: [Expanded(child: Container(
+            margin: mobile ? const EdgeInsets.fromLTRB(16, 0, 0, 4) : const EdgeInsets.fromLTRB(24, 4, 24, 8),
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
                 color: AppColors.sidebar,
                 borderRadius: BorderRadius.circular(12)),
             child: TabBar(
+              dividerHeight: mobile ? 0 : 1,
               isScrollable: true,
               tabAlignment: TabAlignment.start,
               splashBorderRadius: BorderRadius.all(Radius.circular(9)),
@@ -288,7 +290,12 @@ class CredentialsTab extends StatelessWidget {
                 Tab(child: LText('credentials.trash.title')),
               ],
             ),
-          ),
+          )),
+            if (mobile) IconButton(
+              tooltip: tr('partitions.move'),
+              onPressed: () => showPartitionMigration(context, AgentBridge.activePartitionId),
+              icon: const Icon(Icons.drive_file_move_outlined)),
+          ]),
           Expanded(
             child: TabBarView(
               children: [
@@ -309,6 +316,9 @@ class CredentialsTab extends StatelessWidget {
 }
 
 class _LoginPasswordPanel extends StatefulWidget {
+  const _LoginPasswordPanel({this.initialSelection});
+  final Map<String, dynamic>? initialSelection;
+
   @override
   State<_LoginPasswordPanel> createState() => _LoginPasswordPanelState();
 }
@@ -328,6 +338,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
   @override
   void initState() {
     super.initState();
+    _selected = widget.initialSelection;
     AgentBridge.vaultChanges.addListener(_onVaultChanged);
     _refresh();
   }
@@ -384,19 +395,44 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
     } catch (error) { vaultMessage(context, error); }
   }
 
+  Future<void> _select(Map<String, dynamic> row) async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      await showCredentialDetailSheet(context, _LoginPasswordPanel(initialSelection: row));
+      if (mounted) await _refresh();
+      return;
+    }
+    setState(() {
+      _selected = row;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final visibleItems = _items
         .where((row) =>
             _filterGroupId == null || row['group_id'] == _filterGroupId)
         .toList();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    return CredentialPanel(
+      detailsOnly: widget.initialSelection != null,
+      detailNotice: _status.isEmpty ? null : AppNotice(_status),
+      header: [
         AppSectionHeader(
+          compact: defaultTargetPlatform == TargetPlatform.android,
           title: tr('credentials.login.title'),
           subtitle: tr('credentials.login.count', args: {'count': visibleItems.length}),
           action: Wrap(spacing: 8, runSpacing: 8, children: [
+            if (defaultTargetPlatform == TargetPlatform.android) ...[
+              IconButton.outlined(
+                tooltip: tr('import.google.action'),
+                onPressed: _busy ? null : () async {
+                  if (await importGooglePasswords(context) && mounted) await _refresh();
+                },
+                icon: const Icon(Icons.file_upload_outlined)),
+              IconButton.filled(
+                tooltip: tr('credentials.build.text'),
+                onPressed: _busy ? null : () => _addOrEdit(),
+                icon: const Icon(Icons.add_rounded)),
+            ] else ...[
             OutlinedButton.icon(
               onPressed: _busy ? null : () async {
                 if (await importGooglePasswords(context) && mounted) await _refresh();
@@ -407,6 +443,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
               onPressed: _busy ? null : () => _addOrEdit(),
               icon: const Icon(Icons.add_rounded),
               label: const LText('credentials.build.text')),
+            ],
           ]),
         ),
         Row(children: [
@@ -414,6 +451,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
               child: TextField(
             controller: _search,
             decoration: InputDecoration(
+                isDense: defaultTargetPlatform == TargetPlatform.android,
                 hintText: tr('credentials.build.text.item2'),
                 prefixIcon: Icon(Icons.search_rounded)),
             onSubmitted: (_) => _refresh(),
@@ -435,8 +473,9 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
           onManage: () =>
               showManageGroupsDialog(context, 'login').then((_) => _refresh()),
         ),
-        Expanded(
-            child: CredentialWorkspace(
+      ],
+      body: CredentialWorkspace(
+        detailsOnly: widget.initialSelection != null,
           list: visibleItems.isEmpty
               ? AppEmptyState(
                   icon: Icons.key_outlined,
@@ -458,7 +497,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                               row['origin']?.toString() ??
                               '')),
                       subtitle: LText('${row['origin']} · ${row['username']}'),
-                      onTap: () => setState(() { _selected = row; }),
+                      onTap: () => _select(row),
                     );
                   },
                 )),
@@ -541,6 +580,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                               await AgentBridge.trashCredential(itemId);
                               _selected = null;
                               await _refresh();
+                              if (mounted && widget.initialSelection != null && ModalRoute.of(context)?.isCurrent == true) Navigator.pop(context);
                             },
                             child: const LText('common.delete'),
                           ),
@@ -548,13 +588,15 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                       ),
                     ],
                   ),
-        )),
-      ]),
+      ),
     );
   }
 }
 
 class _TotpPanel extends StatefulWidget {
+  const _TotpPanel({this.initialSelection});
+  final Map<String, dynamic>? initialSelection;
+
   @override
   State<_TotpPanel> createState() => _TotpPanelState();
 }
@@ -580,6 +622,7 @@ class _TotpPanelState extends State<_TotpPanel> {
   @override
   void initState() {
     super.initState();
+    _selected = widget.initialSelection;
     AgentBridge.vaultChanges.addListener(_onVaultChanged);
     _refresh();
   }
@@ -700,9 +743,23 @@ class _TotpPanelState extends State<_TotpPanel> {
         _liveCodeForId = null;
       }
       await _refresh();
+      if (mounted && widget.initialSelection != null && ModalRoute.of(context)?.isCurrent == true) Navigator.pop(context);
     } on AgentException catch (e) {
-      setState(() => _status = e.message);
+      if (mounted) setState(() => _status = e.message);
     }
+  }
+
+  Future<void> _select(Map<String, dynamic> row) async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      await showCredentialDetailSheet(context, _TotpPanel(initialSelection: row));
+      if (mounted) await _refresh();
+      return;
+    }
+    setState(() {
+      _selected = row;
+      _liveCode = null;
+      _liveCodeForId = null;
+    });
   }
 
   @override
@@ -711,15 +768,20 @@ class _TotpPanelState extends State<_TotpPanel> {
         .where((row) =>
             _filterGroupId == null || row['group_id'] == _filterGroupId)
         .toList();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+    return CredentialPanel(
+      detailsOnly: widget.initialSelection != null,
+      detailNotice: _status.isEmpty ? null : AppNotice(_status),
+      header: [
           AppSectionHeader(
+            compact: defaultTargetPlatform == TargetPlatform.android,
             title: tr('credentials.build.title.item7'),
             subtitle: tr('credentials.mfa.count', args: {'count': visibleItems.length}),
-            action: FilledButton.icon(
+            action: defaultTargetPlatform == TargetPlatform.android
+                ? IconButton.filled(
+                    tooltip: tr('credentials.build.text.item9'),
+                    onPressed: _addTotp,
+                    icon: const Icon(Icons.add_rounded))
+                : FilledButton.icon(
                 onPressed: _addTotp,
                 icon: const Icon(Icons.add_rounded),
                 label: const LText('credentials.build.text.item9')),
@@ -766,8 +828,9 @@ class _TotpPanelState extends State<_TotpPanel> {
                 ),
               ),
             ),
-          Expanded(
-              child: CredentialWorkspace(
+      ],
+      body: CredentialWorkspace(
+        detailsOnly: widget.initialSelection != null,
             list: visibleItems.isEmpty
                 ? AppEmptyState(
                     icon: Icons.pin_outlined,
@@ -786,11 +849,7 @@ class _TotpPanelState extends State<_TotpPanel> {
                           icon: Icons.pin_outlined,
                           title: Text(row['issuer']?.toString() ?? 'TOTP'),
                           subtitle: Text('${row['account'] ?? ''}${(row['pending_rule_count'] as num? ?? 0) > 0 ? tr('credentials.labels.text') : ''}'),
-                          onTap: () => setState(() {
-                            _selected = row;
-                            _liveCode = null;
-                            _liveCodeForId = null;
-                          }),
+                          onTap: () => _select(row),
                         );
                       },
                     ),
@@ -869,8 +928,6 @@ class _TotpPanelState extends State<_TotpPanel> {
                       ),
                     ],
                   ),
-          )),
-        ],
       ),
     );
   }

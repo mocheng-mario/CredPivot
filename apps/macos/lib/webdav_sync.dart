@@ -879,8 +879,9 @@ class WebDavSyncPage extends StatelessWidget {
                                                                       true
                                                                   ? Icons
                                                                       .check_circle_outline
-                                                                  : Icons
-                                                                      .info_outline,
+                                                                  : check['failed'] == true
+                                                                      ? Icons.error_outline
+                                                                      : Icons.info_outline,
                                                               size: 18,
                                                               color: check[
                                                                           'passed'] ==
@@ -889,10 +890,9 @@ class WebDavSyncPage extends StatelessWidget {
                                                                           ctx)
                                                                       .colorScheme
                                                                       .primary
-                                                                  : Theme.of(
-                                                                          ctx)
-                                                                      .colorScheme
-                                                                      .tertiary),
+                                                                  : check['failed'] == true
+                                                                      ? Theme.of(ctx).colorScheme.error
+                                                                      : Theme.of(ctx).colorScheme.tertiary),
                                                           const SizedBox(
                                                               width: 8),
                                                           Expanded(
@@ -906,7 +906,7 @@ class WebDavSyncPage extends StatelessWidget {
                                                             if (check['passed'] !=
                                                                     true &&
                                                                 check['skipped'] !=
-                                                                    true)
+                                                                    true && check['failed'] != true)
                                                               tr('sync.test.fallback'),
                                                           ].join(' · '))),
                                                         ])),

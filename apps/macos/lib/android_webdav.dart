@@ -22,6 +22,7 @@ class AndroidWebDav {
   DateTime _cleanupDue = DateTime.fromMillisecondsSinceEpoch(0);
   final _historyReferences = <String, _DavHistory>{};
   bool _cleanupDeleteVerified = false;
+  final _pendingTestDirectories = <String, Set<String>>{};
   final _retryAfter = <String, DateTime>{};
 
   String _nonce() {
@@ -31,7 +32,7 @@ class AndroidWebDav {
     // 沿用桌面探针的 UUID 命名，失败遗留文件仍能被既有清理策略识别。
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
   }
-  Never _fail(String key) => throw PlatformException(code: key, message: tr(key));
+  Never _fail(String key, {Map<String, dynamic>? details}) => throw PlatformException(code: key, message: tr(key), details: details);
   Future<Map<String, dynamic>> _agent(Map<String, dynamic> request) async => AgentBridge.payloadOf(await AgentBridge.request(request));
   Future<String> _hash(List<int> data) async => (await _channel.invokeMethod<String>('androidSha256', Uint8List.fromList(data)))!;
 
@@ -132,15 +133,15 @@ class AndroidWebDav {
         return _DavReply(response.statusCode, buffer.takeBytes(), response.headers);
       })().timeout(const Duration(seconds: 45));
       await _check(epoch, publishing: publishing);
-      if (reply.status == 401) _fail('sync.errors.unauthorized');
-      if (reply.status == 403) _fail('sync.errors.forbidden');
+      if (reply.status == 401) _fail('sync.errors.unauthorized', details: {'http_status': reply.status});
+      if (reply.status == 403) _fail('sync.errors.forbidden', details: {'http_status': reply.status});
       if (reply.status == 429) {
         final delay = (int.tryParse(reply.headers.value('retry-after') ?? '') ?? 120).clamp(60, 86400).toInt();
         _retryAfter[location] = DateTime.now().add(Duration(seconds: delay));
-        throw PlatformException(code: 'sync.errors.rateLimited', message: tr('sync.errors.rateLimited'), details: {'retry_after': delay});
+        throw PlatformException(code: 'sync.errors.rateLimited', message: tr('sync.errors.rateLimited'), details: {'retry_after': delay, 'http_status': reply.status});
       }
-      if (reply.status >= 500) _fail('sync.errors.server');
-      if (reply.status >= 300 && reply.status < 400 && reply.status != 304) _fail('sync.errors.redirect');
+      if (reply.status >= 500) _fail('sync.errors.server', details: {'http_status': reply.status});
+      if (reply.status >= 300 && reply.status < 400 && reply.status != 304) _fail('sync.errors.redirect', details: {'http_status': reply.status});
       return reply;
     } on PlatformException { rethrow; }
     on AgentException { rethrow; }
@@ -158,19 +159,83 @@ class AndroidWebDav {
     return tag;
   }
 
-  Future<void> _directory(Map<String, dynamic> config, String path, int epoch, {bool create = true}) async {
-    var reply = await _request(config, path, epoch, method: 'PROPFIND',
+  bool _sameDirectory(Uri expected, String href) {
+    if (href.trim().isEmpty) return false;
+    try {
+      final observed = expected.resolve(href.trim());
+      if (observed.scheme.toLowerCase() != expected.scheme.toLowerCase() ||
+          observed.host.toLowerCase() != expected.host.toLowerCase() || observed.port != expected.port ||
+          observed.userInfo.isNotEmpty || observed.hasQuery || observed.hasFragment) return false;
+      // 目录末尾斜杠可省略；按解码后的独立路径段比较，不把编码后的斜杠当成目录分隔符。
+      final actual = observed.pathSegments.toList(), target = expected.pathSegments.toList();
+      if (actual.isNotEmpty && actual.last.isEmpty) actual.removeLast();
+      if (target.isNotEmpty && target.last.isEmpty) target.removeLast();
+      return actual.length == target.length && List.generate(target.length, (i) => actual[i] == target[i]).every((v) => v);
+    } on FormatException { return false; }
+  }
+
+  Future<void> _directory(Map<String, dynamic> config, String path, int epoch,
+      {bool create = true, String directory = 'target'}) async {
+    var phase = 'read', reason = 'transport';
+    int? status;
+    Future<_DavReply> read() => _request(config, path, epoch, method: 'PROPFIND',
         body: utf8.encode('<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>'),
         headers: {'Depth': '0', 'Content-Type': 'application/xml'}, limit: 256 * 1024);
-    if (reply.status == 404 && create) {
-      reply = await _request(config, path, epoch, method: 'MKCOL', limit: 1024);
-      if (![201, 405].contains(reply.status)) _fail('sync.errors.directory');
-      return _directory(config, path, epoch, create: false);
+    try {
+      var reply = await read();
+      status = reply.status;
+      if (status == 404 && create) {
+        phase = 'create'; status = null;
+        reply = await _request(config, path, epoch, method: 'MKCOL', limit: 1024);
+        status = reply.status;
+        // 与 Mac 一致，201 已确认创建成功，避免立即读回时的服务端可见性延迟。
+        if (status == 201) return;
+        // 已有目录或另一台设备刚创建目录时，可返回 405/409；重新读取确认，不能直接放行。
+        if (![405, 409].contains(status)) { reason = 'http'; _fail('sync.errors.directory'); }
+        phase = 'read'; status = null;
+        reply = await read();
+        status = reply.status;
+      }
+      if (status != 207) { reason = 'http'; _fail('sync.errors.directory'); }
+      phase = 'parse'; reason = 'parse';
+      final rows = await _channel.invokeListMethod<dynamic>('androidDavParse', reply.body) ?? [];
+      final expected = Uri.parse(config['root'] as String).resolve(path);
+      phase = 'verify'; reason = 'mismatch';
+      if (!rows.any((r) => r is Map && r['collection'] == true && r['href'] is String && _sameDirectory(expected, r['href'] as String))) {
+        _fail('sync.errors.directoryMismatch');
+      }
+    } on PlatformException catch (error) {
+      if (error.code == 'sync.test.cancelled' || error.code == 'sync.errors.locked') rethrow;
+      final details = error.details is Map ? Map<String, dynamic>.from(error.details as Map) : <String, dynamic>{};
+      final httpStatus = details['http_status'] ?? status;
+      if (details['http_status'] is int && (phase == 'read' || phase == 'create')) reason = 'http';
+      throw PlatformException(code: error.code, message: tr('sync.errors.directoryContext', args: {
+        'message': error.message ?? tr('sync.errors.directory'),
+        'directory': tr('sync.directory.$directory'),
+        'phase': tr('sync.directory.phase.$phase'),
+        'status': httpStatus == null ? '' : ' · HTTP $httpStatus',
+      }), details: {...details, 'directory': directory, 'directory_phase': phase, 'directory_reason': reason,
+        if (httpStatus != null) 'http_status': httpStatus});
     }
-    if (reply.status != 207) _fail('sync.errors.directory');
-    final rows = await _channel.invokeListMethod<dynamic>('androidDavParse', reply.body) ?? [];
-    final expected = Uri.parse(config['root'] as String).resolve(path);
-    if (!rows.any((r) => r is Map && r['collection'] == true && expected.resolve(r['href'] as String) == expected)) _fail('sync.errors.directory');
+  }
+
+  Future<void> _logFailure(String method, Object error) async {
+    final code = error is PlatformException ? error.code : error is AgentException ? error.code : '';
+    if (['sync.test.cancelled', 'sync.errors.locked', 'locked'].contains(code)) return;
+    final raw = error is PlatformException ? error.details : error is AgentException ? error.details : null;
+    final details = raw is Map ? raw : const {};
+    final status = details['http_status'];
+    try {
+      // 日志只交付固定枚举和 HTTP 状态，不传 URL、目录原文、账号、密码或异常全文。
+      await _channel.invokeMethod<void>('androidWebDavError', {
+        'operation': const {'webdavTest': 1, 'webdavSave': 2, 'webdavRead': 3, 'webdavPublish': 4,
+          'webdavProbe': 5, 'webdavCleanup': 6, 'webdavBootstrapRead': 7, 'webdavSettings': 8, 'webdavRemove': 9}[method] ?? 0,
+        'phase': const {'read': 1, 'create': 2, 'parse': 3, 'verify': 4, 'cleanup': 5}[details['directory_phase']] ?? 0,
+        'directory': const {'endpoint': 1, 'target': 2, 'snapshots': 3, 'backups': 4, 'test': 5}[details['directory']] ?? 0,
+        'status': status is int && status >= 100 && status <= 599 ? status : 0,
+        'reason': const {'http': 1, 'parse': 2, 'mismatch': 3, 'transport': 4}[details['directory_reason']] ?? 0,
+      }).timeout(const Duration(seconds: 2));
+    } catch (_) { /* 日志失败不能覆盖原始同步错误。 */ }
   }
 
   Future<_DavReply> _move(Map<String, dynamic> config, String source, String target, int epoch, {Map<String, dynamic>? publishing}) =>
@@ -179,21 +244,78 @@ class AndroidWebDav {
   bool _rejects(Map<String, dynamic> config, int status) => status == 412 || (config['provider'] == 'nutstore' && status == 409);
   bool _same(List<int> a, List<int> b) => a.length == b.length && List.generate(a.length, (i) => a[i] == b[i]).every((v) => v);
 
-  Future<void> _probe(Map<String, dynamic> config, int epoch, List<Map<String, dynamic>> checks) async {
+  Future<bool> _cleanupTestDirectory(Map<String, dynamic> config, String name, int epoch) async {
+    if (!RegExp(r'^\.credpivot-test-[0-9a-f-]{36}$').hasMatch(name)) return false;
+    final scratch = {...config, 'root': Uri.parse(config['root'] as String).resolve('$name/').toString()};
+    final root = Uri.parse(scratch['root'] as String);
+    Future<List<dynamic>?> listing(String path) async {
+      final reply = await _request(scratch, path, epoch, method: 'PROPFIND',
+        headers: {'Depth': '1', 'Content-Type': 'application/xml'},
+        body: utf8.encode('<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>'), limit: 256 * 1024);
+      if (reply.status == 404) return null;
+      if (reply.status != 207 || (reply.headers.value('link') ?? '').toLowerCase().contains('next')) _fail('sync.errors.probeCleanup');
+      return await _channel.invokeListMethod<dynamic>('androidDavParse', reply.body) ?? [];
+    }
+    final rows = await listing('');
+    if (rows == null) return true;
+    const files = {'probe', 'move-a', 'move-b', 'move-target-a', 'move-target-b'};
+    final observed = <String>{};
+    var foundRoot = false;
+    for (final row in rows) {
+      if (row is! Map || row['href'] is! String) return false;
+      if (_sameDirectory(root, row['href'] as String)) {
+        if (row['collection'] != true || foundRoot) return false;
+        foundRoot = true; continue;
+      }
+      final matches = files.where((file) => _sameDirectory(root.resolve(file), row['href'] as String));
+      if (matches.length != 1 || row['collection'] == true || !observed.add(matches.single)) return false;
+    }
+    if (!foundRoot) return false;
+    for (final file in observed) {
+      final deleted = await _request(scratch, file, epoch, method: 'DELETE', limit: 1024);
+      if (![200, 204, 404].contains(deleted.status)) return false;
+    }
+    // DELETE 集合会递归删除；必须再次确认本次随机目录已空，未知内容一律保留。
+    final remaining = await listing('');
+    if (remaining == null) return true;
+    if (remaining.length != 1 || remaining.single is! Map || remaining.single['collection'] != true ||
+        remaining.single['href'] is! String || !_sameDirectory(root, remaining.single['href'] as String)) return false;
+    final deleted = await _request(scratch, '', epoch, method: 'DELETE', limit: 1024);
+    return [200, 204, 404].contains(deleted.status) && await listing('') == null;
+  }
+
+  Future<void> _probe(Map<String, dynamic> configuration, int epoch, List<Map<String, dynamic>> checks) async {
+    var config = configuration;
     _verifiedLocation = null;
     _cleanupDeleteVerified = false;
     void passed(String key, [List<int> statuses = const []]) => checks.add({'key': key, 'passed': true, 'statuses': statuses});
     final base = {...config, 'root': config['server_url']};
-    await _directory(base, '', epoch, create: false);
+    await _directory(base, '', epoch, create: false, directory: 'endpoint');
     var prefix = '';
     for (final part in (config['directory'] as String).split('/').where((s) => s.isNotEmpty)) {
       prefix += '${Uri.encodeComponent(part)}/'; await _directory(base, prefix, epoch);
     }
     passed('directory');
-    final paths = List.generate(5, (_) => '.credpivot-probe-${_nonce()}');
+    final pending = _pendingTestDirectories.putIfAbsent(config['location'] as String, () => <String>{});
+    for (final name in pending.toList().take(8)) {
+      try { if (await _cleanupTestDirectory(configuration, name, epoch)) pending.remove(name); } catch (_) { break; }
+    }
+    if (pending.length >= 32) _fail('sync.errors.probeCleanup');
+    final testDirectory = '.credpivot-test-${_nonce()}';
+    final existing = await _request(config, '$testDirectory/', epoch, method: 'PROPFIND', headers: {'Depth': '0'}, limit: 256 * 1024);
+    if (existing.status != 404) _fail('sync.errors.probeDirectory',
+      details: {'directory': 'test', 'directory_phase': 'read', 'http_status': existing.status});
+    final made = await _request(config, '$testDirectory/', epoch, method: 'MKCOL', limit: 1024);
+    if (made.status != 201) _fail('sync.errors.probeDirectory',
+      details: {'directory': 'test', 'directory_phase': 'create', 'http_status': made.status});
+    pending.add(testDirectory);
+    config = {...config, 'root': Uri.parse(config['root'] as String).resolve('$testDirectory/').toString()};
+    const paths = ['probe', 'move-a', 'move-b', 'move-target-a', 'move-target-b'];
     final first = utf8.encode('credpivot-one-${_nonce()}'), second = utf8.encode('credpivot-two-${_nonce()}');
     var succeeded = false;
     try {
+      await _directory(config, '', epoch, create: false, directory: 'test');
+      passed('testDirectory');
       final created = await _request(config, paths[0], epoch, method: 'PUT', body: first, limit: 1024);
       final old = await _request(config, paths[0], epoch, limit: 1024);
       if (![200, 201, 204].contains(created.status) || old.status != 200 || !_same(old.body, first)) _fail('sync.errors.probeReadback');
@@ -242,22 +364,16 @@ class AndroidWebDav {
       if (moves.where((r) => r.status == 201).length != 1 || !_rejects(config, moves[1 - winner].status) ||
           finalBody.status != 200 || lost.status != 200 || !_same(finalBody.body, winner == 0 ? first : second) || !_same(lost.body, winner == 0 ? second : first) || won.status != 404) { _fail('sync.errors.probeInitialMove'); }
       passed('initialMoveConcurrent', moves.map((r) => r.status).toList());
-      await _directory(config, 'snapshots/', epoch); await _directory(config, 'backups/', epoch);
-      passed('subdirectories');
       succeeded = true;
     } finally {
-      var cleaned = true;
-      for (final path in paths) {
-        if (epoch != _epoch) { cleaned = false; break; }
-        try {
-          final deleted = await _request(config, path, epoch, method: 'DELETE', limit: 1024);
-          final missing = await _request(config, path, epoch, limit: 1024);
-          if (![200, 204, 404].contains(deleted.status) || missing.status != 404) cleaned = false;
-        } catch (_) { cleaned = false; }
+      var cleaned = false;
+      if (epoch == _epoch) {
+        try { cleaned = await _cleanupTestDirectory(configuration, testDirectory, epoch); } catch (_) {}
       }
+      if (cleaned) pending.remove(testDirectory);
       if (succeeded) {
         if (epoch != _epoch) _fail(_cancellationKey);
-        if (!cleaned) _fail('sync.errors.probeCleanup');
+        if (!cleaned) _fail('sync.errors.probeCleanup', details: {'directory': 'test', 'directory_phase': 'cleanup'});
         _verifiedLocation = config['location'] as String;
         passed('cleanup');
       }
@@ -315,6 +431,8 @@ class AndroidWebDav {
     final archive = base64Decode(text);
     if (await _hash(archive) != head['sha256']) _fail('sync.errors.integrity');
     if (_verifiedLocation != config['location']) await _probe(config, epoch, []);
+    await _directory(config, 'snapshots/', epoch, directory: 'snapshots');
+    await _directory(config, 'backups/', epoch, directory: 'backups');
     await _unique(config, _snapshot(head), archive, epoch, publishing: publishing);
     final prior = await _request(config, 'head.json', epoch, publishing: publishing, limit: 64 * 1024);
     final bytes = utf8.encode(jsonEncode(head));
@@ -590,8 +708,18 @@ class AndroidWebDav {
       if (method == 'webdavCleanup') return await _cleanup(config, args, epoch);
       _fail('sync.errors.operation');
     } on PlatformException catch (error) {
-      if (method == 'webdavTest') { throw PlatformException(code: error.code, message: error.message,
-        details: {if (error.details is Map) ...Map<String, dynamic>.from(error.details as Map), 'checks': checks}); }
+      await _logFailure(method, error);
+      if (method == 'webdavTest') {
+        final details = error.details is Map ? Map<String, dynamic>.from(error.details as Map) : <String, dynamic>{};
+        final key = const {'endpoint': 'directoryEndpoint', 'target': 'directoryTarget',
+          'snapshots': 'snapshotDirectory', 'backups': 'backupDirectory', 'test': 'testDirectory'}[details['directory']];
+        if (key != null) checks.add({'key': key, 'passed': false, 'failed': true,
+          'statuses': [if (details['http_status'] is int) details['http_status']]});
+        throw PlatformException(code: error.code, message: error.message, details: {...details, 'checks': checks});
+      }
+      rethrow;
+    } catch (error) {
+      await _logFailure(method, error);
       rethrow;
     } finally { _bootstrapRead = false; _busy = false; }
   }

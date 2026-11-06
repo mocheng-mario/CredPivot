@@ -7,6 +7,8 @@
     <string name="authentication_busy">已有身份验证正在进行</string>
     <string name="authentication_failed">验证失败，请使用主密码重试</string>
     <string name="authentication_password_wrong">主密码不正确，请重新输入</string>
+    <string name="authentication_biometric_unavailable">设备没有可用的生物识别，请使用主密码；如需启用指纹，请先在系统中设置。</string>
+    <string name="webdav_response_invalid">WebDAV 目录响应解析失败，请检查服务端返回的 XML 内容。</string>
     <string name="passkey_preparing">正在检查请求来源。首次使用原生应用时，需要联网验证网站的应用关联。</string>
     <string name="autofill_submitted_account">本次保存的账号：%1$s</string>
     <string name="autofill_otp_length">验证码位数与页面输入格数不同，请选择对应的 MFA 记录。</string>

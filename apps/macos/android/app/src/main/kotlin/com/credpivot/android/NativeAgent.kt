@@ -13,6 +13,7 @@ internal object NativeAgent {
     external fun start(): Int
     external fun stop(): Int
     external fun isRunning(): Int
+    external fun webDavError(operation: Int, phase: Int, directory: Int, status: Int, reason: Int)
     private external fun request(body: ByteArray): ByteArray?
 
     /** 三个原生页面共用 Agent；窗口切换时，旧队列不能锁定或操作新会话。 */

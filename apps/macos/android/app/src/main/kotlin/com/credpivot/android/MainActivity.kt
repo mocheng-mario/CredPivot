@@ -72,7 +72,7 @@ class MainActivity : FlutterActivity() {
 
     private fun failure(result: MethodChannel.Result, error: Exception) {
         if (error is AgentFailure) result.error(error.code, error.message, error.details)
-        else result.error("operation_failed", "操作失败，请重试；生物识别不可用时请使用主密码", null)
+        else result.error("operation_failed", "操作失败，请重试", null)
     }
 
     private fun status(): JSONObject = NativeAgent.call("status").apply {
@@ -183,7 +183,24 @@ class MainActivity : FlutterActivity() {
                 else try { secure.write(name, bytes) } finally { bytes.fill(0) }
                 null
             }
-            call.method == "androidDavParse" -> work(result) { AndroidDavXml.parse(call.arguments as ByteArray) }
+            call.method == "androidWebDavError" -> work(result) {
+                val fields = call.arguments as Map<*, *>
+                NativeAgent.webDavError(
+                    (fields["operation"] as? Number)?.toInt() ?: 0,
+                    (fields["phase"] as? Number)?.toInt() ?: 0,
+                    (fields["directory"] as? Number)?.toInt() ?: 0,
+                    (fields["status"] as? Number)?.toInt() ?: 0,
+                    (fields["reason"] as? Number)?.toInt() ?: 0,
+                )
+                null
+            }
+            call.method == "androidDavParse" -> work(result) {
+                try { AndroidDavXml.parse(call.arguments as ByteArray) }
+                catch (error: AgentFailure) { throw error }
+                catch (_: Exception) {
+                    throw AgentFailure("sync.errors.directory", AndroidStrings(this).get(R.string.webdav_response_invalid))
+                }
+            }
             call.method == "androidSha256" -> work(result) {
                 java.security.MessageDigest.getInstance("SHA-256").digest(call.arguments as ByteArray)
                     .joinToString("") { "%02x".format(it) }

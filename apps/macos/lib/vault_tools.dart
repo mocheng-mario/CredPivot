@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'agent_bridge.dart';
 import 'touch_id_gate.dart';
 import 'app_ui.dart';
@@ -9,6 +10,7 @@ import 'credentials_page.dart' show showLoginEditor;
 import 'server_login_page.dart' show showServerProfileEditor;
 import 'credential_confirm.dart';
 import 'credential_group_ui.dart';
+import 'credential_list_tile.dart';
 import 'ssh_git_ui.dart';
 
 Future<Map<String, dynamic>> vaultAction(
@@ -672,13 +674,35 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
   }[kind] ?? 'credentials.trash.other');
 
   @override
-  Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+  Widget build(BuildContext context) {
+    final mobile = defaultTargetPlatform == TargetPlatform.android;
+    final search = TextField(
+      decoration: InputDecoration(
+        isDense: mobile,
+        hintText: mobile ? tr('vaultTools.build.text.item35') : null,
+        prefixIcon: mobile ? const Icon(Icons.search_rounded) : null,
+      ),
+      onChanged: (v) => query = v,
+      onSubmitted: (_) => load(),
+    );
+    return CredentialPanel(
+      desktopPadding: const EdgeInsets.all(24),
+      header: [
         AppSectionHeader(
+          compact: mobile,
           title: tr(widget.trashOnly ? 'credentials.trash.title' : 'credentials.tools.title'),
           subtitle: tr(widget.trashOnly ? 'credentials.trash.description' : 'vaultTools.build.description'),
           action: Wrap(spacing: 8, runSpacing: 8, children: [
+            if (mobile) ...[
+              IconButton(
+                tooltip: tr('common.loadRefresh'),
+                onPressed: _working ? null : load,
+                icon: const Icon(Icons.refresh)),
+              if (!widget.trashOnly) IconButton.filled(
+                tooltip: tr('vaultTools.build.text.item31'),
+                onPressed: _working ? null : note,
+                icon: const Icon(Icons.note_add_outlined)),
+            ] else ...[
             OutlinedButton.icon(
                 onPressed: _working ? null : load,
                 icon: const Icon(Icons.refresh),
@@ -687,6 +711,7 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
                 onPressed: _working ? null : note,
                 icon: const Icon(Icons.note_add_outlined),
                 label: const LText('vaultTools.build.text.item31')),
+            ],
           ]),
         ),
         if (!widget.trashOnly) Wrap(spacing: 8, runSpacing: 8, children: [
@@ -707,12 +732,7 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
         const SizedBox(height: 12),
         if (mode == 'items')
           Row(children: [
-            Expanded(
-                child: AppFieldRow(label: tr('vaultTools.build.text.item35'), child: TextField(
-                    decoration:
-                        InputDecoration(),
-                    onChanged: (v) => query = v,
-                    onSubmitted: (_) => load()))),
+            Expanded(child: mobile ? search : AppFieldRow(label: tr('vaultTools.build.text.item35'), child: search)),
             const SizedBox(width: 12),
             FilterChip(
                 label: const LText('vaultTools.build.text.item36'),
@@ -725,8 +745,8 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
           onChanged: (value) => setState(() => filterGroupId = value),
           onManage: () async { await showManageGroupsDialog(context, 'shared'); if (mounted) await load(); }),
         if (_working) const LinearProgressIndicator(),
-        Expanded(
-            child: ListView(children: [
+      ],
+      body: ListView(children: [
           if (visibleItems.isEmpty && !_working)
             Padding(
                 padding: EdgeInsets.all(24),
@@ -734,7 +754,7 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
           for (final row in visibleItems)
             Card(
                 child: ListTile(
-                    title: Text(row['title']?.toString() ?? ''),
+                    title: Text(row['title']?.toString() ?? '', maxLines: mobile ? 2 : null, overflow: mobile ? TextOverflow.ellipsis : null),
                     subtitle: LText(mode == 'trash'
                         ? [
                             if ((row['account']?.toString() ?? '').isNotEmpty) row['account'],
@@ -763,7 +783,16 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
                             if (mounted) load();
                           },
                     trailing: mode == 'trash'
-                        ? Wrap(children: [
+                        ? mobile
+                            ? PopupMenuButton<bool>(
+                                enabled: !_working,
+                                onSelected: (purge) => trashChange(row, purge),
+                                itemBuilder: (_) => const [
+                                  PopupMenuItem(value: false, child: LText('common.restore')),
+                                  PopupMenuItem(value: true, child: LText('common.permanentlyDelete')),
+                                ],
+                              )
+                            : Wrap(children: [
                             TextButton(
                                 onPressed:
                                     _working ? null : () => trashChange(row, false),
@@ -814,8 +843,9 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
                                         }
                                       })
                           ])))
-        ])),
-      ]));
+      ]),
+    );
+  }
 }
 
 Future<void> manageRecoveryEntries(

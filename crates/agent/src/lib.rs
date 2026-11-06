@@ -11,6 +11,7 @@ mod runtime;
 mod session_guard;
 mod single_writer;
 mod ssh_agent;
+#[cfg(not(target_os = "android"))]
 pub mod git_ssh;
 mod ssh_session;
 mod vault_session;

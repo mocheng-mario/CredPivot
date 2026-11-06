@@ -289,7 +289,28 @@ class _AndroidHomeState extends State<_AndroidHome> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('CredPivot'), actions: [
+    appBar: AppBar(
+      title: unlocked && page == 0
+          ? ListenableBuilder(listenable: partitions, builder: (context, _) => DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                isExpanded: true,
+                value: partitions.items.any((p) => p['id'] == AgentBridge.activePartitionId) ? AgentBridge.activePartitionId : null,
+                hint: const LText('android.partitions.select'),
+                items: partitions.items.map((p) => DropdownMenuItem(
+                  value: p['id'].toString(),
+                  child: Text(p['name'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
+                )).toList(),
+                onChanged: busy ? null : (value) { if (value != null) setState(() { AgentBridge.activePartitionId = value; }); },
+              )))
+          : const Text('CredPivot'),
+      actions: [
+      if (unlocked && page == 0) IconButton(
+        tooltip: tr('android.partitions.manage'),
+        icon: const Icon(Icons.folder_outlined),
+        onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => Scaffold(
+          appBar: AppBar(title: const LText('android.partitions.manage')),
+          body: const SafeArea(child: PartitionManagementPage()),
+        )))),
       if (unlocked) IconButton(tooltip: tr('android.vault.lock'), icon: const Icon(Icons.lock_outline), onPressed: () async {
         notifyVaultLocked(); await AgentBridge.lockVault();
       }),
@@ -301,16 +322,6 @@ class _AndroidHomeState extends State<_AndroidHome> {
           onSkip: () => setState(() => skippedSetup = true))),
       ])) : !unlocked ? _unlockView() : Column(children: [
       if (message.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: AppNotice(message)),
-      if (page == 0) ListenableBuilder(listenable: partitions, builder: (context, _) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16), child: Row(children: [
-          Expanded(child: DropdownButton<String>(isExpanded: true,
-            value: partitions.items.any((p) => p['id'] == AgentBridge.activePartitionId) ? AgentBridge.activePartitionId : null,
-            hint: const LText('android.partitions.select'),
-            items: partitions.items.map((p) => DropdownMenuItem(value: p['id'].toString(), child: Text(p['name'].toString()))).toList(),
-            onChanged: busy ? null : (value) { if (value != null) setState(() { AgentBridge.activePartitionId = value; }); })),
-          IconButton(tooltip: tr('android.partitions.manage'), icon: const Icon(Icons.folder_outlined), onPressed: () => Navigator.push(context,
-            MaterialPageRoute<void>(builder: (_) => Scaffold(appBar: AppBar(title: const LText('android.partitions.manage')), body: const SafeArea(child: PartitionManagementPage()))))),
-        ]))),
       Expanded(child: switch (page) {
         0 => CredentialsTab(key: ValueKey(AgentBridge.activePartitionId), unlocked: true, mobile: true),
         1 => const WebDavSyncPage(),
@@ -318,7 +329,7 @@ class _AndroidHomeState extends State<_AndroidHome> {
         _ => const _AndroidSettings(),
       }),
     ])),
-    bottomNavigationBar: unlocked ? NavigationBar(selectedIndex: page, onDestinationSelected: busy ? null : (value) => setState(() => page = value),
+    bottomNavigationBar: unlocked ? NavigationBar(height: 64, selectedIndex: page, onDestinationSelected: busy ? null : (value) => setState(() => page = value),
       destinations: [NavigationDestination(icon: const Icon(Icons.key_outlined), label: tr('android.navigation.credentials')),
         NavigationDestination(icon: const Icon(Icons.sync), label: tr('android.navigation.sync')),
         NavigationDestination(icon: const Icon(Icons.inventory_2_outlined), label: tr('android.navigation.vault')),

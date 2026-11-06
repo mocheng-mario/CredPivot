@@ -1,11 +1,19 @@
+#[cfg(not(target_os = "android"))]
 use crate::error::{AgentError, Result};
+#[cfg(target_os = "macos")]
 use crate::paths::{
     materialized_askpass_digest_path, materialized_askpass_path, materialized_native_host_path,
 };
+#[cfg(target_os = "macos")]
 use sha2::{Digest, Sha256};
+#[cfg(target_os = "macos")]
 use std::fs;
+#[cfg(target_os = "macos")]
 use std::io::Read;
-use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "android"))]
+use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::path::PathBuf;
 
 /// M0 peer checks for Unix socket clients.
 #[derive(Debug, Clone)]
@@ -28,12 +36,14 @@ impl Default for PeerAuthConfig {
 }
 
 /// 对端是否为 Chrome Native Messaging 的 host 进程（非 App 内嵌 Agent）。
+#[cfg(not(target_os = "android"))]
 pub fn peer_is_native_host_executable(path: &Path, cfg: &PeerAuthConfig) -> bool {
     path.file_name()
         .and_then(|n| n.to_str())
         == Some(cfg.expected_host_binary_name.as_str())
 }
 
+#[cfg(not(target_os = "android"))]
 pub fn peer_is_askpass_executable(path: &Path) -> bool {
     path.file_name()
         .and_then(|n| n.to_str())
@@ -41,6 +51,7 @@ pub fn peer_is_askpass_executable(path: &Path) -> bool {
 }
 
 /// Git 的仓库上下文只接受 App 分发的适配程序，不能让任意进程伪造选择弹窗。
+#[cfg(not(target_os = "android"))]
 pub(crate) fn authorize_git_ssh_peer(pid: u32) -> Result<()> {
     #[cfg(target_os="macos")]
     {
@@ -58,6 +69,7 @@ pub(crate) fn authorize_git_ssh_peer(pid: u32) -> Result<()> {
     { let _=pid; Err(AgentError::PeerDenied("Git SSH integration requires macOS".into())) }
 }
 
+#[cfg(not(target_os = "android"))]
 pub fn authorize_peer(pid: u32, cfg: &PeerAuthConfig) -> Result<()> {
     // Release 不接受环境变量或调用方构造配置绕过这道身份边界。
     if cfg!(debug_assertions) && cfg.dev_skip_peer_check {

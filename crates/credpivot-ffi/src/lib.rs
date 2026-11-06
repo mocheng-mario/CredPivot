@@ -30,6 +30,11 @@ pub extern "C" fn credpivot_browser_auth_event(stage: u32, elapsed_ms: u64) {
     credpivot_agent::diagnostics::browser_auth_event(event, elapsed_ms);
 }
 
+#[no_mangle]
+pub extern "C" fn credpivot_webdav_error(operation: u32, phase: u32, directory: u32, status: u32, reason: u32) {
+    credpivot_agent::diagnostics::webdav_error(operation, phase, directory, status, reason);
+}
+
 fn with_state<F, T>(f: F) -> Result<T, String>
 where
     F: FnOnce(&mut FfiState) -> Result<T, String>,
