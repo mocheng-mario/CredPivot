@@ -160,6 +160,11 @@ pub extern "C" fn credpivot_string_free(ptr: *mut c_char) {
         return;
     }
     unsafe {
-        let _ = CString::from_raw(ptr);
+        // from_raw 需要原始 NUL 位置；不能在 C/JNI 侧先清空字符串。
+        let mut bytes = CString::from_raw(ptr).into_bytes_with_nul();
+        for byte in &mut bytes {
+            std::ptr::write_volatile(byte, 0);
+        }
+        std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
     }
 }

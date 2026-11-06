@@ -5,10 +5,42 @@ export 'app_presentation.dart';
 // 表单内容约占窗口一半；小窗口保证可读，大窗口避免单行过长。
 double appEditDialogWidth(BuildContext context) {
   final width = MediaQuery.sizeOf(context).width;
+  if (Theme.of(context).platform == TargetPlatform.android) return (width - 40).clamp(0.0, double.infinity).toDouble();
   if (width < 600) return (width - 80).clamp(0.0, double.infinity).toDouble();
   final desired = (width * .5).clamp(640.0, 860.0);
   final available = (width - 128).clamp(0.0, double.infinity);
   return desired.clamp(0.0, available).toDouble();
+}
+
+/// 长表单在 Android 使用完整页面；桌面继续使用原来的弹窗。
+class AppEditDialog extends StatelessWidget {
+  const AppEditDialog({super.key, required this.title, required this.content, required this.actions});
+  final Widget title;
+  final Widget content;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    if (Theme.of(context).platform != TargetPlatform.android) {
+      return AlertDialog(title: title, content: content, actions: actions);
+    }
+    return Dialog.fullscreen(child: Scaffold(
+      resizeToAvoidBottomInset: true,
+      body: SafeArea(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+          child: DefaultTextStyle(style: Theme.of(context).textTheme.titleLarge!, child: title)),
+        const Divider(height: 1),
+        Expanded(child: SingleChildScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          child: content)),
+        const Divider(height: 1),
+        // 按钮留在键盘上方，用户不必滚到长表单的末尾才能保存或取消。
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          child: OverflowBar(spacing: 12, overflowSpacing: 8, alignment: MainAxisAlignment.end, children: actions)),
+      ])),
+    ));
+  }
 }
 
 List<Widget> appFormFields(List<Widget> fields) => [
@@ -33,7 +65,7 @@ class AppFieldRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final help = this.help;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16),
+      padding: EdgeInsets.symmetric(vertical: Theme.of(context).platform == TargetPlatform.android ? 12 : 16),
       child: LayoutBuilder(builder: (context, constraints) {
         final title = Row(children: [
           Expanded(child: Text('$label：',

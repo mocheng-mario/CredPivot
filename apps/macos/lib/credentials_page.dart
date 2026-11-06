@@ -115,7 +115,7 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
       builder: (ctx) {
         dialogRoute ??= ModalRoute.of<bool>(ctx);
         return StatefulBuilder(
-        builder: (ctx, setLocal) => PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(ctx); }, child: AlertDialog(
+        builder: (ctx, setLocal) => PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(ctx); }, child: AppEditDialog(
         title: LText(isEdit ? tr('credentials.cancel.text') : tr('credentials.cancel.text.item2')),
         content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(
           child: Column(

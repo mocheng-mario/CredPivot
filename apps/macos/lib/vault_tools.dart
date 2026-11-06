@@ -394,12 +394,12 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(); }, child: AlertDialog(
+  Widget build(BuildContext context) => PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(); }, child: AppEditDialog(
           title: LText(
               'credentials.details.title', args: {'title': widget.row['title'] ?? widget.row['display_name'] ?? ''}),
           content: SizedBox(
               width: appEditDialogWidth(context),
-              height: MediaQuery.sizeOf(context).height * .6,
+              height: Theme.of(context).platform == TargetPlatform.android ? null : MediaQuery.sizeOf(context).height * .6,
               child: AbsorbPointer(absorbing: busy, child: SingleChildScrollView(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1356,7 +1356,7 @@ class _PasswordGeneratorDialogState extends State<_PasswordGeneratorDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => AppEditDialog(
           title: const LText('vaultTools.build.text.item60'),
           content: SizedBox(
               width: appEditDialogWidth(context),
@@ -1584,7 +1584,7 @@ Future<bool> showNoteEditor(BuildContext context) async {
   try {
     final ok = await showDialog<bool>(context: context, builder: (ctx) {
       route = ModalRoute.of<bool>(ctx);
-      return PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(ctx); }, child: StatefulBuilder(builder: (ctx, setLocal) => AlertDialog(
+      return PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(ctx); }, child: StatefulBuilder(builder: (ctx, setLocal) => AppEditDialog(
         title: const LText('vaultTools.build.text.item31'),
         content: SizedBox(width: appEditDialogWidth(ctx), child: AbsorbPointer(absorbing: saving, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([
           AppFieldRow(label: tr('common.title'), child: TextField(controller: title, decoration: InputDecoration())),
@@ -1675,7 +1675,7 @@ Future<bool> showRecoveryCodesEditor(BuildContext context) async {
   try {
     return await showDraftDialog<bool>(context: context,
       hasChanges: () => service.text.isNotEmpty || codes.text.isNotEmpty, isBusy: () => busy,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
+      builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AppEditDialog(
         title: const LText('vaultTools.showRecoveryCodesEditor.text'),
         content: SizedBox(width: appEditDialogWidth(ctx), child: AbsorbPointer(absorbing: busy, child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: appFormFields([

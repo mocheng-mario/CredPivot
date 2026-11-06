@@ -162,7 +162,7 @@ class _BootstrapDialogState extends State<_BootstrapDialog> {
     final counts = preview['counts'] as Map? ?? {};
     const kinds = {'login': 'login', 'totp': 'mfa', 'ssh': 'ssh', 'ssh_key': 'ssh', 'server_login': 'server', 'passkey': 'passkey',
       'recovery_codes': 'recovery', 'secure_note': 'note', 'trash': 'trash'};
-    return PopScope(canPop: !opening && !busy && !cancelling, child: AlertDialog(
+    return PopScope(canPop: !opening && !busy && !cancelling, child: AppEditDialog(
       title: LText(opened ? 'sync.bootstrap.opened' : 'sync.bootstrap.title'),
       content: SizedBox(width: appEditDialogWidth(context), child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch, children: [

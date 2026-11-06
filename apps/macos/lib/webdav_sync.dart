@@ -650,7 +650,7 @@ class WebDavSyncPage extends StatelessWidget {
                   .entries
                   .any((entry) => entry.value != initial[entry.key]),
           builder: (ctx) => StatefulBuilder(
-              builder: (ctx, setLocal) => AlertDialog(
+              builder: (ctx, setLocal) => AppEditDialog(
                     title: LText(bootstrap ? 'sync.bootstrap.configure' : 'sync.configure.title'),
                     content: SizedBox(
                         width: appEditDialogWidth(ctx),
@@ -1032,7 +1032,7 @@ class WebDavSyncPage extends StatelessWidget {
           context: context,
           hasChanges: () => strategy != null || password.text.isNotEmpty,
           builder: (ctx) => StatefulBuilder(
-              builder: (ctx, setLocal) => AlertDialog(
+              builder: (ctx, setLocal) => AppEditDialog(
                     title: const LText('sync.initial.title'),
                     content: SizedBox(
                         width: appEditDialogWidth(ctx),

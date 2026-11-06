@@ -137,7 +137,7 @@ class _TotpEditorState extends State<_TotpEditor> {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(); }, child: AlertDialog(
+  Widget build(BuildContext context) => PopScope(canPop: false, onPopInvokedWithResult: (didPop, _) { if (!didPop) cancel(); }, child: AppEditDialog(
     title: LText(widget.existing == null ? tr('mfa.build.text') : tr('mfa.build.text.item2')),
     content: SizedBox(width: appEditDialogWidth(context), child: SingleChildScrollView(child: Column(
       mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: appFormFields([

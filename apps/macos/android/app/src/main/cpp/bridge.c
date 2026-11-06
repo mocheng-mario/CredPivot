@@ -66,8 +66,7 @@ JNIEXPORT jbyteArray JNICALL Java_com_credpivot_android_NativeAgent_request(
     while (response[length]) length++;
     jbyteArray result = (*env)->NewByteArray(env, (jsize)length);
     if (result) (*env)->SetByteArrayRegion(env, result, 0, (jsize)length, (jbyte *)response);
-    wipe = response;
-    for (size_t i = 0; i < length; i++) wipe[i] = 0;
+    // Rust 必须先按原始字符串长度接回所有权，再清零并释放。
     credpivot_string_free(response);
     return result;
 }

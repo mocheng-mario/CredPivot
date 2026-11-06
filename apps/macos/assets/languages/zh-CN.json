@@ -5,6 +5,246 @@
   "name": "简体中文",
   "source_locale": "zh-CN",
   "messages": {
+    "android.integration.manualTitle": {
+      "source": "手动管理系统凭据服务",
+      "translation": "手动管理系统凭据服务",
+      "description": "Android system settings compatibility and status.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.integration.openSettings": {
+      "source": "打开系统设置",
+      "translation": "打开系统设置",
+      "description": "Android system settings compatibility and status.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.integration.statusUnknown": {
+      "source": "系统未返回状态，请在系统设置中确认",
+      "translation": "系统未返回状态，请在系统设置中确认",
+      "description": "Android system settings compatibility and status.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.integration.providerStatus": {
+      "source": "CredPivot 提供方状态：{status}",
+      "translation": "CredPivot 提供方状态：{status}",
+      "description": "Android system settings compatibility and status.",
+      "placeholders": {
+        "status": "Text"
+      },
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.integration.autofillManual": {
+      "source": "当前系统没有可用的直达入口，或 CredPivot 已启用。请打开系统设置，搜索“自动填充”，选择或管理 CredPivot。ColorOS 不同版本的菜单名称可能不同。若在 Chrome 中使用，还需检查 Chrome 的自动填充服务设置是否选择“使用其他服务”。",
+      "translation": "当前系统没有可用的直达入口，或 CredPivot 已启用。请打开系统设置，搜索“自动填充”，选择或管理 CredPivot。ColorOS 不同版本的菜单名称可能不同。若在 Chrome 中使用，还需检查 Chrome 的自动填充服务设置是否选择“使用其他服务”。",
+      "description": "Android system settings compatibility and status.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.integration.providerManual": {
+      "source": "系统未提供可用的凭据设置直达入口。请打开系统设置，搜索“密码”“通行密钥”或“自动填充”，在密码与账号服务列表中启用 CredPivot。ColorOS 不同版本的菜单名称可能不同。",
+      "translation": "系统未提供可用的凭据设置直达入口。请打开系统设置，搜索“密码”“通行密钥”或“自动填充”，在密码与账号服务列表中启用 CredPivot。ColorOS 不同版本的菜单名称可能不同。",
+      "description": "Android system settings compatibility and status.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.category.all": {
+      "source": "全部",
+      "translation": "全部",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.category.integration": {
+      "source": "系统接入",
+      "translation": "系统接入",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.category.backup": {
+      "source": "备份保留",
+      "translation": "备份保留",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.category.passwords": {
+      "source": "密码策略",
+      "translation": "密码策略",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.search": {
+      "source": "搜索设置名称或关键词",
+      "translation": "搜索设置名称或关键词",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.clearSearch": {
+      "source": "清空搜索",
+      "translation": "清空搜索",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.settings.noResults": {
+      "source": "没有匹配的设置，请更换关键词或分类。",
+      "translation": "没有匹配的设置，请更换关键词或分类。",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.failed": {
+      "source": "备份操作失败",
+      "translation": "备份操作失败",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.failureDetail": {
+      "source": "操作：{operation}\n阶段：{stage}\n\n{detail}",
+      "translation": "操作：{operation}\n阶段：{stage}\n\n{detail}",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {
+        "operation": "Text",
+        "stage": "Text",
+        "detail": "Text"
+      },
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.stage.prepare": {
+      "source": "正在准备",
+      "translation": "正在准备",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.stage.chooseFile": {
+      "source": "请选择备份文件，正在读取文件",
+      "translation": "请选择备份文件，正在读取文件",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.stage.choosePoint": {
+      "source": "正在读取恢复点，请选择需要恢复的版本",
+      "translation": "正在读取恢复点，请选择需要恢复的版本",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.stage.password": {
+      "source": "请输入备份主密码",
+      "translation": "请输入备份主密码",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.stage.authorize": {
+      "source": "请完成身份验证与确认",
+      "translation": "请完成身份验证与确认",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.stage.verify": {
+      "source": "正在校验主密码",
+      "translation": "正在校验主密码",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.stage.encrypt": {
+      "source": "正在生成加密备份",
+      "translation": "正在生成加密备份",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.stage.save": {
+      "source": "请选择保存位置，正在写入文件",
+      "translation": "请选择保存位置，正在写入文件",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.stage.recover": {
+      "source": "正在校验并解密备份",
+      "translation": "正在校验并解密备份",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.backup.stage.open": {
+      "source": "正在切换并解锁恢复后的保险库",
+      "translation": "正在切换并解锁恢复后的保险库",
+      "description": "Android settings and backup feedback.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "sync.errors.probeJournal": {
+      "source": "无法读写本机 WebDAV 测试清理记录，请检查存储空间后重试。远端临时目录将在后续连接检查时尝试清理。",
+      "translation": "无法读写本机 WebDAV 测试清理记录，请检查存储空间后重试。远端临时目录将在后续连接检查时尝试清理。",
+      "description": "Android WebDAV cleanup journal.",
+      "placeholders": {},
+      "locations": [
+        "android_webdav.dart"
+      ]
+    },
     "agent.authenticateTouchId.reason": {
       "source": "CredPivot 需要验证您的身份",
       "translation": "CredPivot 需要验证您的身份",

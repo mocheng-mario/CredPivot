@@ -44,7 +44,7 @@ Future<bool> _editGroup(BuildContext context, String scope, String partition, {M
   try {
     return await showDraftDialog<bool>(context: context,
       hasChanges: () => controller.text != (group?['name'] ?? '') || selectedScope != originalScope, isBusy: () => busy,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
+      builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AppEditDialog(
         title: LText(group == null ? 'groups.showManageGroupsDialog.text.item3' : 'groups.edit'),
         content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch, children: appFormFields([
@@ -153,7 +153,7 @@ Future<void> showMoveItemToGroupDialog(
   var busy = false;
   var error = '';
   await showDraftDialog<void>(context: context, hasChanges: () => selected != initial, isBusy: () => busy,
-    builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
+    builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AppEditDialog(
       title: const LText('credentials.build.text.item20'),
       content: SizedBox(width: appEditDialogWidth(ctx), child: Column(mainAxisSize: MainAxisSize.min, children: [
         AppFieldRow(label: tr('groups.showMoveItemToGroupDialog.text'), child: DropdownButtonFormField<String?>(isExpanded: true, value: selected,

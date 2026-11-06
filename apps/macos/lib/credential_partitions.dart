@@ -76,7 +76,7 @@ class _PartitionManagementPageState extends State<PartitionManagementPage> {
     try {
       await showDraftDialog<void>(context: context,
         hasChanges: () => controller.text != (row?['name']?.toString() ?? ''), isBusy: () => saving,
-        builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AlertDialog(
+        builder: (ctx) => StatefulBuilder(builder: (ctx, update) => AppEditDialog(
           title: LText(row == null ? 'partitions.create' : 'partitions.rename'),
           content: SizedBox(width: appEditDialogWidth(ctx), child: Column(mainAxisSize: MainAxisSize.min, children: [
             AppFieldRow(label: tr('common.name'), child: TextField(controller: controller, autofocus: true, enabled: !saving,

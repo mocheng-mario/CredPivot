@@ -2,6 +2,8 @@ package com.credpivot.android
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Intent
 import android.app.AlertDialog
 import android.net.Uri
@@ -12,6 +14,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PersistableBundle
 import android.view.WindowManager
+import androidx.credentials.CredentialManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -206,23 +209,41 @@ class MainActivity : FlutterActivity() {
                     .joinToString("") { "%02x".format(it) }
             }
             call.method == "scanQrImage" -> scanQrImage(result)
-            call.method == "androidAutofillStatus" -> result.success(getSystemService(AutofillManager::class.java)?.hasEnabledAutofillServices() == true)
+            call.method == "androidAutofillStatus" -> result.success(runCatching {
+                getSystemService(AutofillManager::class.java)?.hasEnabledAutofillServices()
+            }.getOrNull())
             call.method == "androidAutofillEnable" -> {
                 try {
+                    val manager = getSystemService(AutofillManager::class.java)
+                    if (manager == null || !manager.isAutofillSupported || manager.hasEnabledAutofillServices()) {
+                        result.success("manual"); return
+                    }
                     startActivity(Intent(android.provider.Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE, Uri.parse("package:$packageName")))
-                    result.success(null)
-                } catch (_: Exception) { result.error("autofill_settings", "无法打开系统自动填充设置", null) }
+                    result.success("opened")
+                } catch (_: Exception) { result.success("manual") }
             }
             call.method == "androidPasskeySupported" -> result.success(android.os.Build.VERSION.SDK_INT >= 34)
+            call.method == "androidPasskeyStatus" -> {
+                if (android.os.Build.VERSION.SDK_INT < 34) { result.success(null); return }
+                // 部分系统的状态接口会抛异常；未知状态不能误报为“未启用”。
+                result.success(runCatching {
+                    getSystemService(android.credentials.CredentialManager::class.java)
+                        ?.isEnabledCredentialProviderService(ComponentName(this, CredPivotCredentialService::class.java))
+                }.getOrNull())
+            }
             call.method == "androidPasskeyEnable" -> {
                 if (android.os.Build.VERSION.SDK_INT < 34) { result.error("unsupported", "系统通行密钥提供方需要 Android 14 或更新版本", null); return }
                 try {
-                    startActivity(Intent("android.settings.CREDENTIAL_PROVIDER", Uri.parse("package:$packageName")))
+                    // 使用官方入口，避免假定 ColorOS 等系统的设置 Activity 路径。
+                    CredentialManager.create(this).createSettingsPendingIntent().send()
+                    result.success("opened")
+                } catch (_: Exception) { result.success("manual") }
+            }
+            call.method == "androidSystemSettings" -> {
+                try {
+                    startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
                     result.success(null)
-                } catch (_: Exception) {
-                    try { startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)); result.success(null) }
-                    catch (_: Exception) { result.error("settings", "请在系统设置中启用 CredPivot 通行密钥提供方", null) }
-                }
+                } catch (_: Exception) { result.error("settings", "无法打开系统设置，请手动打开设置并搜索自动填充、密码或通行密钥", null) }
             }
             else -> result.notImplemented()
         }
@@ -240,10 +261,18 @@ class MainActivity : FlutterActivity() {
         return file
     }
 
-    private fun pickDocument(intent: Intent, result: MethodChannel.Result) {
+    private fun pickDocument(intent: Intent, result: MethodChannel.Result, fallback: Intent? = null) {
         if (documentResult != null) { result.error("busy", "文件选择尚未完成", null); return }
         documentResult = result
-        try { startActivityForResult(intent, 100) }
+        try {
+            try { startActivityForResult(intent, 100) }
+            catch (error: Exception) {
+                // 个别系统未提供或限制 Photo Picker 时，回退到按文件授权的选择器。
+                // 只在启动失败时回退，用户取消后不能再次自动弹出选择器。
+                if (fallback == null || (error !is ActivityNotFoundException && error !is SecurityException)) throw error
+                startActivityForResult(fallback, 100)
+            }
+        }
         catch (error: Exception) {
             documentResult = null; documentSource = null; qrImage = false
             cameraImage?.delete(); cameraImage = null
@@ -256,10 +285,15 @@ class MainActivity : FlutterActivity() {
         AlertDialog.Builder(this).setTitle("导入 MFA 二维码")
             .setItems(arrayOf("从图片选择", "拍照识别")) { _, selected ->
                 qrImage = true
-                if (selected == 0) pickDocument(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE); type = "image/*"
-                }, result)
-                else {
+                if (selected == 0) {
+                    val document = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE); type = "image/*"
+                    }
+                    if (android.os.Build.VERSION.SDK_INT >= 33) {
+                        // 系统只交付这一次选中的图片；不申请相册、视频或音频读取权限。
+                        pickDocument(Intent(MediaStore.ACTION_PICK_IMAGES).apply { type = "image/*" }, result, document)
+                    } else pickDocument(document, result)
+                } else {
                     val file = File(cacheDir, "qr-camera-${UUID.randomUUID()}.jpg").apply { createNewFile() }
                     cameraImage = file
                     val uri = Uri.parse("content://$packageName.qr-image/${file.name}")

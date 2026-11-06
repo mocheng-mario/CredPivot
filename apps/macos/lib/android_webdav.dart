@@ -23,18 +23,62 @@ class AndroidWebDav {
   final _historyReferences = <String, _DavHistory>{};
   bool _cleanupDeleteVerified = false;
   final _pendingTestDirectories = <String, Set<String>>{};
+  File? _probeJournal;
   final _retryAfter = <String, DateTime>{};
 
   String _nonce() {
     final bytes = List.generate(16, (_) => _random.nextInt(256));
     bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
     final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-    // 沿用桌面探针的 UUID 命名，失败遗留文件仍能被既有清理策略识别。
+    // 随机测试目录只通过本机清理清单回收，不扫描或删除他人目录。
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
   }
   Never _fail(String key, {Map<String, dynamic>? details}) => throw PlatformException(code: key, message: tr(key), details: details);
   Future<Map<String, dynamic>> _agent(Map<String, dynamic> request) async => AgentBridge.payloadOf(await AgentBridge.request(request));
   Future<String> _hash(List<int> data) async => (await _channel.invokeMethod<String>('androidSha256', Uint8List.fromList(data)))!;
+
+  Future<void> _loadProbeJournal() async {
+    if (_probeJournal != null) return;
+    try {
+      final paths = await _channel.invokeMapMethod<String, dynamic>('androidPaths');
+      final home = paths?['home'];
+      if (home is! String || home.isEmpty) throw const FormatException();
+      final file = File('$home/.credpivot/webdav-probes.json');
+      final loaded = <String, Set<String>>{};
+      if (await file.exists()) {
+        if (await file.length() > 512 * 1024) throw const FormatException();
+        final data = jsonDecode(await file.readAsString());
+        if (data is! Map || data['version'] != 1 || data['pending'] is! Map) throw const FormatException();
+        for (final entry in (data['pending'] as Map).entries) {
+          if (entry.key is! String || !RegExp(r'^[0-9a-f]{64}$').hasMatch(entry.key as String) || entry.value is! List) throw const FormatException();
+          final names = <String>{};
+          for (final name in entry.value as List) {
+            if (name is! String || !RegExp(r'^\.credpivot-test-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$').hasMatch(name)) throw const FormatException();
+            names.add(name);
+          }
+          if (names.isNotEmpty) loaded[entry.key as String] = names;
+        }
+      }
+      _pendingTestDirectories.addAll(loaded);
+      _probeJournal = file;
+    } catch (_) { _fail('sync.errors.probeJournal'); }
+  }
+
+  Future<void> _saveProbeJournal() async {
+    try {
+      final file = _probeJournal!;
+      await file.parent.create(recursive: true);
+      // 只存位置哈希与本机生成的随机目录名，不保存地址、账号或密码。
+      final data = jsonEncode({'version': 1, 'pending': {
+        for (final entry in _pendingTestDirectories.entries)
+          if (entry.value.isNotEmpty) entry.key: entry.value.toList(),
+      }});
+      if (utf8.encode(data).length > 512 * 1024) throw const FormatException();
+      final temporary = File('${file.path}.tmp');
+      await temporary.writeAsString(data, flush: true);
+      await temporary.rename(file.path);
+    } catch (_) { _fail('sync.errors.probeJournal'); }
+  }
 
   void cancel({String reason = 'sync.errors.locked'}) {
     _epoch++;
@@ -296,19 +340,23 @@ class AndroidWebDav {
       prefix += '${Uri.encodeComponent(part)}/'; await _directory(base, prefix, epoch);
     }
     passed('directory');
+    await _loadProbeJournal();
     final pending = _pendingTestDirectories.putIfAbsent(config['location'] as String, () => <String>{});
     for (final name in pending.toList().take(8)) {
       try { if (await _cleanupTestDirectory(configuration, name, epoch)) pending.remove(name); } catch (_) { break; }
     }
+    await _saveProbeJournal();
     if (pending.length >= 32) _fail('sync.errors.probeCleanup');
     final testDirectory = '.credpivot-test-${_nonce()}';
     final existing = await _request(config, '$testDirectory/', epoch, method: 'PROPFIND', headers: {'Depth': '0'}, limit: 256 * 1024);
     if (existing.status != 404) _fail('sync.errors.probeDirectory',
       details: {'directory': 'test', 'directory_phase': 'read', 'http_status': existing.status});
+    // 先落盘再创建：即使 MKCOL 已成功但进程来不及收到响应，也能下次清理。
+    pending.add(testDirectory);
+    await _saveProbeJournal();
     final made = await _request(config, '$testDirectory/', epoch, method: 'MKCOL', limit: 1024);
     if (made.status != 201) _fail('sync.errors.probeDirectory',
       details: {'directory': 'test', 'directory_phase': 'create', 'http_status': made.status});
-    pending.add(testDirectory);
     config = {...config, 'root': Uri.parse(config['root'] as String).resolve('$testDirectory/').toString()};
     const paths = ['probe', 'move-a', 'move-b', 'move-target-a', 'move-target-b'];
     final first = utf8.encode('credpivot-one-${_nonce()}'), second = utf8.encode('credpivot-two-${_nonce()}');
@@ -370,7 +418,7 @@ class AndroidWebDav {
       if (epoch == _epoch) {
         try { cleaned = await _cleanupTestDirectory(configuration, testDirectory, epoch); } catch (_) {}
       }
-      if (cleaned) pending.remove(testDirectory);
+      if (cleaned) { pending.remove(testDirectory); await _saveProbeJournal(); }
       if (succeeded) {
         if (epoch != _epoch) _fail(_cancellationKey);
         if (!cleaned) _fail('sync.errors.probeCleanup', details: {'directory': 'test', 'directory_phase': 'cleanup'});
