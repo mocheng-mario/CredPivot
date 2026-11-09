@@ -205,6 +205,7 @@ impl VaultSession {
             "credential_count": cred_count,
             "ssh_pubkey": self.ssh_public_key_openssh(),
             "master_password_required": self.master_password_required(),
+            "master_password_reason": self.master_password_reason(),
             "sensitive_auth_active": self.sensitive_auth_active(),
             "settings_valid": credpivot_core::read_app_settings().is_ok(),
             "vault_lock_generation": crate::paths::read_vault_lock_generation(),
@@ -336,21 +337,28 @@ impl VaultSession {
         Ok(format!("{}:{}:{}", cfg.vault_id, cfg.control_id, slot.slot_id))
     }
 
-    pub fn load_local_unlock_policy(&mut self, policy: LocalUnlockPolicy) {
-        self.local_unlock_policy = if self.local_unlock_binding().ok().as_deref() == Some(policy.binding.as_str()) {
+    pub fn load_local_unlock_policy(&mut self, policy: LocalUnlockPolicy) -> bool {
+        let valid = self.local_unlock_binding().ok().as_deref() == Some(policy.binding.as_str());
+        self.local_unlock_policy = if valid {
             policy
         } else {
             LocalUnlockPolicy::default()
         };
+        valid
     }
 
     pub fn master_password_required(&self) -> bool {
+        self.master_password_reason().is_some()
+    }
+
+    pub fn master_password_reason(&self) -> Option<&'static str> {
         let now = authentication_time_ms();
         let policy = &self.local_unlock_policy;
-        policy.last_master_ms == 0 || policy.last_unlock_ms == 0
-            || now < policy.last_master_ms || now < policy.last_unlock_ms
-            || now.saturating_sub(policy.last_master_ms) >= self.settings.master_password_days * 86_400_000
-            || now.saturating_sub(policy.last_unlock_ms) >= self.settings.master_password_idle_hours * 3_600_000
+        if policy.last_master_ms == 0 || policy.last_unlock_ms == 0 { Some("policy_missing") }
+        else if now < policy.last_master_ms || now < policy.last_unlock_ms { Some("clock_changed") }
+        else if now.saturating_sub(policy.last_master_ms) >= self.settings.master_password_days * 86_400_000 { Some("master_period") }
+        else if now.saturating_sub(policy.last_unlock_ms) >= self.settings.master_password_idle_hours * 3_600_000 { Some("unlock_idle") }
+        else { None }
     }
 
     pub(crate) fn record_master_verification(&mut self) -> Result<()> {

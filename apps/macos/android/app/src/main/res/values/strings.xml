@@ -6,6 +6,11 @@
     <string name="authentication_verify">验证</string>
     <string name="authentication_busy">已有身份验证正在进行</string>
     <string name="authentication_failed">验证失败，请使用主密码重试</string>
+    <string name="biometric_crypto_missing">指纹已通过，但系统未返回已授权的加密操作。请重新设置指纹解锁。</string>
+    <string name="biometric_material_failed">指纹已通过，但读取保险库解锁材料失败。请使用主密码解锁后重新设置。</string>
+    <string name="biometric_encrypt_failed">指纹已通过，但系统密钥加密解锁材料失败。请重新设置；若仍失败，可暂时使用主密码。</string>
+    <string name="biometric_policy_failed">指纹已通过，但加密本机认证策略失败。请使用主密码解锁后重新设置。</string>
+    <string name="biometric_save_failed">指纹已通过，但本机安全存储写入失败。请检查存储空间后重新设置。</string>
     <string name="authentication_password_wrong">主密码不正确，请重新输入</string>
     <string name="authentication_biometric_unavailable">设备没有可用的生物识别，请使用主密码；如需启用指纹，请先在系统中设置。</string>
     <string name="webdav_response_invalid">WebDAV 目录响应解析失败，请检查服务端返回的 XML 内容。</string>

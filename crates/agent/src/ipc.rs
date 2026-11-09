@@ -817,8 +817,8 @@ async fn handle_request_inner(
             }
         }
         AgentRequest::LocalUnlockPolicySet { policy } => {
-            st.vault.lock().await.load_local_unlock_policy(policy);
-            AgentResponse::ok(json!({ "configured": true }))
+            let configured = st.vault.lock().await.load_local_unlock_policy(policy);
+            AgentResponse::ok(json!({ "configured": configured }))
         }
         AgentRequest::LocalUnlockMaterial => {
             match st.vault.lock().await.local_unlock_material() {

@@ -6,7 +6,14 @@ import {
 } from "./fill_flow.js";
 import {handlePasskey, cancelPasskey, passkeySiteState, setPasskeySiteState, syncPasskeyScripts} from "./passkey_background.js";
 
-chrome.runtime.onInstalled.addListener(() => { void syncPasskeyScripts().catch(() => {}); });
+chrome.runtime.onInstalled.addListener(() => {
+  void syncPasskeyScripts().catch(() => {});
+  // 更新后旧标签页的脚本上下文可能失效，主动升级非敏感 UI，不重放填充或认证。
+  void chrome.tabs.query({}).then((tabs) => Promise.allSettled(tabs
+    .filter((tab) => tab.id && /^https?:\/\//.test(tab.url || ''))
+    .map((tab) => chrome.scripting.executeScript({target:{tabId:tab.id,frameIds:[0]},files:['content.js'],world:'ISOLATED'}))))
+    .catch(() => {});
+});
 chrome.runtime.onStartup.addListener(() => { void syncPasskeyScripts().catch(() => {}); });
 
 const HOST_NAME = "com.credpivot.chrome.m0";

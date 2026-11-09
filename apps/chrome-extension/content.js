@@ -83,7 +83,7 @@
     return target;
   }
   function valid(target) {
-    return target && target.url === location.href && target.el.form === target.form && role(target.el, target.manual) === target.kind;
+    return target && targets.get(target.id) === target && target.url === location.href && target.el.form === target.form && role(target.el, target.manual) === target.kind;
   }
   function loginFields(capture = false, target = null) {
     const focused = valid(target) && target.kind !== 'otp' ? target.el : null;
@@ -168,7 +168,10 @@
   }
   function ensureHost() {
     if (host?.isConnected) return;
+    // 扩展重载后的新上下文不能调用旧闭包，移除带本扩展标记的残留入口。
+    document.querySelectorAll('[data-credpivot-inline-root]').forEach((element) => element.remove());
     host = document.createElement('div');
+    host.setAttribute('data-credpivot-inline-root','');
     // Shadow DOM 只隔离内部样式，宿主仍会命中网页的 div / 通配选择器。
     host.style.setProperty('all','initial','important');
     host.style.setProperty('display','block','important');
@@ -192,7 +195,14 @@
     badge.addEventListener('click', (event) => {
       if (!event.isTrusted || !anchor) return;
       if (panel || opening) closePanel();
-      else void open(anchor);
+      else {
+        // SPA 路由、表单更新或绑定被淘汰后，旧图标不能继续提交已过期的输入框标识。
+        // 只在本次真实点击时重绑同一个输入框，不把旧面板授权转移给其他输入框。
+        const current = bind(anchor.el, anchor.manual);
+        if (!current) { closePanel(); hideBadge(); return; }
+        showBadge(current);
+        void open(current);
+      }
     });
     shadow.append(badge); document.documentElement.append(host);
     observer ??= new MutationObserver(schedulePosition);
@@ -213,15 +223,25 @@
     if (!valid(target) || opening || (hidden && !forced)) return {ok:false};
     closePanel(); opening = true;
     const current = ++generation;
+    let openTimer;
     try {
       ensureHost(); anchor = target;
       badge.textContent = 'CP'; badge.title = 'CredPivot：正在打开填充面板';
-      const response = await runtimeMessage({type:'inline_open', document_id:documentId, target_id:target.id});
+      const pending = runtimeMessage({type:'inline_open', document_id:documentId, target_id:target.id});
+      // 只给创建面板的非敏感请求限时；不重放取密请求，也不截断用户的指纹验证。
+      void pending.then((response) => {
+        if ((generation !== current || !valid(target)) && response?.token)
+          void runtimeMessage({type:'inline_cancel',token:response.token,document_id:documentId}).catch(() => {});
+      }).catch(() => {});
+      const response = await Promise.race([pending, new Promise((_, reject) => {
+        openTimer = setTimeout(() => reject(new Error('打开填充面板超时，请再次点击图标重试')),8000);
+      })]);
       if (generation !== current || !valid(target)) {
         if (response?.token) void runtimeMessage({type:'inline_cancel',token:response.token,document_id:documentId}).catch(() => {});
         return {ok:false};
       }
-      if (!response?.ok) { badge.title = response?.message || '连接失败，请在插件中检查连接'; return response; }
+      if (!response?.ok) throw new Error(response?.message || '连接失败，请再次点击图标重试');
+      inlineFailure = '';
       token = response.token;
       panel = document.createElement('iframe');
       panel.title = 'CredPivot 填充'; panel.referrerPolicy = 'no-referrer';
@@ -236,12 +256,14 @@
         badge.title = '此网站未能显示页面填充面板，请使用浏览器工具栏中的 CredPivot 插件';
       },5000);
       return {ok:true};
-    } catch (_) {
-      inlineFailure = '页面填充面板未能打开，请使用工具栏填充';
-      if (badge) badge.title = inlineFailure;
+    } catch (error) {
+      if (generation !== current) return {ok:false};
+      closePanel();
+      inlineFailure = error?.message || '页面填充面板未能打开，请再次点击图标或使用工具栏填充';
+      if (badge) { badge.textContent = '!'; badge.title = inlineFailure; }
       return {ok:false,message:inlineFailure};
     }
-    finally { if (generation === current) opening = false; }
+    finally { clearTimeout(openTimer); if (generation === current) opening = false; }
   }
   function context(message) {
     const target = message.target_id ? targets.get(message.target_id) : bind(lastInput);
@@ -321,6 +343,14 @@
   listen(window,'scroll',schedulePosition,true);
   listen(window,'resize',schedulePosition);
   listen(window,'pagehide',() => { closePanel(); hideBadge(); targets.clear(); });
+  listen(window,'pageshow',(event) => {
+    if (!event.isTrusted) return;
+    // BFCache 返回沿用旧脚本，不会再次执行 document_idle；恢复当前输入框的入口即可。
+    let input = document.activeElement;
+    while (input?.shadowRoot?.activeElement) input = input.shadowRoot.activeElement;
+    const target = bind(input);
+    if (target) { lastInput = input; showBadge(target); }
+  });
   void runtimeMessage({type:'inline_site_state'}).then((response) => { hidden = response?.hidden === true; if (hidden) { closePanel(); hideBadge(); } }).catch(() => {});
   // document_idle 时页面可能已 autofocus；只显示入口，不因此读取候选或触发验证。
   let initial = document.activeElement;

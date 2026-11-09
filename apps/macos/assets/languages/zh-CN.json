@@ -5,6 +5,286 @@
   "name": "简体中文",
   "source_locale": "zh-CN",
   "messages": {
+    "android.native.biometricCryptoMissing": {
+      "source": "指纹已通过，但系统未返回已授权的加密操作。请重新设置指纹解锁。",
+      "translation": "指纹已通过，但系统未返回已授权的加密操作。请重新设置指纹解锁。",
+      "description": "Android biometric setup failure stage.",
+      "placeholders": {},
+      "locations": [
+        "SecureStore.kt",
+        "VaultAuthentication.kt",
+        "strings.xml"
+      ]
+    },
+    "android.native.biometricMaterialFailed": {
+      "source": "指纹已通过，但读取保险库解锁材料失败。请使用主密码解锁后重新设置。",
+      "translation": "指纹已通过，但读取保险库解锁材料失败。请使用主密码解锁后重新设置。",
+      "description": "Android biometric setup failure stage.",
+      "placeholders": {},
+      "locations": [
+        "SecureStore.kt",
+        "VaultAuthentication.kt",
+        "strings.xml"
+      ]
+    },
+    "android.native.biometricEncryptFailed": {
+      "source": "指纹已通过，但系统密钥加密解锁材料失败。请重新设置；若仍失败，可暂时使用主密码。",
+      "translation": "指纹已通过，但系统密钥加密解锁材料失败。请重新设置；若仍失败，可暂时使用主密码。",
+      "description": "Android biometric setup failure stage.",
+      "placeholders": {},
+      "locations": [
+        "SecureStore.kt",
+        "VaultAuthentication.kt",
+        "strings.xml"
+      ]
+    },
+    "android.native.biometricPolicyFailed": {
+      "source": "指纹已通过，但加密本机认证策略失败。请使用主密码解锁后重新设置。",
+      "translation": "指纹已通过，但加密本机认证策略失败。请使用主密码解锁后重新设置。",
+      "description": "Android biometric setup failure stage.",
+      "placeholders": {},
+      "locations": [
+        "SecureStore.kt",
+        "VaultAuthentication.kt",
+        "strings.xml"
+      ]
+    },
+    "android.native.biometricSaveFailed": {
+      "source": "指纹已通过，但本机安全存储写入失败。请检查存储空间后重新设置。",
+      "translation": "指纹已通过，但本机安全存储写入失败。请检查存储空间后重新设置。",
+      "description": "Android biometric setup failure stage.",
+      "placeholders": {},
+      "locations": [
+        "SecureStore.kt",
+        "VaultAuthentication.kt",
+        "strings.xml"
+      ]
+    },
+    "android.biometric.setup.title": {
+      "source": "指纹与生物识别",
+      "translation": "指纹与生物识别",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.enableTitle": {
+      "source": "启用指纹解锁",
+      "translation": "启用指纹解锁",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.disableTitle": {
+      "source": "停用指纹解锁",
+      "translation": "停用指纹解锁",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.enableConfirm": {
+      "source": "接下来会调用系统指纹或受支持的生物识别，设置当前保险库的本机解锁方式。此设置仅在本机生效，不随备份迁移。若需要主密码验证，完成后会继续设置指纹。",
+      "translation": "接下来会调用系统指纹或受支持的生物识别，设置当前保险库的本机解锁方式。此设置仅在本机生效，不随备份迁移。若需要主密码验证，完成后会继续设置指纹。",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.disableConfirm": {
+      "source": "停用后，本机需要使用主密码解锁。继续前将验证身份。",
+      "translation": "停用后，本机需要使用主密码解锁。继续前将验证身份。",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.continue": {
+      "source": "继续并验证",
+      "translation": "继续并验证",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.enableAction": {
+      "source": "设置指纹解锁",
+      "translation": "设置指纹解锁",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.disableAction": {
+      "source": "停用指纹解锁",
+      "translation": "停用指纹解锁",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.enabledHelp": {
+      "source": "已为当前保险库启用，主密码验证周期仍然生效。指纹设置即时生效，无需点击底部保存。",
+      "translation": "已为当前保险库启用，主密码验证周期仍然生效。指纹设置即时生效，无需点击底部保存。",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.disabledHelp": {
+      "source": "使用本机已录入的指纹或受支持的生物识别解锁。更换设备、切换保险库或修改主密码后，需要重新设置。",
+      "translation": "使用本机已录入的指纹或受支持的生物识别解锁。更换设备、切换保险库或修改主密码后，需要重新设置。",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.verifying": {
+      "source": "请完成系统身份验证；取消后将保留原设置。",
+      "translation": "请完成系统身份验证；取消后将保留原设置。",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.enabled": {
+      "source": "指纹解锁已启用，立即生效。",
+      "translation": "指纹解锁已启用，立即生效。",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.disabled": {
+      "source": "指纹解锁已停用，立即生效。",
+      "translation": "指纹解锁已停用，立即生效。",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.cancelled": {
+      "source": "已取消，本次未更改指纹设置。",
+      "translation": "已取消，本次未更改指纹设置。",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.unavailable": {
+      "source": "当前无法使用生物识别。请确认已在手机系统设置中录入指纹，解除系统锁定后再试；也可继续使用主密码。",
+      "translation": "当前无法使用生物识别。请确认已在手机系统设置中录入指纹，解除系统锁定后再试；也可继续使用主密码。",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.biometric.setup.wakeHelp": {
+      "source": "返回 App 时自动发起指纹验证；需要主密码时显示输入框。此开关修改后需保存配置。",
+      "translation": "返回 App 时自动发起指纹验证；需要主密码时显示输入框。此开关修改后需保存配置。",
+      "description": "Android biometric settings interaction.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.unlock.reason.notConfigured": {
+      "source": "尚未启用本机生物识别解锁，请先使用主密码解锁，再到设置中启用。",
+      "translation": "尚未启用本机生物识别解锁，请先使用主密码解锁，再到设置中启用。",
+      "description": "Android local unlock state and master password requirement.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.unlock.reason.policyMissing": {
+      "source": "本机未能恢复认证策略。请使用当前主密码解锁；若生物识别未启用，请重新启用。",
+      "translation": "本机未能恢复认证策略。请使用当前主密码解锁；若生物识别未启用，请重新启用。",
+      "description": "Android local unlock state and master password requirement.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.unlock.reason.policyMismatch": {
+      "source": "本机认证策略与当前保险库不匹配，请使用当前主密码解锁并重新启用生物识别。",
+      "translation": "本机认证策略与当前保险库不匹配，请使用当前主密码解锁并重新启用生物识别。",
+      "description": "Android local unlock state and master password requirement.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.unlock.reason.policyUnavailable": {
+      "source": "无法读取本机认证策略，请使用当前主密码解锁后重新启用生物识别。",
+      "translation": "无法读取本机认证策略，请使用当前主密码解锁后重新启用生物识别。",
+      "description": "Android local unlock state and master password requirement.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.unlock.reason.policySaveFailed": {
+      "source": "上次未能保存本机认证策略，生物识别已停用。请使用主密码解锁后重新启用。",
+      "translation": "上次未能保存本机认证策略，生物识别已停用。请使用主密码解锁后重新启用。",
+      "description": "Android local unlock state and master password requirement.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.unlock.reason.keyUnavailable": {
+      "source": "无法访问系统中的生物识别密钥，请使用主密码解锁后重新启用生物识别。",
+      "translation": "无法访问系统中的生物识别密钥，请使用主密码解锁后重新启用生物识别。",
+      "description": "Android local unlock state and master password requirement.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.unlock.reason.clockChanged": {
+      "source": "检测到系统时间早于上次验证时间，本次需要输入主密码。",
+      "translation": "检测到系统时间早于上次验证时间，本次需要输入主密码。",
+      "description": "Android local unlock state and master password requirement.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.unlock.reason.masterPeriod": {
+      "source": "已达到设置的主密码验证周期，本次需要输入主密码。",
+      "translation": "已达到设置的主密码验证周期，本次需要输入主密码。",
+      "description": "Android local unlock state and master password requirement.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
+    "android.unlock.reason.unlockIdle": {
+      "source": "距离上次成功解锁已超过设置的时限，本次需要输入主密码。",
+      "translation": "距离上次成功解锁已超过设置的时限，本次需要输入主密码。",
+      "description": "Android local unlock state and master password requirement.",
+      "placeholders": {},
+      "locations": [
+        "main_android.dart"
+      ]
+    },
     "android.integration.manualTitle": {
       "source": "手动管理系统凭据服务",
       "translation": "手动管理系统凭据服务",

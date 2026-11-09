@@ -55,7 +55,8 @@ class _AndroidHomeState extends State<_AndroidHome> {
   String home = '', message = '';
   String transferTitle = '', transferStage = '';
   int page = 0, generation = 0;
-  bool initializing = true, busy = false, polling = false;
+  bool initializing = true, busy = false;
+  Future<void>? statusRefresh;
   bool skippedSetup = false, openingRemote = false;
   bool get unlocked => status['unlocked'] == true;
   bool get exists => status['vault_exists'] == true;
@@ -70,7 +71,7 @@ class _AndroidHomeState extends State<_AndroidHome> {
     AgentBridge.onAppForeground = _foreground;
     WebDavSync.instance.start();
     WebDavSync.instance.onFailure = (text) async { if (mounted && unlocked) await _notice(tr('android.sync.failureTitle'), text); };
-    timer = Timer.periodic(const Duration(seconds: 2), (_) => refresh());
+    timer = Timer.periodic(const Duration(seconds: 2), (_) { if (!initializing) refresh(); });
     initialize();
   }
 
@@ -78,6 +79,8 @@ class _AndroidHomeState extends State<_AndroidHome> {
     setState(() { initializing = true; message = ''; });
     try {
       if (!await AgentBridge.ensureAgentReady()) throw StateError(tr('android.agent.startFailed'));
+      // Agent 已驻留时 ensureAgentReady 不会再调用 startAgent，也必须恢复缺失的本机策略。
+      await channel.invokeMethod<bool>('androidRestoreUnlockPolicy');
       final paths = await channel.invokeMapMethod<String, dynamic>('androidPaths') ?? {};
       home = paths['home'] as String;
       AppPresentation.instance.homeDirectory = home;
@@ -101,9 +104,13 @@ class _AndroidHomeState extends State<_AndroidHome> {
     if (mounted) setState(() { status = {...status, 'unlocked': false}; page = 0; });
   }
 
-  Future<void> refresh() async {
-    if (!mounted || polling) return;
-    polling = true;
+  Future<void> refresh() {
+    if (!mounted) return Future<void>.value();
+    // 启动/唤醒必须等到真实状态，不能因周期轮询正在执行就提前返回旧状态。
+    return statusRefresh ??= _refreshStatus().whenComplete(() => statusRefresh = null);
+  }
+
+  Future<void> _refreshStatus() async {
     final epoch = generation;
     try {
       final next = AgentBridge.payloadOf(await AgentBridge.request({'type': 'status'}));
@@ -113,7 +120,6 @@ class _AndroidHomeState extends State<_AndroidHome> {
       partitions.setUnlocked(unlocked);
       WebDavSync.instance.setUnlocked(unlocked && !openingRemote);
     } catch (_) { if (unlocked) notifyVaultLocked(); }
-    finally { polling = false; }
   }
 
   Future<void> _foreground() async {
@@ -394,6 +400,13 @@ class _AndroidHomeState extends State<_AndroidHome> {
       Text(exists ? tr('android.vault.unlock') : tr('android.vault.welcome'), style: Theme.of(context).textTheme.headlineSmall, textAlign: TextAlign.center),
       const SizedBox(height: 16),
       if (message.isNotEmpty) AppNotice(message),
+      if (status['local_unlock_reason'] is String)
+        Padding(padding: const EdgeInsets.only(bottom: 16), child: AppNotice(tr(
+          const {'not_configured': 'android.unlock.reason.notConfigured', 'policy_missing': 'android.unlock.reason.policyMissing',
+            'policy_mismatch': 'android.unlock.reason.policyMismatch', 'policy_unavailable': 'android.unlock.reason.policyUnavailable',
+            'policy_save_failed': 'android.unlock.reason.policySaveFailed', 'key_unavailable': 'android.unlock.reason.keyUnavailable',
+            'clock_changed': 'android.unlock.reason.clockChanged', 'master_period': 'android.unlock.reason.masterPeriod',
+            'unlock_idle': 'android.unlock.reason.unlockIdle'}[status['local_unlock_reason']] ?? 'android.unlock.reason.policyUnavailable'))),
       if (exists) ...[
         TextField(controller: password, obscureText: true, enableSuggestions: false, autocorrect: false,
           enabled: !busy, decoration: InputDecoration(hintText: tr('android.password.title')),
@@ -438,6 +451,8 @@ class _AndroidSettingsState extends State<_AndroidSettings> with WidgetsBindingO
   Map<String, dynamic> settings = {};
   Map<String, dynamic> defaults = {};
   bool busy = false, biometric = false;
+  bool changingBiometric = false;
+  String biometricMessage = '';
   String message = '';
   final controllers = <String, TextEditingController>{};
   final search = TextEditingController();
@@ -553,15 +568,50 @@ class _AndroidSettingsState extends State<_AndroidSettings> with WidgetsBindingO
     } finally { if (mounted) setState(() => busy = false); }
   }
   Future<void> toggleBiometric() async {
-    if (busy || !await requireTouchId(context, reason: biometric ? tr('android.biometric.disable') : tr('android.biometric.enable')) || !mounted) return;
-    setState(() { busy = true; message = ''; });
+    if (busy) return;
+    final enable = !biometric;
+    setState(() { busy = true; message = ''; biometricMessage = ''; });
     try {
-      if (biometric) { await channel.invokeMethod('disableBiometric'); }
-      else if (await channel.invokeMethod<bool>('enableBiometric') != true) { return; }
+      ModalRoute<bool>? confirmationRoute;
+      final accepted = await showDialog<bool>(context: context, builder: (ctx) {
+        confirmationRoute = ModalRoute.of<bool>(ctx);
+        return AlertDialog(title: LText(enable ? 'android.biometric.setup.enableTitle' : 'android.biometric.setup.disableTitle'),
+          content: SingleChildScrollView(child: LText(enable ? 'android.biometric.setup.enableConfirm' : 'android.biometric.setup.disableConfirm')),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('common.cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('android.biometric.setup.continue'))]);
+      });
+      await confirmationRoute?.completed;
+      if (!mounted) return;
+      if (accepted != true) { setState(() => biometricMessage = tr('android.biometric.setup.cancelled')); return; }
+      setState(() => changingBiometric = true);
+      if (enable) {
+        // 录入本身必须经过系统生物识别；不再先调用一遍通用指纹验证。
+        bool enabled;
+        try { enabled = await channel.invokeMethod<bool>('enableBiometric') == true; }
+        on PlatformException catch (error) {
+          if (error.code != 'biometric_retry' || !mounted) rethrow;
+          // 原生已验证主密码后，继续同一次设置；取消不会返回此错误，不能自动重弹。
+          enabled = await channel.invokeMethod<bool>('enableBiometric') == true;
+        }
+        if (!mounted) return;
+        if (!enabled) { setState(() => biometricMessage = tr('android.biometric.setup.cancelled')); return; }
+      } else {
+        if (!await requireTouchId(context, reason: tr('android.biometric.disable'), confirmed: true) || !mounted) {
+          if (mounted) setState(() => biometricMessage = tr('android.biometric.setup.cancelled'));
+          return;
+        }
+        await channel.invokeMethod<void>('disableBiometric');
+      }
       final paths = await channel.invokeMapMethod<String, dynamic>('androidPaths') ?? {};
-      if (mounted) setState(() => biometric = paths['biometric'] == true);
-    } on PlatformException catch (error) { if (mounted) setState(() => message = error.message ?? tr('android.biometric.failed')); }
-    finally { if (mounted) setState(() => busy = false); }
+      if (mounted) setState(() {
+        biometric = paths['biometric'] == true;
+        biometricMessage = tr(biometric != enable ? 'android.biometric.failed' : enable
+          ? 'android.biometric.setup.enabled' : 'android.biometric.setup.disabled');
+      });
+    } on PlatformException catch (error) {
+      if (mounted) setState(() => biometricMessage = error.code == 'biometric_unavailable'
+          ? tr('android.biometric.setup.unavailable') : error.message ?? tr('android.biometric.failed'));
+    } finally { if (mounted) setState(() { busy = false; changingBiometric = false; }); }
   }
   @override
   void dispose() { WidgetsBinding.instance.removeObserver(this); search.dispose(); for (final controller in controllers.values) { controller.dispose(); } super.dispose(); }
@@ -652,15 +702,26 @@ class _AndroidSettingsState extends State<_AndroidSettings> with WidgetsBindingO
           }, child: const LText('android.language.export')),
         ]),
       ])),
-      if (matches('security', ['android.settings.wakeAuth', 'android.unlock.biometric', 'android.settings.backgroundLock',
+      if (matches('security', ['android.settings.wakeAuth', 'android.unlock.biometric', 'android.biometric.setup.title', 'android.settings.backgroundLock',
         for (final entry in fields.entries) if (fieldSections[entry.key] == 'security') entry.value]))
       AppPanel(title: tr('android.settings.security'), icon: Icons.security_outlined, child: Column(children: [
+        if (matches('security', ['android.unlock.biometric', 'android.biometric.setup.title']))
+        AppFieldRow(label: tr('android.biometric.setup.title'), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Align(alignment: Alignment.centerLeft, child: Chip(avatar: Icon(biometric ? Icons.fingerprint : Icons.lock_outline, size: 18),
+            label: LText(biometric ? 'android.autofill.enabled' : 'android.autofill.disabled'))),
+          const SizedBox(height: 8), LText(biometric ? 'android.biometric.setup.enabledHelp' : 'android.biometric.setup.disabledHelp'),
+          const SizedBox(height: 12),
+          if (changingBiometric) ...[
+            const LinearProgressIndicator(), const SizedBox(height: 8), const LText('android.biometric.setup.verifying'),
+          ] else if (biometric)
+            OutlinedButton.icon(onPressed: busy ? null : toggleBiometric, icon: const Icon(Icons.fingerprint), label: const LText('android.biometric.setup.disableAction'))
+          else FilledButton.icon(onPressed: busy ? null : toggleBiometric, icon: const Icon(Icons.fingerprint), label: const LText('android.biometric.setup.enableAction')),
+          if (biometricMessage.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 12), child: AppNotice(biometricMessage)),
+        ])),
         if (matches('security', ['android.settings.wakeAuth']))
-        SwitchListTile(contentPadding: EdgeInsets.zero, title: const LText('android.settings.wakeAuth'), value: settings['auto_unlock_on_wake'] == true,
+        SwitchListTile(contentPadding: EdgeInsets.zero, title: const LText('android.settings.wakeAuth'),
+          subtitle: const LText('android.biometric.setup.wakeHelp'), value: settings['auto_unlock_on_wake'] == true,
           onChanged: busy ? null : (value) => setState(() => settings['auto_unlock_on_wake'] = value)),
-        if (matches('security', ['android.unlock.biometric']))
-        ListTile(contentPadding: EdgeInsets.zero, title: const LText('android.unlock.biometric'), subtitle: Text(biometric ? tr('android.biometric.enabledHelp') : tr('android.biometric.disabledHelp')),
-          trailing: TextButton(onPressed: busy ? null : toggleBiometric, child: Text(biometric ? tr('android.biometric.disableAction') : tr('android.biometric.enableAction')))),
         ...numericFields('security'),
         if (matches('security', ['android.settings.backgroundLock']))
         const LText('android.settings.backgroundLock'),

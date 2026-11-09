@@ -78,9 +78,7 @@ class MainActivity : FlutterActivity() {
         else result.error("operation_failed", "操作失败，请重试", null)
     }
 
-    private fun status(): JSONObject = NativeAgent.call("status").apply {
-        put("local_unlock_configured", secure.biometricConfigured)
-    }
+    private fun status(): JSONObject = verification.describeStatus(NativeAgent.call("status"))
 
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
         when {
@@ -89,6 +87,7 @@ class MainActivity : FlutterActivity() {
                 verification.restorePolicy(); null
             }
             call.method == "agentIsRunning" -> work(result) { NativeAgent.isRunning() == 1 }
+            call.method == "androidRestoreUnlockPolicy" -> work(result) { verification.restorePolicy() }
             call.method == "restartAgent" -> work(result) {
                 NativeAgent.stop(); val started = NativeAgent.start() == 0
                 if (started) verification.restorePolicy()
@@ -105,7 +104,7 @@ class MainActivity : FlutterActivity() {
                     }
                     if (request.optString("type") in setOf("vault_create", "vault_change_password")) verification.persistPolicy()
                     if (request.optString("type") == "status") {
-                        response.getJSONObject("payload").put("local_unlock_configured", secure.biometricConfigured)
+                        verification.describeStatus(response.getJSONObject("payload"))
                     }
                 }
                 response.toString()

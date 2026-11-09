@@ -22,6 +22,7 @@ internal class VaultAuthentication(
     private val strings = AndroidStrings(activity)
     private val main = Handler(Looper.getMainLooper())
     private var authentication: CancellationSignal? = null
+    private var policyIssue: String? = null
     private fun status() = NativeAgent.call("status")
     private fun failure(result: MethodChannel.Result, error: Exception) {
         if (error is AgentFailure) result.error(error.code,
@@ -43,9 +44,33 @@ internal class VaultAuthentication(
         return try { JSONObject(bytes.toString(Charsets.UTF_8)) } finally { bytes.fill(0) }
     }
 
-    fun restorePolicy() {
-        try { policy()?.let { NativeAgent.call("local_unlock_policy_set", "policy" to it) } }
-        catch (_: Exception) { /* 密钥失效时保留主密码入口，不使用未保护的时间戳。 */ }
+    fun restorePolicy(): Boolean {
+        try {
+            val state = status()
+            // Agent 仍驻留时保留较新的解锁时间，不能用磁盘旧策略覆盖它。
+            if (state.has("master_password_reason") && state.optString("master_password_reason") != "policy_missing") return true
+            val stored = policy()
+            if (stored == null) { policyIssue = "policy_missing"; return false }
+            val accepted = NativeAgent.call("local_unlock_policy_set", "policy" to stored).optBoolean("configured")
+            policyIssue = if (accepted) null else "policy_mismatch"
+            return accepted
+        } catch (_: Exception) {
+            policyIssue = "policy_unavailable"
+            return false
+        }
+    }
+
+    fun describeStatus(state: JSONObject): JSONObject {
+        var issue = policyIssue
+        val configured = try { secure.biometricConfigured } catch (_: Exception) { issue = "key_unavailable"; false }
+        state.put("local_unlock_configured", configured)
+        state.put("local_unlock_reason", if (!configured) {
+            if (secure.hasBiometricRecord) "key_unavailable"
+            else if (issue == "policy_save_failed" || issue == "key_unavailable") issue else "not_configured"
+        }
+            else if (state.optBoolean("master_password_required")) issue ?: state.optString("master_password_reason", "policy_missing")
+            else JSONObject.NULL)
+        return state
     }
 
     fun persistPolicy() {
@@ -54,7 +79,9 @@ internal class VaultAuthentication(
             val material = NativeAgent.call("local_unlock_material").getJSONObject("material")
             val bytes = material.getJSONObject("policy").toString().toByteArray()
             try { secure.write("unlock-policy", bytes) } finally { bytes.fill(0) }
+            policyIssue = null
         } catch (_: Exception) {
+            policyIssue = "policy_save_failed"
             try { secure.disableBiometric() } catch (_: Exception) {}
         }
     }
@@ -151,18 +178,31 @@ internal class VaultAuthentication(
                                     val biometricResult = object : MethodChannel.Result {
                                         override fun success(value: Any?) = result.success(value)
                                         override fun error(code: String, message: String?, details: Any?) {
-                                            if (mode != "enableBiometric" && code in setOf("authentication_failed", "master_required", "bad_unlock")) promptPassword(true)
+                                            if (mode != "enableBiometric" && code in setOf("authentication_failed", "master_required", "bad_unlock", "biometric_crypto_missing")) promptPassword(true)
                                             else result.error(code, message, details)
                                         }
                                         override fun notImplemented() = result.notImplemented()
                                     }
                                     work(biometricResult) {
                                         if (!active()) return@work false
+                                        val authenticatedCipher = value.cryptoObject?.cipher
+                                            ?: throw AgentFailure("biometric_crypto_missing", strings.get(R.string.biometric_crypto_missing))
                                         if (mode == "enableBiometric") {
-                                            val bytes = NativeAgent.call("local_unlock_material").getJSONObject("material").toString().toByteArray()
-                                            try { if (!active()) return@work false; secure.enroll(cipher, bytes) } finally { bytes.fill(0) }
+                                            val material = try { NativeAgent.call("local_unlock_material").getJSONObject("material") }
+                                                catch (error: AgentFailure) { throw error }
+                                                catch (_: Exception) { throw AgentFailure("biometric_material_failed", strings.get(R.string.biometric_material_failed)) }
+                                            val bytes = material.toString().toByteArray()
+                                            try {
+                                                val policyBytes = try { material.getJSONObject("policy").toString().toByteArray() }
+                                                    catch (_: Exception) { throw AgentFailure("biometric_material_failed", strings.get(R.string.biometric_material_failed)) }
+                                                try {
+                                                    if (!active()) return@work false
+                                                    secure.enroll(authenticatedCipher, bytes, policyBytes)
+                                                    policyIssue = null
+                                                } finally { policyBytes.fill(0) }
+                                            } finally { bytes.fill(0) }
                                         } else {
-                                            val bytes = secure.decrypt(cipher)
+                                            val bytes = secure.decrypt(authenticatedCipher)
                                             val material = try { JSONObject(bytes.toString(Charsets.UTF_8)) } finally { bytes.fill(0) }
                                             val currentPolicy = policy() ?: throw AgentFailure("master_required", "请使用主密码验证")
                                             if (currentPolicy.getString("binding") != material.getJSONObject("policy").getString("binding")) {
