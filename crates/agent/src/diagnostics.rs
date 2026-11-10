@@ -80,7 +80,7 @@ pub fn browser_auth_event(event: &'static str, elapsed_ms: u64) {
     log(LogLevel::Info, "browser_auth", &format!("{event}; elapsed_ms={elapsed_ms}"));
 }
 
-/// Android 网络层只上报固定分类和 HTTP 状态，不能把远端地址或异常原文写进日志。
+/// 网络层只上报固定分类和 HTTP 状态，不能把远端地址或异常原文写进日志。
 pub fn webdav_error(operation: u32, phase: u32, directory: u32, status: u32, reason: u32) {
     let operation = match operation {
         1 => "test", 2 => "save", 3 => "read", 4 => "publish", 5 => "probe",
@@ -88,18 +88,25 @@ pub fn webdav_error(operation: u32, phase: u32, directory: u32, status: u32, rea
     };
     let phase = match phase {
         1 => "directory_propfind", 2 => "directory_mkcol", 3 => "directory_xml",
-        4 => "directory_verify", 5 => "test_cleanup", _ => "operation",
+        4 => "directory_verify", 5 => "test_cleanup",
+        6 => "cleanup_list", 7 => "cleanup_entry_check", 8 => "cleanup_file_delete",
+        9 => "cleanup_empty_check", 10 => "cleanup_directory_delete",
+        11 => "cleanup_directory_verify", 12 => "cleanup_file_verify", _ => "operation",
     };
     let directory = match directory {
         1 => "endpoint", 2 => "configured_directory", 3 => "snapshots", 4 => "backups",
-        5 => "test_directory", _ => "unspecified",
+        5 => "test_directory", 6 => "test_initial_gate", _ => "unspecified",
     };
+    let level = if reason == 5 { LogLevel::Info } else { LogLevel::Error };
     let reason = match reason {
         1 => "unexpected_http_status", 2 => "invalid_xml", 3 => "directory_mismatch",
-        4 => "request_failed", _ => "operation_failed",
+        4 => "request_failed", 5 => "progress", 6 => "invalid_cleanup_path",
+        7 => "paginated_listing", 8 => "unknown_entry", 9 => "directory_not_empty",
+        10 => "duplicate_or_invalid_entry", 11 => "directory_entry_missing",
+        12 => "invalid_listing_properties", _ => "operation_failed",
     };
     let status = if (100..=599).contains(&status) { status } else { 0 };
-    log(LogLevel::Error, "webdav", &format!(
+    log(level, "webdav", &format!(
         "operation={operation}; phase={phase}; directory={directory}; http_status={status}; reason={reason}"
     ));
 }

@@ -11,6 +11,14 @@ pub fn change_master_password(
     let vmk = config.unlock_master(old_password)?;
     // 解出主密码槽不能证明恢复槽未被篡改，必须先验证整个控制配置再沿用它。
     config.verify_mac(&vmk)?;
+    rewrap_master_password(config, new_password, &vmk)
+}
+
+pub(crate) fn rewrap_master_password(
+    config: &CpvcConfig,
+    new_password: &str,
+    vmk: &[u8; 32],
+) -> Result<CpvcConfig> {
     let recovery = config
         .key_slots
         .iter()
@@ -22,7 +30,7 @@ pub fn change_master_password(
         &config.vault_id,
         config.format_major,
         new_password,
-        &*vmk,
+        vmk,
     )?;
 
     let mut next = CpvcConfig {
@@ -30,10 +38,11 @@ pub fn change_master_password(
         format_major: config.format_major,
         vault_id: config.vault_id.clone(),
         control_id: Uuid::new_v4().to_string(),
-        control_revision: config.control_revision + 1,
+        control_revision: config.control_revision.checked_add(1)
+            .ok_or_else(|| CoreError::format("control revision overflow"))?,
         key_slots: vec![new_master, recovery],
         control_mac: None,
     };
-    next.sign(&*vmk)?;
+    next.sign(vmk)?;
     Ok(next)
 }

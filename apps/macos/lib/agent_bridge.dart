@@ -125,6 +125,7 @@ class AgentBridge {
           (e.message.contains('agent_not_started') || e.message.contains('agent not started')));
 
   static String friendlyMessage(AgentException e) {
+    if (e.code == 'sync_error') return tr(e.message);
     if (e.code == 'auth_required') return tr('agent.friendlyMessage.text');
     if (isAgentNotStartedError(e)) {
       return tr('agent.friendlyMessage.text.item2');
@@ -189,6 +190,7 @@ class AgentBridge {
       'old_password': oldPassword,
       'new_password': newPassword,
     });
+    notifyVaultChanged();
   }
 
   static Future<void> vaultExportOvb(String outputPath, String password) async {
@@ -201,6 +203,7 @@ class AgentBridge {
 
   static Future<void> vaultOpenDir(String path) async {
     await request({'type': 'vault_open_dir', 'path': path});
+    activePartitionId = personalPartitionId;
   }
 
   static Future<void> vaultRecoverOvb({

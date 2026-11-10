@@ -397,6 +397,8 @@ async fn handle_request_inner(
         | AgentRequest::VaultManage { .. } | AgentRequest::AppCredentialPasswordUpdate { .. } | AgentRequest::AppPasskey { .. }
         | AgentRequest::SshAuthorizationsPending | AgentRequest::SshAuthorizationResolve { .. }
         | AgentRequest::PasskeyRequestsPending | AgentRequest::PasskeyResolve { .. } | AgentRequest::PasskeyList
+        | AgentRequest::VaultResetRecoveryKey { .. } | AgentRequest::VaultExportJson { .. }
+        | AgentRequest::VaultImportJson { .. } | AgentRequest::VaultVerifyRecoveryKey { .. } | AgentRequest::VaultOpenDir { .. }
         | AgentRequest::UnlockPassword { .. } | AgentRequest::VaultCreate { .. }) && !peer.from_app {
         return AgentResponse::err("forbidden", "authentication control is App-only");
     }
@@ -776,6 +778,7 @@ async fn handle_request_inner(
                     st.pending_ssh_sessions.clear();
                     AgentResponse::ok(json!({ "changed": true }))
                 }
+                Err(AgentError::Vault(message)) if message.starts_with("sync.") => AgentResponse::err("sync_error", message),
                 Err(e) => AgentResponse::err("change_password", e.to_string()),
             }
         }
@@ -809,10 +812,14 @@ async fn handle_request_inner(
         AgentRequest::VaultOpenDir { path } => {
             let mut v = st.vault.lock().await;
             match v.open_dir(std::path::PathBuf::from(path)) {
-                Ok(()) => AgentResponse::ok(json!({
-                    "opened": true,
-                    "vault_path": v.vault_dir.to_string_lossy(),
-                })),
+                Ok(()) => {
+                    let path = v.vault_dir.to_string_lossy().to_string();
+                    drop(v);
+                    revoke_extension_gate(st);
+                    st.pending_fills.clear();
+                    st.pending_ssh_sessions.clear();
+                    AgentResponse::ok(json!({"opened": true, "vault_path": path}))
+                },
                 Err(e) => AgentResponse::err("open_dir", e.to_string()),
             }
         }
@@ -1490,6 +1497,41 @@ async fn handle_request_inner(
             }
             match v.verify_ovb_file(&ovb_path, &password) {
                 Ok(()) => AgentResponse::ok(json!({ "verified": true })),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::VaultExportJson { output_path, password } => {
+            let mut v = st.vault.lock().await;
+            match v.export_json(&output_path, &password) {
+                Ok(()) => AgentResponse::ok(json!({"exported": true})),
+                Err(e) => AgentResponse::err("vault", e.to_string()),
+            }
+        }
+        AgentRequest::VaultImportJson { input_path, target_dir, password } => {
+            // 持有会话锁，避免导入途中其他请求切换当前保险库。
+            let _v = st.vault.lock().await;
+            let result = (|| -> credpivot_core::Result<String> {
+                let file = std::fs::File::open(&input_path).map_err(|_| credpivot_core::CoreError::format("无法读取明文文件"))?;
+                use std::io::Read;
+                let mut json = String::new();
+                file.take(64 * 1024 * 1024 + 1).read_to_string(&mut json).map_err(|_| credpivot_core::CoreError::format("无法读取明文文件"))?;
+                if json.len() > 64 * 1024 * 1024 { return Err(credpivot_core::CoreError::limit("明文文件最大 64 MiB")); }
+                credpivot_core::import_logical_json_to_dir(&json, std::path::Path::new(&target_dir), &password)
+            })();
+            match result {
+                Ok(key) => AgentResponse::ok(json!({"imported":true,"new_recovery_key":key})),
+                Err(_) => AgentResponse::err("vault", "导入失败：请检查文件格式与版本、新主密码长度及目标目录是否为空"),
+            }
+        }
+        AgentRequest::VaultResetRecoveryKey { password, recovery_key } => {
+            let mut v = st.vault.lock().await;
+            match v.reset_recovery_key(&password, &recovery_key) {
+                Ok(key) => {
+                    drop(v);
+                    revoke_extension_gate(st);
+                    st.pending_ssh_sessions.clear();
+                    AgentResponse::ok(json!({"new_recovery_key": key}))
+                },
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }

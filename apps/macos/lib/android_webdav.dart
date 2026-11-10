@@ -11,6 +11,7 @@ import 'app_presentation.dart';
 class AndroidWebDav {
   static final instance = AndroidWebDav();
   static const _channel = MethodChannel('credpivot/agent');
+  static const _testDirectoryRoot = '.credpivot-tests';
   final _clients = <HttpClient>{};
   final _random = Random.secure();
   int _epoch = 0;
@@ -37,6 +38,13 @@ class AndroidWebDav {
   Future<Map<String, dynamic>> _agent(Map<String, dynamic> request) async => AgentBridge.payloadOf(await AgentBridge.request(request));
   Future<String> _hash(List<int> data) async => (await _channel.invokeMethod<String>('androidSha256', Uint8List.fromList(data)))!;
 
+  bool _isTestDirectoryPath(String path) {
+    // 兼容旧版根目录清理记录；共享父目录本身不能成为删除目标。
+    const container = '$_testDirectoryRoot/';
+    final name = path.startsWith(container) ? path.substring(container.length) : path;
+    return RegExp(r'^\.credpivot-test-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$').hasMatch(name);
+  }
+
   Future<void> _loadProbeJournal() async {
     if (_probeJournal != null) return;
     try {
@@ -53,7 +61,7 @@ class AndroidWebDav {
           if (entry.key is! String || !RegExp(r'^[0-9a-f]{64}$').hasMatch(entry.key as String) || entry.value is! List) throw const FormatException();
           final names = <String>{};
           for (final name in entry.value as List) {
-            if (name is! String || !RegExp(r'^\.credpivot-test-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$').hasMatch(name)) throw const FormatException();
+            if (name is! String || !_isTestDirectoryPath(name)) throw const FormatException();
             names.add(name);
           }
           if (names.isNotEmpty) loaded[entry.key as String] = names;
@@ -289,7 +297,7 @@ class AndroidWebDav {
   bool _same(List<int> a, List<int> b) => a.length == b.length && List.generate(a.length, (i) => a[i] == b[i]).every((v) => v);
 
   Future<bool> _cleanupTestDirectory(Map<String, dynamic> config, String name, int epoch) async {
-    if (!RegExp(r'^\.credpivot-test-[0-9a-f-]{36}$').hasMatch(name)) return false;
+    if (!_isTestDirectoryPath(name)) return false;
     final scratch = {...config, 'root': Uri.parse(config['root'] as String).resolve('$name/').toString()};
     final root = Uri.parse(scratch['root'] as String);
     Future<List<dynamic>?> listing(String path) async {
@@ -347,7 +355,8 @@ class AndroidWebDav {
     }
     await _saveProbeJournal();
     if (pending.length >= 32) _fail('sync.errors.probeCleanup');
-    final testDirectory = '.credpivot-test-${_nonce()}';
+    await _directory(config, '$_testDirectoryRoot/', epoch, directory: 'test');
+    final testDirectory = '$_testDirectoryRoot/.credpivot-test-${_nonce()}';
     final existing = await _request(config, '$testDirectory/', epoch, method: 'PROPFIND', headers: {'Depth': '0'}, limit: 256 * 1024);
     if (existing.status != 404) _fail('sync.errors.probeDirectory',
       details: {'directory': 'test', 'directory_phase': 'read', 'http_status': existing.status});
@@ -430,7 +439,7 @@ class AndroidWebDav {
 
   String _snapshot(Map<String, dynamic> head) {
     final path = head['snapshot'];
-    if (head['format'] != 'credpivot-sync' || head['version'] != 1 || path is! String || path.length > 180 ||
+    if (head['format'] != 'credpivot-sync' || ![1, 2].contains(head['version']) || path is! String || path.length > 180 ||
         !RegExp(r'^snapshots/credpivot_[A-Za-z0-9_-]+\.ovb$').hasMatch(path)) { _fail('sync.errors.format'); }
     return path;
   }
@@ -738,7 +747,9 @@ class AndroidWebDav {
         final old = await _channel.invokeMethod<String>('androidSecureRead', next['location']);
         final password = supplied.isNotEmpty ? supplied : old;
         if (password == null || password.isEmpty) _fail('sync.errors.passwordMissing');
-        if (method == 'webdavTest' || args['verify'] == true || supplied.isNotEmpty || config['location'] != next['location'] || config['provider'] != next['provider']) {
+        final shouldVerify = args['verify'] is bool ? args['verify'] as bool
+            : supplied.isNotEmpty || config['location'] != next['location'] || config['provider'] != next['provider'];
+        if (method == 'webdavTest' || shouldVerify) {
           await _probe({...next, '_password': password}, epoch, checks);
         }
         if (method == 'webdavTest') { _verifiedLocation = null; return {'ok': true, 'checks': checks, 'initial_creation': 'move'}; }

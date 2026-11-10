@@ -107,7 +107,14 @@ pub(crate) fn handle(vault: &mut VaultSession, request: AgentRequest) -> Result<
             Ok(json!({"authorized":true}))
         }
         AgentRequest::SyncStatus => {
-            sync::status(vault.db.as_ref().ok_or(AgentError::Locked)?.conn()).map_err(vault_error)
+            let db = vault.db.as_ref().ok_or(AgentError::Locked)?;
+            let config = credpivot_core::read_vault_json(&vault.vault_dir).map_err(vault_error)?;
+            let mut status = sync::status(db.conn()).map_err(vault_error)?;
+            let password_status = sync::password_status(db.conn(), &config).map_err(vault_error)?;
+            if let (Some(status), Some(password_status)) = (status.as_object_mut(), password_status.as_object()) {
+                status.extend(password_status.clone());
+            }
+            Ok(status)
         }
         AgentRequest::SyncDisconnect => {
             if !vault.authorize_sensitive_operation() {
@@ -157,6 +164,7 @@ pub(crate) fn handle(vault: &mut VaultSession, request: AgentRequest) -> Result<
             )
             .map_err(vault_error)?;
             let preview = plan.preview();
+            if plan.password_updated { vault.grant_sensitive_auth(); }
             vault.sync_plan = Some(plan);
             Ok(preview)
         }
@@ -183,7 +191,7 @@ pub(crate) fn handle(vault: &mut VaultSession, request: AgentRequest) -> Result<
                 .as_ref()
                 .filter(|p| p.id == plan_id)
                 .ok_or_else(|| AgentError::Vault("sync.errors.previewExpired".into()))?;
-            let manual = plan.initial || !plan.conflicts.is_empty();
+            let manual = plan.initial || plan.password_updated || !plan.conflicts.is_empty();
             if manual && !vault.authorize_sensitive_operation() {
                 return Err(AgentError::Protocol("auth_required".into()));
             }
@@ -215,7 +223,7 @@ pub(crate) fn handle(vault: &mut VaultSession, request: AgentRequest) -> Result<
                 return Ok(json!({"no_upload":true,"changed":false}));
             }
             let changes = plan.changes_local();
-            let backup = if plan.initial || changes {
+            let backup = if plan.initial || changes || switches {
                 Some(
                     sync::backup(
                         &vault.vault_dir,
@@ -242,6 +250,10 @@ pub(crate) fn handle(vault: &mut VaultSession, request: AgentRequest) -> Result<
                     sync::restore_with_vmk(&archive, &next, &plan.target_vmk)
                         .map_err(|e| apply_error(e, "sync.errors.applyLocal"))?;
                     let next_db = VaultDatabase::open(&next, &plan.target_vmk).map_err(vault_error)?;
+                    if plan.password_updated {
+                        sync::copy_seen_versions(vault.db.as_ref().ok_or(AgentError::Locked)?.conn(), next_db.conn())
+                            .map_err(|e| apply_error(e, "sync.errors.applyLocal"))?;
+                    }
                     if let Some(selected) = &vault.ssh_signing_key_id {
                         next_db
                             .conn()

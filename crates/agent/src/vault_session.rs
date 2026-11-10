@@ -173,14 +173,14 @@ impl VaultSession {
     }
 
     pub fn open_dir(&mut self, path: PathBuf) -> Result<()> {
-        if self.unlocked {
-            return Err(AgentError::Vault("lock vault before switching directory".into()));
+        let path = std::fs::canonicalize(path).map_err(|e| AgentError::Vault(e.to_string()))?;
+        read_vault_json(&path).map_err(|_| AgentError::Vault("不是有效的保险库目录".into()))?;
+        if !path.join("vault.db").is_file() {
+            return Err(AgentError::Vault("保险库缺少 vault.db".into()));
         }
-        if !path.join("vault.json").exists() {
-            return Err(AgentError::Vault("vault.json not found in directory".into()));
-        }
-        crate::paths::persist_active_vault_dir(&path)
-            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        crate::paths::persist_active_vault_dir(&path).map_err(|e| AgentError::Vault(e.to_string()))?;
+        self.lock();
+        self.data_revision = uuid::Uuid::new_v4().to_string();
         self.vault_dir = path;
         self.local_unlock_policy = LocalUnlockPolicy::default();
         self.sensitive_authenticated_at = None;
@@ -435,6 +435,7 @@ impl VaultSession {
         if !self.unlocked {
             return Err(AgentError::Locked);
         }
+        self.sync_plan = None;
         if let (Some(vmk), Some(db)) = (self.vmk.as_ref(), self.db.as_ref()) {
             create_restore_point_for_risky_op(&self.vault_dir, &**vmk, db.conn())
                 .map_err(|e| AgentError::Vault(e.to_string()))?;
@@ -446,7 +447,10 @@ impl VaultSession {
                 self.vmk = Some(vmk);
                 let _ = self.attach_database();
             }
-            return Err(AgentError::Vault(e.to_string()));
+            return Err(AgentError::Vault(match e {
+                credpivot_core::CoreError::Format(message) if message.starts_with("sync.") => message,
+                error => error.to_string(),
+            }));
         }
         let cfg = read_vault_json(&self.vault_dir).map_err(|e| AgentError::Vault(e.to_string()))?;
         let vmk = cfg
@@ -457,6 +461,34 @@ impl VaultSession {
         self.attach_database()?;
         self.record_master_verification()?;
         Ok(())
+    }
+
+    pub fn export_json(&mut self, path: &str, password: &str) -> Result<()> {
+        use std::io::Write;
+        self.verify_master_password(password)?;
+        let db = self.db.as_ref().ok_or(AgentError::Locked)?;
+        let json = credpivot_core::export_logical_json(db.conn()).map_err(|e| AgentError::Vault(e.to_string()))?;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)] { use std::os::unix::fs::OpenOptionsExt; options.mode(0o600); }
+        let mut file = options.open(path).map_err(|_| AgentError::Vault("无法创建明文文件，请选择未使用的文件名".into()))?;
+        if file.write_all(json.as_bytes()).and_then(|_| file.sync_all()).is_err() {
+            drop(file);
+            let _ = std::fs::remove_file(path);
+            return Err(AgentError::Vault("明文导出失败".into()));
+        }
+        Ok(())
+    }
+
+    pub fn reset_recovery_key(&mut self, password: &str, recovery_key: &str) -> Result<String> {
+        self.verify_master_password(password)?;
+        self.sync_plan = None;
+        let key = credpivot_core::reset_recovery_key_in_dir(&self.vault_dir, password, recovery_key)
+            .map_err(|e| AgentError::Vault(e.to_string()))?;
+        self.data_revision = uuid::Uuid::new_v4().to_string();
+        // 配置已生效后，刷新失败也不能丢失应交付的新恢复码。
+        if self.record_master_verification().is_err() { self.lock(); }
+        Ok(key)
     }
 
     pub fn export_ovb(&mut self, output_path: &str, password: &str) -> Result<()> {

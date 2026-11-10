@@ -98,11 +98,13 @@ class MainActivity : FlutterActivity() {
                 val raw = NativeAgent.raw(request.toString())
                 val response = JSONObject(raw)
                 if (response.optString("type") == "ok") {
-                    if (request.optString("type") in setOf("vault_create", "vault_change_password", "vault_open_dir")) {
+                    val vaultSwitched = request.optString("type") == "sync_apply" &&
+                        response.optJSONObject("payload")?.optBoolean("vault_switched") == true
+                    if (vaultSwitched || request.optString("type") in setOf("vault_create", "vault_change_password", "vault_reset_recovery_key", "vault_open_dir")) {
                         // 旧指纹材料不能跨保险库或主密码槽位变更继续使用。
                         try { secure.disableBiometric() } catch (_: Exception) {}
                     }
-                    if (request.optString("type") in setOf("vault_create", "vault_change_password")) verification.persistPolicy()
+                    if (vaultSwitched || request.optString("type") in setOf("vault_create", "vault_change_password", "vault_reset_recovery_key", "vault_export_json")) verification.persistPolicy()
                     if (request.optString("type") == "status") {
                         verification.describeStatus(response.getJSONObject("payload"))
                     }

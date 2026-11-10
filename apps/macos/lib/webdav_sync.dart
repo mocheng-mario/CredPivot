@@ -57,6 +57,8 @@ class WebDavSync extends ChangeNotifier with WidgetsBindingObserver {
       status['connected'] == true &&
       status['location'] == settings['location'];
   bool get hasPreview => preview['plan_id'] is String;
+  bool get needsPassword => status['password_state'] == 'awaiting_confirmation' &&
+      preview['password_updated'] != true;
   List<Map<String, dynamic>> get conflicts =>
       (preview['conflicts'] as List? ?? [])
           .map((v) => Map<String, dynamic>.from(v as Map))
@@ -86,6 +88,7 @@ class WebDavSync extends ChangeNotifier with WidgetsBindingObserver {
     _due = DateTime.now().add(const Duration(seconds: 15));
     // 业务数据变化后旧预览不能继续应用，需重新生成；Agent 也会检查内容指纹。
     preview = {};
+    if (unlocked) refresh().catchError((Object _) {});
     notifyListeners();
   }
 
@@ -154,6 +157,7 @@ class WebDavSync extends ChangeNotifier with WidgetsBindingObserver {
         settings['automatic'] != true ||
         _attention ||
         _interacting ||
+        needsPassword ||
         hasPreview ||
         DateTime.now().isBefore(_due) ||
         DateTime.now().isBefore(_retryAfter)) {
@@ -202,7 +206,8 @@ class WebDavSync extends ChangeNotifier with WidgetsBindingObserver {
                   'sync.errors.network',
                   'sync.errors.rateLimited',
                   'sync.errors.server',
-                  'sync.errors.remoteChanged'
+                  'sync.errors.remoteChanged',
+                  'sync.errors.localChanged'
                 ].contains(e.code));
         if (localChanged) preview = {};
         _attention = !retryable;
@@ -262,7 +267,7 @@ class WebDavSync extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> save(Map<String, dynamic> values) => _run((epoch) async {
-        final saved = await _native('webdavSave', {...values, 'verify': true});
+        final saved = await _native('webdavSave', {...values, 'verify': values['verify'] != false});
         if (epoch != _epoch) return;
         if (settings['location'] != saved['location']) {
           _serverRetryAfter = DateTime.fromMillisecondsSinceEpoch(0);
@@ -328,6 +333,10 @@ class WebDavSync extends ChangeNotifier with WidgetsBindingObserver {
           await _prepare(epoch,
               strategy: strategy, remotePassword: remotePassword);
         }
+      });
+  Future<void> confirmPasswordChange(String password) => _run((epoch) async {
+        await _prepare(epoch, remotePassword: password);
+        if (epoch == _epoch) await refresh();
       });
   Future<void> check() => _run((epoch) async {
         _attention = false;
@@ -542,9 +551,14 @@ class WebDavSyncPage extends StatelessWidget {
     ];
     final form = GlobalKey<FormState>();
     var testing = false;
+    var confirmingSave = false;
     var testStarted = false, cancelRequested = false;
+    var hasTested = false;
     Map<String, dynamic>? testReport;
-    void clearTest() => testReport = null;
+    void clearTest() {
+      testReport = null;
+      hasTested = false;
+    }
     Map<String, dynamic> draftValues() => {
           'provider': provider,
           'server_url': server.text.trim(),
@@ -633,7 +647,7 @@ class WebDavSyncPage extends StatelessWidget {
     try {
       values = await showDraftDialog<Map<String, dynamic>>(
           context: context,
-          isBusy: () => testing,
+          isBusy: () => testing || confirmingSave,
           hasChanges: () =>
               password.text.isNotEmpty ||
               [
@@ -655,7 +669,7 @@ class WebDavSyncPage extends StatelessWidget {
                     content: SizedBox(
                         width: appEditDialogWidth(ctx),
                         child: AbsorbPointer(
-                            absorbing: testing,
+                            absorbing: testing || confirmingSave,
                             child: SingleChildScrollView(
                                 child: Form(
                                     key: form,
@@ -930,7 +944,7 @@ class WebDavSyncPage extends StatelessWidget {
                                         ]))))),
                     actions: [
                       TextButton(
-                          onPressed: cancelRequested
+                          onPressed: cancelRequested || confirmingSave
                               ? null
                               : () async {
                                   if (testing) {
@@ -945,7 +959,7 @@ class WebDavSyncPage extends StatelessWidget {
                           child: LText(
                               testing ? 'sync.test.stop' : 'common.cancel')),
                       if (!bootstrap) OutlinedButton.icon(
-                          onPressed: testing || provider == 's3'
+                          onPressed: testing || confirmingSave || provider == 's3'
                               ? null
                               : () async {
                                   if (form.currentState?.validate() != true) {
@@ -955,7 +969,7 @@ class WebDavSyncPage extends StatelessWidget {
                                   setLocal(() {
                                     testing = true;
                                     cancelRequested = false;
-                                    clearTest();
+                                    testReport = null;
                                   });
                                   try {
                                     if (!await requireTouchId(ctx,
@@ -975,7 +989,11 @@ class WebDavSyncPage extends StatelessWidget {
                                     final report =
                                         await sync.testConfiguration(draft);
                                     if (ctx.mounted) {
-                                      setLocal(() => testReport = report);
+                                      setLocal(() {
+                                        testReport = report;
+                                        // 已执行过测试即可只保存，不以成功结果作为重复测试的条件。
+                                        hasTested = true;
+                                      });
                                     }
                                   } finally {
                                     draft['password'] = '';
@@ -991,14 +1009,21 @@ class WebDavSyncPage extends StatelessWidget {
                           icon: const Icon(Icons.network_check, size: 18),
                           label: const LText('sync.test.action')),
                       FilledButton(
-                          onPressed: provider == 's3' || testing
+                          onPressed: provider == 's3' || testing || confirmingSave
                               ? null
-                              : () {
-                                  if (form.currentState!.validate()) {
-                                    Navigator.pop(ctx, draftValues());
+                              : () async {
+                                  if (confirmingSave || form.currentState?.validate() != true) return;
+                                  setLocal(() => confirmingSave = true);
+                                  try {
+                                    // 确认和身份验证完成前保留表单；取消时继续编辑当前草稿。
+                                    if (!bootstrap && !await requireTouchId(ctx, reason: 'sync.auth.configure')) return;
+                                    if (!ctx.mounted || (!bootstrap && !sync.unlocked)) return;
+                                    Navigator.pop(ctx, {...draftValues(), 'verify': !hasTested});
+                                  } finally {
+                                    if (ctx.mounted) setLocal(() => confirmingSave = false);
                                   }
                                 },
-                          child: LText(bootstrap ? 'common.continue' : 'sync.configure.save')),
+                          child: LText(bootstrap ? 'common.continue' : hasTested ? 'common.save' : 'sync.configure.save')),
                     ],
                   )));
     } finally {
@@ -1014,13 +1039,10 @@ class WebDavSyncPage extends StatelessWidget {
 
   Future<void> _configure(BuildContext context) async {
     final values = await configurationDraft(context);
-    if (values == null || !context.mounted) return;
-    if (!await requireTouchId(context, reason: 'sync.auth.configure')) {
-      values['password'] = '';
-      return;
-    }
-    try { await sync.save(values); }
-    finally { values['password'] = ''; }
+    if (values == null) return;
+    try {
+      if (context.mounted) await sync.save(values);
+    } finally { values['password'] = ''; }
   }
 
   Future<void> _initial(BuildContext context) async {
@@ -1101,6 +1123,50 @@ class WebDavSyncPage extends StatelessWidget {
     if (await requireTouchId(context, reason: 'sync.auth.apply')) {
       await sync.apply();
       _showSyncResult(context);
+    }
+  }
+
+  Future<void> _confirmPasswordChange(BuildContext context) async {
+    final password = TextEditingController();
+    String? value;
+    try {
+      value = await showDraftDialog<String>(
+          context: context,
+          hasChanges: () => password.text.isNotEmpty,
+          builder: (ctx) => AppEditDialog(
+                title: const LText('sync.password.confirmTitle'),
+                content: SizedBox(
+                    width: appEditDialogWidth(ctx),
+                    child: SingleChildScrollView(
+                        child: Column(mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                      LText(sync.status['password_conflict'] == true
+                          ? 'sync.password.conflictHelp'
+                          : 'sync.password.confirmHelp'),
+                      const SizedBox(height: 16),
+                      TextField(controller: password, obscureText: true,
+                          autofocus: true, autocorrect: false,
+                          enableSuggestions: false,
+                          decoration: InputDecoration(hintText: tr('sync.password.newPassword'))),
+                    ]))),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(ctx),
+                      child: const LText('common.cancel')),
+                  FilledButton(onPressed: () {
+                    if (password.text.isNotEmpty) Navigator.pop(ctx, password.text);
+                  }, child: const LText('sync.password.verify')),
+                ],
+              ));
+    } finally {
+      password.dispose();
+    }
+    if (value == null || !context.mounted || !sync.unlocked) return;
+    try {
+      await sync.confirmPasswordChange(value);
+      _showSyncResult(context);
+    } finally {
+      value = null;
     }
   }
 
@@ -1402,11 +1468,15 @@ class WebDavSyncPage extends StatelessWidget {
                             ? null
                             : () => sync.interact(() => !sync.configured
                                 ? _configure(context)
-                                : sync.connected
+                                : sync.needsPassword
+                                    ? _confirmPasswordChange(context)
+                                    : sync.connected
                                     ? _check(context)
                                     : _initial(context)),
                         icon: const Icon(Icons.sync, size: 18),
-                        label: LText(sync.configured
+                        label: LText(sync.needsPassword
+                            ? 'sync.password.verify'
+                            : sync.configured
                             ? 'sync.actions.now'
                             : 'sync.actions.configure')),
                     child: Column(
@@ -1450,6 +1520,25 @@ class WebDavSyncPage extends StatelessWidget {
                             const SizedBox(height: 10),
                             LText('sync.host.local', args: {'name': sync.status['sync_host_name'] ?? ''}),
                           ],
+                          if (sync.connected && sync.status['control_revision'] != null) ...[
+                            const SizedBox(height: 10),
+                            LText('sync.password.version', args: {'version': sync.status['control_revision']}),
+                          ],
+                          if (sync.connected && sync.status['password_state'] == 'pending_publish') ...[
+                            const SizedBox(height: 12),
+                            AppNotice(tr('sync.password.pendingPublish')),
+                          ],
+                          if (sync.needsPassword) ...[
+                            const SizedBox(height: 12),
+                            AppNotice(tr(sync.status['password_conflict'] == true
+                                ? 'sync.password.conflictHelp' : 'sync.password.confirmHelp')),
+                            const SizedBox(height: 8),
+                            LText('sync.password.remoteVersion', args: {
+                              'version': sync.status['password_remote_revision'] ?? '',
+                              'host': (sync.status['password_remote_host']?.toString() ?? '').isEmpty
+                                  ? tr('sync.host.unknown') : sync.status['password_remote_host'],
+                            }),
+                          ],
                           if (sync.configured) ...[
                             const SizedBox(height: 10),
                             LText('sync.cleanup.policy', args: {
@@ -1479,7 +1568,7 @@ class WebDavSyncPage extends StatelessWidget {
                           Wrap(spacing: 10, runSpacing: 10, children: [
                             if (sync.connected)
                               OutlinedButton(
-                                  onPressed: sync.busy
+                                  onPressed: sync.busy || sync.needsPassword || sync.status['password_state'] == 'pending_publish'
                                       ? null
                                       : () => sync
                                           .interact(() => _initial(context)),
@@ -1556,6 +1645,10 @@ class WebDavSyncPage extends StatelessWidget {
                             if (sync.preview['initial'] == true) ...[
                               const SizedBox(height: 10),
                               LText('sync.strategy.${sync.preview['strategy']}')
+                            ],
+                            if (sync.preview['password_updated'] == true) ...[
+                              const SizedBox(height: 12),
+                              AppNotice(tr('sync.password.preview', args: {'version': sync.preview['control_revision']})),
                             ],
                             if (sync.preview['remote_present'] == false) ...[
                               const SizedBox(height: 10),

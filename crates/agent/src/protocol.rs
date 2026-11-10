@@ -273,6 +273,9 @@ pub enum AgentRequest {
         password: String,
     },
     VaultVerifyRecoveryKey { recovery_key: String },
+    VaultResetRecoveryKey { password: String, recovery_key: String },
+    VaultExportJson { output_path: String, password: String },
+    VaultImportJson { input_path: String, target_dir: String, password: String },
     DiagnosticLogTail {
         #[serde(default = "default_log_tail_lines")]
         max_lines: usize,
@@ -374,6 +377,9 @@ impl AgentRequest {
             Self::BackupStatus => "backup_status",
             Self::VaultVerifyOvb { .. } => "vault_verify_ovb",
             Self::VaultVerifyRecoveryKey { .. } => "vault_verify_recovery_key",
+            Self::VaultResetRecoveryKey { .. } => "vault_reset_recovery_key",
+            Self::VaultExportJson { .. } => "vault_export_json",
+            Self::VaultImportJson { .. } => "vault_import_json",
             Self::DiagnosticLogTail { .. } => "diagnostic_log_tail",
             Self::DiagnosticLogSetLevel { .. } => "diagnostic_log_set_level",
         }

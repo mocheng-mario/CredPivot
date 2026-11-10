@@ -5,7 +5,7 @@ use crate::error::{CoreError, Result};
 use crate::key_slot::{KeySlot, SlotType};
 use crate::local_db;
 use crate::ovb1::{build_ovb_file, decrypt_snapshot, parse_ovb_with_aad};
-use crate::password_change::change_master_password;
+use crate::password_change::rewrap_master_password;
 use crate::snapshot::{pack_snapshot_from_dir, unpack_snapshot_to_dir};
 use crate::vault_init::{create_vault_config, NewVaultMaterial};
 use std::fs;
@@ -109,7 +109,13 @@ pub fn change_master_password_in_dir(
     new_password: &str,
 ) -> Result<CpvcConfig> {
     let cfg = read_vault_json(dir)?;
-    let next = change_master_password(&cfg, old_password, new_password)?;
+    let vmk = cfg.unlock_master(old_password)?;
+    cfg.verify_mac(&vmk)?;
+    let next = rewrap_master_password(&cfg, new_password, &vmk)?;
+    // 先持久化改密意图；配置替换后即使进程退出，也能沿用原同步基准发布新密码。
+    let db = local_db::open_database(dir, &vmk)?;
+    crate::sync::stage_password_change(&db, &cfg, &next, &vmk)?;
+    drop(db);
     write_vault_json_atomic(dir, &next)?;
     Ok(next)
 }
@@ -371,4 +377,51 @@ fn preserve_restore_points_from_backup(backup: &Path, active: &Path) -> Result<(
         }
     }
     Ok(())
+}
+
+/// 仅轮换恢复槽；旧备份仍需各自原来的恢复码。
+pub fn reset_recovery_key_in_dir(dir: &Path, password: &str, old_key: &str) -> Result<String> {
+    let mut config = read_vault_json(dir)?;
+    let vmk = config.unlock_master(password)?;
+    config.verify_mac(&vmk)?;
+    let old_secret = crate::parse_recovery_display(old_key.trim())?;
+    let old_secret: [u8; VMK_LEN] = old_secret.try_into().map_err(|_| CoreError::BadSecret)?;
+    if config.unlock_recovery(&old_secret)?.as_ref() != vmk.as_ref() { return Err(CoreError::Auth); }
+    let conn = local_db::open_database(dir, &vmk)?;
+    // 当前同步协议只允许主密码槽变化，不能静默替换已绑定远端的恢复槽。
+    if crate::sync::binding(&conn)?.is_some() {
+        return Err(CoreError::format("请先断开 WebDAV 同步，再重置恢复码；旧远端备份仍使用旧恢复码。"));
+    }
+    crate::create_restore_point_for_risky_op(dir, &vmk, &conn)?;
+    let (secret, display) = crate::generate_recovery_key();
+    let secret: [u8; VMK_LEN] = secret.try_into().map_err(|_| CoreError::BadSecret)?;
+    let slot = KeySlot::create_recovery(&config.vault_id, config.format_major, &secret, &vmk)?;
+    config.key_slots.retain(|s| s.slot_type != SlotType::RecoveryKey);
+    config.key_slots.push(slot);
+    config.control_id = Uuid::new_v4().to_string();
+    config.control_revision = config.control_revision.checked_add(1).ok_or_else(|| CoreError::format("control revision overflow"))?;
+    config.sign(&vmk)?;
+    if config.unlock_recovery(&secret)?.as_ref() != vmk.as_ref() { return Err(CoreError::Auth); }
+    // 写入失败时只会丢失验证时间，不会误报旧码仍可恢复新配置。
+    conn.execute("DELETE FROM vault_settings WHERE key IN (?1,?2,?3)", rusqlite::params![
+        crate::backup_status::KEY_RECOVERY_KEY_OK,
+        crate::backup_status::KEY_OVB_EXPORT_OK,
+        crate::backup_status::KEY_OVB_DECRYPT_OK,
+    ])?;
+    crate::mark_restore_dirty(&conn)?;
+    if let Err(error) = write_vault_json_atomic(dir, &config) {
+        // rename 已成功但最后的目录同步失败时，仍必须交付已生效的新码。
+        let activated = read_vault_json(dir).is_ok_and(|active| {
+            active.control_id == config.control_id && active.verify_mac(&vmk).is_ok()
+        });
+        if !activated {
+            let pending = dir.join("vault.json.next");
+            if fs::read_to_string(&pending).ok().and_then(|body| crate::parse_config(&body).ok())
+                .is_some_and(|next| next.control_id == config.control_id) {
+                let _ = fs::remove_file(pending);
+            }
+            return Err(error);
+        }
+    }
+    Ok(display)
 }

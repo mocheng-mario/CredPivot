@@ -21,7 +21,16 @@ private func credpivot_string_free(_ ptr: UnsafeMutablePointer<CChar>)
 @_silgen_name("credpivot_browser_auth_event")
 private func credpivot_browser_auth_event(_ stage: UInt32, _ elapsedMs: UInt64)
 
+@_silgen_name("credpivot_webdav_error")
+private func credpivot_webdav_error(_ operation: UInt32, _ phase: UInt32, _ directory: UInt32, _ status: UInt32, _ reason: UInt32)
+
 enum CredPivotRustFFI {
+  private static let webDAVLogQueue = DispatchQueue(label: "credpivot.webdav.cleanup-log", qos: .utility)
+  static func logWebDAVCleanup(_ phase: UInt32, status: Int = 0, reason: UInt32 = 5, gate: Bool = false) {
+    let code = UInt32((100...599).contains(status) ? status : 0)
+    // 固定阶段/原因编码，不记录 URL、目录名、认证信息或服务端正文；串行写入保留事件顺序。
+    webDAVLogQueue.async { credpivot_webdav_error(6, phase, gate ? 6 : 5, code, reason) }
+  }
   static func logBrowserAuth(_ stage: UInt32, since started: TimeInterval) {
     let elapsed = UInt64(max(0, (ProcessInfo.processInfo.systemUptime - started) * 1000))
     // 日志文件锁和磁盘写入也不能占用负责展示/关闭系统验证窗口的主线程。

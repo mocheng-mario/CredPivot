@@ -227,9 +227,13 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
   private var cleanupRequests = 0
   // 仅记录本机生成的随机临时路径；不是用户配置，也不保存认证信息或文件内容。
   private let probeJournalKey = "credpivot.webdav.pendingProbes"
+  private let testDirectoryRoot = ".credpivot-tests"
   private func testDirectoryPath(_ path: String) -> Bool {
+    // 同时识别旧版根目录路径和新版分层路径，继续按本机清单清理历史残留。
+    let container = testDirectoryRoot + "/"
+    let name = path.hasPrefix(container) ? String(path.dropFirst(container.count)) : path
     let prefix = ".credpivot-test-"
-    return path.hasPrefix(prefix) && UUID(uuidString:String(path.dropFirst(prefix.count))) != nil
+    return name.hasPrefix(prefix) && UUID(uuidString:String(name.dropFirst(prefix.count))) != nil
   }
   private func probePath(_ path: String) -> Bool {
     let prefix = ".credpivot-probe-"
@@ -528,63 +532,85 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
     }
     return try await request(config,source,method:"MOVE",headers:["Destination":target.absoluteString,"Overwrite":"F"],limit:256 * 1024)
   }
+  private func testCleanupRequest(_ config: [String: Any], _ path: String, phase: UInt32, method: String = "PROPFIND",
+                                  data: Data? = nil, headers: [String: String] = [:], limit: Int = 256 * 1024) async throws -> WebDAVTransfer.Reply {
+    let gate = path == "initial-gate/"
+    do {
+      let reply = try await request(config,path,method:method,data:data,headers:headers,limit:limit)
+      CredPivotRustFFI.logWebDAVCleanup(phase,status:reply.response.statusCode,gate:gate)
+      return reply
+    } catch {
+      CredPivotRustFFI.logWebDAVCleanup(phase,status:(error as? WebDAVFailure)?.status ?? 0,reason:4,gate:gate)
+      throw error
+    }
+  }
+  private func rejectTestCleanup(_ phase: UInt32, reason: UInt32, status: Int = 0, gate: Bool = false) -> Bool {
+    CredPivotRustFFI.logWebDAVCleanup(phase,status:status,reason:reason,gate:gate)
+    return false
+  }
   /// 只用于本次随机测试目录；集合 DELETE 有递归语义，删除前必须验证确实为空。
   private func removeEmptyTestCollection(_ config: [String: Any], _ path: String) async throws -> Bool {
+    let gate = path == "initial-gate/"
     guard let name = config["_test_directory"] as? String, testDirectoryPath(name),
-          path.isEmpty || path == "initial-gate/",
-          let root = URL(string:config["root"] as? String ?? ""), root.lastPathComponent == name,
-          let target = URL(string:path,relativeTo:root)?.absoluteURL else { return false }
-    let reply = try await request(config,path,method:"PROPFIND",
+          path.isEmpty || gate,
+          let root = URL(string:config["root"] as? String ?? ""), root.lastPathComponent == (name as NSString).lastPathComponent,
+          let target = path.isEmpty ? root : URL(string:path,relativeTo:root)?.absoluteURL else { return rejectTestCleanup(9,reason:6,gate:gate) }
+    let reply = try await testCleanupRequest(config,path,phase:9,
       data:Data("<?xml version=\"1.0\"?><d:propfind xmlns:d=\"DAV:\"><d:prop><d:resourcetype/></d:prop></d:propfind>".utf8),
-      headers:["Depth":"1","Content-Type":"application/xml"],limit:256 * 1024)
+      headers:["Depth":"1","Content-Type":"application/xml"])
     if reply.response.statusCode == 404 { return true }
+    guard reply.response.statusCode == 207 else { return rejectTestCleanup(9,reason:1,status:reply.response.statusCode,gate:gate) }
+    guard !(reply.response.value(forHTTPHeaderField:"Link") ?? "").lowercased().contains("next") else { return rejectTestCleanup(9,reason:7,gate:gate) }
     let parser = XMLParser(data:reply.data), listing = WebDAVListing()
     parser.shouldProcessNamespaces = true; parser.shouldResolveExternalEntities = false; parser.delegate = listing
-    guard reply.response.statusCode == 207,
-          !(reply.response.value(forHTTPHeaderField:"Link") ?? "").lowercased().contains("next"),
-          parser.parse(), listing.valid, listing.entries.count == 1,
-          let entry = listing.entries.first, entry.collection,
+    guard parser.parse() else { return rejectTestCleanup(9,reason:2,gate:gate) }
+    guard listing.valid else { return rejectTestCleanup(9,reason:12,gate:gate) }
+    guard listing.entries.count == 1 else { return rejectTestCleanup(9,reason:listing.entries.isEmpty ? 11 : 9,gate:gate) }
+    guard let entry = listing.entries.first, entry.collection,
           let observed = URL(string:entry.href,relativeTo:target)?.absoluteURL,
           observed.scheme == target.scheme, observed.host == target.host, (observed.port ?? 443) == (target.port ?? 443),
           observed.query == nil, observed.fragment == nil, observed.user == nil, observed.password == nil,
-          observed.path == target.path || observed.path + "/" == target.path || observed.path == target.path + "/" else { return false }
-    let deleted = try await request(config,path,method:"DELETE",limit:1024)
-    guard [200,204,404].contains(deleted.response.statusCode) else { return false }
-    return try await request(config,path,method:"PROPFIND",headers:["Depth":"0"],limit:256 * 1024).response.statusCode == 404
+          observed.path == target.path || observed.path + "/" == target.path || observed.path == target.path + "/" else { return rejectTestCleanup(9,reason:3,gate:gate) }
+    let deleted = try await testCleanupRequest(config,path,phase:10,method:"DELETE",limit:1024)
+    guard [200,204,404].contains(deleted.response.statusCode) else { return rejectTestCleanup(10,reason:1,status:deleted.response.statusCode,gate:gate) }
+    let missing = try await testCleanupRequest(config,path,phase:11,headers:["Depth":"0"])
+    guard missing.response.statusCode == 404 else { return rejectTestCleanup(11,reason:1,status:missing.response.statusCode,gate:gate) }
+    return true
   }
 
   private func cleanupTestDirectory(_ config: [String: Any], _ name: String) async throws -> Bool {
     guard testDirectoryPath(name), let root = URL(string:config["root"] as? String ?? ""),
-          let target = URL(string:name + "/",relativeTo:root)?.absoluteURL else { return false }
+          let target = URL(string:name + "/",relativeTo:root)?.absoluteURL else { return rejectTestCleanup(6,reason:6) }
     var scratch = config
     scratch["root"] = target.absoluteString; scratch["_test_directory"] = name
-    let reply = try await request(scratch,"",method:"PROPFIND",
+    let reply = try await testCleanupRequest(scratch,"",phase:6,
       data:Data("<?xml version=\"1.0\"?><d:propfind xmlns:d=\"DAV:\"><d:prop><d:resourcetype/></d:prop></d:propfind>".utf8),
-      headers:["Depth":"1","Content-Type":"application/xml"],limit:256 * 1024)
+      headers:["Depth":"1","Content-Type":"application/xml"])
     if reply.response.statusCode == 404 { return true }
+    guard reply.response.statusCode == 207 else { return rejectTestCleanup(6,reason:1,status:reply.response.statusCode) }
+    guard !(reply.response.value(forHTTPHeaderField:"Link") ?? "").lowercased().contains("next") else { return rejectTestCleanup(6,reason:7) }
     let parser = XMLParser(data:reply.data), listing = WebDAVListing()
     parser.shouldProcessNamespaces = true; parser.shouldResolveExternalEntities = false; parser.delegate = listing
-    guard reply.response.statusCode == 207,
-          !(reply.response.value(forHTTPHeaderField:"Link") ?? "").lowercased().contains("next"),
-          parser.parse(), listing.valid else { return false }
+    guard parser.parse() else { return rejectTestCleanup(6,reason:2) }
+    guard listing.valid else { return rejectTestCleanup(6,reason:12) }
     let allowed = ["probe","move-a","move-b","move-target-a","move-target-b"]
     var files = Set<String>(), foundRoot = false, foundGate = false
     for entry in listing.entries {
       guard let url = URL(string:entry.href,relativeTo:target)?.absoluteURL,
             url.scheme == target.scheme, url.host == target.host, (url.port ?? 443) == (target.port ?? 443),
-            url.query == nil, url.fragment == nil, url.user == nil, url.password == nil else { return false }
+            url.query == nil, url.fragment == nil, url.user == nil, url.password == nil else { return rejectTestCleanup(7,reason:3) }
       if url.path == target.path || url.path + "/" == target.path || url.path == target.path + "/" {
-        guard entry.collection, !foundRoot else { return false }; foundRoot = true
+        guard entry.collection, !foundRoot else { return rejectTestCleanup(7,reason:10) }; foundRoot = true
       } else if let file = allowed.first(where: { target.appendingPathComponent($0).path == url.path }) {
-        guard !entry.collection, files.insert(file).inserted else { return false }
+        guard !entry.collection, files.insert(file).inserted else { return rejectTestCleanup(7,reason:10) }
       } else if url.path == target.appendingPathComponent("initial-gate").path || url.path == target.appendingPathComponent("initial-gate").path + "/" {
-        guard entry.collection, !foundGate else { return false }; foundGate = true
-      } else { return false } // 有未知内容就保留，不递归删除整个目录。
+        guard entry.collection, !foundGate else { return rejectTestCleanup(7,reason:10,gate:true) }; foundGate = true
+      } else { return rejectTestCleanup(7,reason:8) } // 有未知内容就保留，不递归删除整个目录。
     }
-    guard foundRoot else { return false }
+    guard foundRoot else { return rejectTestCleanup(7,reason:11) }
     for file in files {
-      let deleted = try await request(scratch,file,method:"DELETE",limit:1024)
-      guard [200,204,404].contains(deleted.response.statusCode) else { return false }
+      let deleted = try await testCleanupRequest(scratch,file,phase:8,method:"DELETE",limit:1024)
+      guard [200,204,404].contains(deleted.response.statusCode) else { return rejectTestCleanup(8,reason:1,status:deleted.response.statusCode) }
     }
     if foundGate {
       guard try await removeEmptyTestCollection(scratch,"initial-gate/") else { return false }
@@ -616,7 +642,8 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
       }
     } else { try await directory(config,"") }
     checked("directory")
-    let testDirectory = ".credpivot-test-" + UUID().uuidString.lowercased()
+    try await directory(config,testDirectoryRoot + "/")
+    let testDirectory = testDirectoryRoot + "/.credpivot-test-" + UUID().uuidString.lowercased()
     let prior = try await request(config,testDirectory + "/",method:"PROPFIND",headers:["Depth":"0"],limit:256 * 1024)
     guard prior.response.statusCode == 404 else { throw WebDAVFailure("sync.errors.probeDirectory", stage:"testDirectory", status:prior.response.statusCode) }
     let made = try await request(config,testDirectory + "/",method:"MKCOL",limit:1024)
@@ -717,9 +744,9 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
         }
         checked("matchConcurrent",[a.response.statusCode,b.response.statusCode])
         stage = "cleanup"
-        let deleted = try await request(config,path,method:"DELETE",limit:1024)
+        let deleted = try await testCleanupRequest(config,path,phase:8,method:"DELETE",limit:1024)
         guard [200,204,404].contains(deleted.response.statusCode) else { throw WebDAVFailure("sync.errors.probeCleanup") }
-        let removed = try await request(config,path,limit:1024)
+        let removed = try await testCleanupRequest(config,path,phase:12,method:"GET",limit:1024)
         guard removed.response.statusCode == 404 else { throw WebDAVFailure("sync.errors.probeCleanup", status:removed.response.statusCode) }
       } catch {
         _ = try? await request(config,path,method:"DELETE",limit:1024)
@@ -821,9 +848,9 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
       onCheck?(["key":"initialMoveConcurrent","passed":true,"statuses":[a.response.statusCode,b.response.statusCode]])
       stage = "cleanup"
       for path in paths {
-        let deleted = try await request(config,path,method:"DELETE",limit:1024)
+        let deleted = try await testCleanupRequest(config,path,phase:8,method:"DELETE",limit:1024)
         guard [200,204,404].contains(deleted.response.statusCode) else { throw WebDAVFailure("sync.errors.probeCleanup", stage:"cleanup", status:deleted.response.statusCode) }
-        let removed = try await request(config,path,limit:1024)
+        let removed = try await testCleanupRequest(config,path,phase:12,method:"GET",limit:1024)
         guard removed.response.statusCode == 404 else { throw WebDAVFailure("sync.errors.probeCleanup", stage:"cleanup", status:removed.response.statusCode) }
       }
     } catch {
@@ -835,7 +862,7 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
     }
   }
   private func validSnapshot(_ head: [String: Any]) throws -> String {
-    guard head["format"] as? String == "credpivot-sync", head["version"] as? Int == 1,
+    guard head["format"] as? String == "credpivot-sync", let version = head["version"] as? Int, [1, 2].contains(version),
           let path = head["snapshot"] as? String,
           path.range(of:"^snapshots/credpivot_[A-Za-z0-9_-]+\\.ovb$", options:.regularExpression) != nil,
           path.count <= 180 else { throw WebDAVFailure("sync.errors.format") }
@@ -1358,7 +1385,9 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
             result(["ok":true,"checks":testChecks,"initial_creation":writeCapabilities?.initialCreation ?? ""])
             return
           }
-          if args["verify"] as? Bool == true || settings()?["location"] as? String != location || WebDAVProviderPolicy(settings() ?? [:]) != WebDAVProviderPolicy(next) || !supplied.isEmpty {
+          // 显式 false 表示当前草稿已手动测试过，保存时不再重复发起探测。
+          let shouldVerify = args["verify"] as? Bool ?? (settings()?["location"] as? String != location || WebDAVProviderPolicy(settings() ?? [:]) != WebDAVProviderPolicy(next) || !supplied.isEmpty)
+          if shouldVerify {
             var draft = next
             draft["_transfer_generation"] = generation
             draft["_password"] = credential
@@ -1789,10 +1818,13 @@ final class CredPivotPlatform: NSObject {
          let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
          response.contains("\"type\":\"ok\"") {
         switch request["type"] as? String {
-        case "vault_create", "vault_change_password", "vault_security_rebuild":
+        case "vault_create", "vault_security_rebuild":
           Task { @MainActor in CredPivotWebDAV.shared.cancel(reason:"sync.errors.localControlChanged") }
           LocalVaultUnlock.enroll()
-        case "vault_export_ovb": _ = LocalVaultUnlock.persist(enroll: false)
+        case "vault_change_password", "vault_reset_recovery_key":
+          Task { @MainActor in CredPivotWebDAV.shared.cancel(reason:"sync.errors.localChanged") }
+          LocalVaultUnlock.enroll()
+        case "vault_export_ovb", "vault_export_json": _ = LocalVaultUnlock.persist(enroll: false)
         case "vault_open_dir":
           LocalVaultUnlock.invalidate()
           Task { @MainActor in CredPivotWebDAV.shared.cancel() }

@@ -172,6 +172,23 @@ pub struct Binding {
     pub host_name: String,
     /// 首次合并独立保险库、尚未发布成功时，用于重新读取旧远端。仅存于加密数据库。
     pub previous_remote_vmk: Option<String>,
+    #[serde(default)]
+    pub control_config: Option<CpvcConfig>,
+    #[serde(default)]
+    pub remote_control_config: Option<CpvcConfig>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PasswordChange {
+    base: CpvcConfig,
+    target: CpvcConfig,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RemotePasswordChange {
+    target: CpvcConfig,
+    host_name: String,
+    conflict: bool,
 }
 
 /// 首次接入没有本地数据库；预览期间只持有密文和已验证的密钥，不创建临时空库。
@@ -200,7 +217,8 @@ impl BootstrapPlan {
         let tx = db.unchecked_transaction()?;
         let state = Binding { location:self.location.clone(), head:Some(self.head.clone()), baseline:envelope.document,
             control_hash:control_hash(&config)?, remote_control_hash:Some(control_hash(&config)?),
-            last_synced_ms:now_ms(), host_name:envelope.host_name, previous_remote_vmk:None };
+            last_synced_ms:now_ms(), host_name:envelope.host_name, previous_remote_vmk:None,
+            control_config:Some(config.clone()), remote_control_config:Some(config) };
         write_state(&tx, "binding", &state)?;
         remember_head(&tx, &self.head)?;
         // 完成服务器写入能力检查之前禁止自动同步，即使设备上残留同地址的旧配置。
@@ -254,6 +272,7 @@ pub struct Plan {
     pub local_fingerprint: String,
     pub local_control_hash: String,
     pub remote_control_hash: Option<String>,
+    pub remote_control_config: Option<CpvcConfig>,
     pub local: Document,
     pub remote: Document,
     pub result: Document,
@@ -267,6 +286,7 @@ pub struct Plan {
     pub host_name: String,
     pub remote_host_name: String,
     pub preserve_previous: bool,
+    pub password_updated: bool,
     generation: String,
 }
 
@@ -298,6 +318,74 @@ fn encoded<T: Serialize>(value: &T) -> Result<Vec<u8>> {
 }
 pub fn control_hash(config: &CpvcConfig) -> Result<String> {
     Ok(digest(&encoded(config)?))
+}
+
+fn same_password_family(left: &CpvcConfig, right: &CpvcConfig) -> Result<bool> {
+    if left.magic != right.magic || left.format_major != right.format_major
+        || left.vault_id != right.vault_id
+        || [left, right].iter().any(|config| config.key_slots.len() != 2
+            || config.key_slots.iter().filter(|slot| slot.slot_type == SlotType::MasterPassword).count() != 1)
+    {
+        return Ok(false);
+    }
+    match (left.key_slots.iter().find(|slot| slot.slot_type == SlotType::RecoveryKey),
+        right.key_slots.iter().find(|slot| slot.slot_type == SlotType::RecoveryKey)) {
+        (Some(left), Some(right)) => Ok(encoded(left)? == encoded(right)?),
+        _ => Ok(false),
+    }
+}
+
+/// 只保存已加密的密钥槽，不保存旧密码或新密码。配置替换前提交意图，供崩溃后重试。
+pub fn stage_password_change(conn: &Connection, current: &CpvcConfig, next: &CpvcConfig, vmk: &[u8; 32]) -> Result<()> {
+    let Some(state) = binding(conn)? else { return Ok(()); };
+    if read_state::<RemotePasswordChange>(conn, "password_remote")?.is_some() {
+        return Err(CoreError::format("sync.errors.passwordChanged"));
+    }
+    let current_hash = control_hash(current)?;
+    let pending: Option<PasswordChange> = read_state(conn, "password_local")?;
+    let base = if let Some(pending) = pending.filter(|pending| {
+        control_hash(&pending.target).ok().as_deref() == Some(current_hash.as_str())
+    }) {
+        pending.base
+    } else if state.control_hash == current_hash
+        && state.remote_control_hash.as_deref().unwrap_or(&state.control_hash) == current_hash
+    {
+        current.clone()
+    } else {
+        return Err(CoreError::format("sync.errors.localControlChanged"));
+    };
+    base.verify_mac(vmk)?;
+    next.verify_mac(vmk)?;
+    if !same_password_family(&base, next)? || next.control_revision <= base.control_revision {
+        return Err(CoreError::format("sync.errors.localControlChanged"));
+    }
+    let tx = conn.unchecked_transaction()?;
+    write_state(&tx, "password_local", &PasswordChange { base, target: next.clone() })?;
+    // 改密前的预览/密文不得继续发布。业务基线留在 binding 中，下一次重新合并。
+    tx.execute("DELETE FROM sync_state WHERE key='pending'", [])?;
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn password_status(conn: &Connection, config: &CpvcConfig) -> Result<Value> {
+    let current_hash = control_hash(config)?;
+    let local: Option<PasswordChange> = read_state(conn, "password_local")?;
+    let local_pending = local.as_ref().is_some_and(|pending| {
+        control_hash(&pending.target).ok().as_deref() == Some(current_hash.as_str())
+    });
+    let remote: Option<RemotePasswordChange> = read_state(conn, "password_remote")?;
+    Ok(json!({
+        "control_revision":config.control_revision,
+        "password_state":if remote.is_some() { "awaiting_confirmation" } else if local_pending { "pending_publish" } else { "current" },
+        "password_conflict":remote.as_ref().is_some_and(|remote| remote.conflict),
+        "password_remote_revision":remote.as_ref().map(|remote| remote.target.control_revision),
+        "password_remote_host":remote.as_ref().map(|remote| &remote.host_name),
+    }))
+}
+
+fn clear_password_changes(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM sync_state WHERE key IN ('password_local','password_remote')", [])?;
+    Ok(())
 }
 pub fn fingerprint(doc: &Document) -> Result<String> {
     Ok(digest(&encoded(doc)?))
@@ -335,6 +423,18 @@ fn remember_head(conn: &Connection, head: &Head) -> Result<()> {
 pub fn binding(conn: &Connection) -> Result<Option<Binding>> {
     read_state(conn, "binding")
 }
+
+pub fn copy_seen_versions(source: &Connection, target: &Connection) -> Result<()> {
+    let mut statement = source.prepare("SELECT key,value FROM sync_state WHERE key LIKE 'seen:%'")?;
+    let versions = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    let tx = target.unchecked_transaction()?;
+    for version in versions {
+        let (key, value) = version?;
+        tx.execute("INSERT OR IGNORE INTO sync_state(key,value) VALUES (?1,?2)", params![key, value])?;
+    }
+    tx.commit()?;
+    Ok(())
+}
 pub fn status(conn: &Connection) -> Result<Value> {
     let state = binding(conn)?;
     let pending: Option<Pending> = read_state(conn, "pending")?;
@@ -350,6 +450,7 @@ pub fn disconnect(conn: &Connection) -> Result<()> {
         "DELETE FROM sync_state WHERE key IN ('binding','pending','bootstrap_pending')",
         [],
     )?;
+    clear_password_changes(conn)?;
     Ok(())
 }
 
@@ -789,8 +890,10 @@ fn verify_head(head: &Head, vmk: &[u8; 32]) -> Result<()> {
 }
 
 pub fn validate_head(head: &Head) -> Result<()> {
+    if ![1, 2].contains(&head.version) {
+        return Err(CoreError::format("sync.errors.clientUpgrade"));
+    }
     if head.format != FORMAT
-        || head.version != 1
         || Uuid::parse_str(&head.vault_id).is_err()
         || Uuid::parse_str(&head.generation).is_err()
         || Uuid::parse_str(&head.revision).is_err()
@@ -869,7 +972,7 @@ fn decode_remote(
         return Err(invalid());
     }
     if envelope.format != FORMAT
-        || envelope.version != 1
+        || envelope.version != head.version
         || envelope.schema_version != crate::SCHEMA_USER_VERSION
         || !valid_host_name(&envelope.host_name)
         || envelope.generation != head.generation
@@ -920,10 +1023,47 @@ pub fn prepare(
     };
     let remote_host_name = remote.as_ref().map(|(envelope, _, _)| envelope.host_name.clone())
         .unwrap_or_default();
+    config.verify_mac(vmk)?;
+    let current_hash = control_hash(config)?;
+    let local_change: Option<PasswordChange> = read_state(conn, "password_local")?;
+    let local_change = local_change.filter(|change| {
+        control_hash(&change.target).ok().as_deref() == Some(current_hash.as_str())
+    });
+    let mut password_updated = false;
+    if initial {
+        if let Some((_, remote_config, key)) = &remote {
+            if let Some(known) = state.as_ref().filter(|state| state.location == location)
+                .and_then(|state| state.remote_control_config.as_ref())
+            {
+                if same_password_family(known, remote_config)? && remote_config.control_revision < known.control_revision {
+                    return Err(CoreError::format("sync.errors.controlRollback"));
+                }
+            }
+            if &**key == vmk && same_password_family(config, remote_config)?
+                && control_hash(remote_config)? != current_hash
+            {
+                if state.as_ref().is_some_and(|state| state.location == location && state.head.is_some()) {
+                    return Err(CoreError::format("sync.errors.passwordUseNormalSync"));
+                }
+                if strategy != "remote" && config.control_revision <= remote_config.control_revision {
+                    return Err(CoreError::format(if config.control_revision < remote_config.control_revision {
+                        "sync.errors.controlRollback"
+                    } else { "sync.errors.controlConflict" }));
+                }
+            }
+        }
+    }
     if !initial {
         let state = state.as_ref().ok_or_else(invalid)?;
-        if state.control_hash != control_hash(config)? {
-            return Err(CoreError::format("sync.errors.localControlChanged"));
+        let expected = state.remote_control_hash.as_deref().unwrap_or(&state.control_hash);
+        if state.control_hash != current_hash {
+            let change = local_change.as_ref().ok_or_else(|| CoreError::format("sync.errors.localControlChanged"))?;
+            change.base.verify_mac(vmk)?;
+            if control_hash(&change.base)? != expected || !same_password_family(&change.base, config)?
+                || config.control_revision <= change.base.control_revision
+            {
+                return Err(CoreError::format("sync.errors.localControlChanged"));
+            }
         }
         if head.is_none() && (state.head.is_some() || pending.is_none()) {
             return Err(CoreError::format("sync.errors.remoteMissing"));
@@ -953,15 +1093,52 @@ pub fn prepare(
                 return Err(CoreError::format("sync.errors.generationChanged"));
             }
         }
-        if let Some((_, remote_config, _)) = &remote {
+        if let Some((_, remote_config, key)) = &remote {
             let observed = control_hash(remote_config)?;
-            // 首次合并可暂时读旧远端，但不能因此放行它在确认之后发生的安全配置变更。
-            let expected = state
-                .remote_control_hash
-                .as_deref()
-                .unwrap_or(&state.control_hash);
-            if observed != expected && observed != state.control_hash {
-                return Err(CoreError::format("sync.errors.remoteControlChanged"));
+            if let Some(known) = read_state::<RemotePasswordChange>(conn, "password_remote")? {
+                if same_password_family(&known.target, remote_config)? {
+                    if remote_config.control_revision < known.target.control_revision {
+                        return Err(CoreError::format("sync.errors.controlRollback"));
+                    }
+                    if remote_config.control_revision == known.target.control_revision
+                        && observed != control_hash(&known.target)?
+                    {
+                        return Err(CoreError::format("sync.errors.controlConflict"));
+                    }
+                }
+            }
+            let base = local_change.as_ref().map(|change| &change.base)
+                .filter(|base| control_hash(base).ok().as_deref() == Some(expected))
+                .or_else(|| state.remote_control_config.as_ref()
+                    .filter(|base| control_hash(base).ok().as_deref() == Some(expected)))
+                .or_else(|| state.control_config.as_ref()
+                    .filter(|base| control_hash(base).ok().as_deref() == Some(expected)))
+                .or_else(|| if current_hash == expected { Some(config) } else { None });
+            if let Some(base) = base {
+                if same_password_family(base, remote_config)? && remote_config.control_revision < base.control_revision {
+                    return Err(CoreError::format("sync.errors.controlRollback"));
+                }
+            }
+            if observed != expected && observed != current_hash {
+                let base = base.ok_or_else(|| CoreError::format("sync.errors.remoteControlChanged"))?;
+                base.verify_mac(vmk)?;
+                if &**key != vmk || !same_password_family(base, remote_config)?
+                    || !same_password_family(config, remote_config)?
+                {
+                    return Err(CoreError::format("sync.errors.remoteControlChanged"));
+                }
+                if remote_config.control_revision <= base.control_revision {
+                    return Err(CoreError::format("sync.errors.controlConflict"));
+                }
+                // 同一基准产生的两个新版也不能互相覆盖；只有验证已发布密码后才采用远端配置。
+                let conflict = local_change.is_some();
+                write_state(conn, "password_remote", &RemotePasswordChange {
+                    target: remote_config.clone(), host_name: remote_host_name.clone(), conflict,
+                })?;
+                if remote_password.is_empty() {
+                    return Err(CoreError::format(if conflict { "sync.errors.passwordConflict" } else { "sync.errors.passwordChanged" }));
+                }
+                password_updated = true;
             }
         }
     }
@@ -986,7 +1163,7 @@ pub fn prepare(
     if strategy == "merge" {
         related_conflicts(&local, &remote_doc, &result, &mut conflicts);
     }
-    let (target_config, target_vmk) = if strategy == "remote" {
+    let (target_config, target_vmk) = if strategy == "remote" || password_updated {
         let (_, remote_config, key) = remote.as_ref().ok_or_else(invalid)?;
         if control_hash(remote_config)? != control_hash(config)? {
             if remote_password.is_empty() {
@@ -1006,9 +1183,11 @@ pub fn prepare(
         .as_ref()
         .map(|(_, cfg, _)| control_hash(cfg))
         .transpose()?;
+    let remote_control_config = remote.as_ref().map(|(_, config, _)| config.clone());
     // 重试发布时也要保留首次接入/冲突处理的保护标记，不能因本地已应用而丢失。
     let preserve_previous = initial || !conflicts.is_empty()
         || control_hash(&target_config)? != control_hash(config)?
+        || remote_control_hash.as_deref() != Some(control_hash(&target_config)?.as_str())
         || pending.as_ref().is_some_and(|p| p.preserve_previous);
     let generation = if initial {
         if strategy == "remote" {
@@ -1032,6 +1211,7 @@ pub fn prepare(
         local_fingerprint: fingerprint(&local)?,
         local_control_hash: control_hash(config)?,
         remote_control_hash,
+        remote_control_config,
         local,
         remote: remote_doc,
         result,
@@ -1045,6 +1225,7 @@ pub fn prepare(
         host_name: String::new(),
         remote_host_name,
         preserve_previous,
+        password_updated,
     })
 }
 
@@ -1094,6 +1275,7 @@ impl Plan {
         }).collect();
         let page = self.preview_changes(0, 20);
         json!({"plan_id":self.id,"initial":self.initial,"strategy":self.strategy,"local_count":self.local.records.len(),
+            "password_updated":self.password_updated,"control_revision":self.target_config.control_revision,
             "remote_host_name":self.remote_host_name,
             "remote_count":self.remote.records.len(),"result_count":self.result.records.len(),"conflicts":conflicts,
             "remote_present":self.remote_head.is_some(),"decisions":self.decisions,
@@ -1230,6 +1412,7 @@ impl Plan {
                 .as_ref()
                 .is_some_and(|h| h.vault_id == self.target_config.vault_id)
             && self.previous_remote_vmk.is_none()
+            && self.remote_control_hash.as_deref() == Some(control_hash(&self.target_config)?.as_str())
             && (!self.initial || self.strategy == "remote");
         Ok(())
     }
@@ -1243,7 +1426,7 @@ impl Plan {
         let parent = self.remote_head.as_ref().map(|h| h.revision.clone());
         let envelope = Envelope {
             format: FORMAT.into(),
-            version: 1,
+            version: 2,
             schema_version: crate::SCHEMA_USER_VERSION,
             generation: generation.clone(),
             revision: revision.clone(),
@@ -1265,7 +1448,7 @@ impl Plan {
         }
         let mut head = Head {
             format: FORMAT.into(),
-            version: 1,
+            version: 2,
             vault_id: vault_id.to_string(),
             generation,
             revision,
@@ -1620,6 +1803,8 @@ pub fn store_applied(conn: &Connection, plan: &Plan, published_head: &Head) -> R
         baseline: plan.remote.clone(),
         control_hash: control_hash(&plan.target_config)?,
         remote_control_hash: plan.remote_control_hash.clone(),
+        control_config: Some(plan.target_config.clone()),
+        remote_control_config: plan.remote_control_config.clone(),
         last_synced_ms: old.map(|s| s.last_synced_ms).unwrap_or(0),
         previous_remote_vmk: plan.previous_remote_vmk.clone(),
         host_name: plan.remote_host_name.clone(),
@@ -1645,6 +1830,10 @@ pub fn store_pending(conn: &Connection, plan: &Plan, head: &Head) -> Result<()> 
 /// 发布和确认都绑定当前控制配置及待上传任务，不能继续使用改密/安全重建前的快照。
 /// 返回待上传任务的历史保护标记，不能仅由界面参数决定是否保留旧远端版本。
 pub fn authorize_publish(conn: &Connection, config: &CpvcConfig, location: &str, head: &Head) -> Result<bool> {
+    let awaiting: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sync_state WHERE key='password_remote')", [], |row| row.get(0),
+    )?;
+    if awaiting { return Err(CoreError::format("sync.errors.passwordChanged")); }
     // 每个网络步骤都会检查；只取控制字段，避免反复反序列化整库基线和待上传文档。
     let state: Option<(String, String)> = conn.query_row(
         "SELECT json_extract(value,'$.location'),json_extract(value,'$.control_hash') FROM sync_state WHERE key='binding'",
@@ -1689,8 +1878,11 @@ pub fn acknowledge(conn: &Connection, config: &CpvcConfig, location: &str, head:
     state.last_synced_ms = now_ms();
     state.previous_remote_vmk = None;
     state.remote_control_hash = Some(state.control_hash.clone());
+    state.control_config = Some(config.clone());
+    state.remote_control_config = Some(config.clone());
     write_state(&tx, "binding", &state)?;
     tx.execute("DELETE FROM sync_state WHERE key='pending'", [])?;
+    clear_password_changes(&tx)?;
     tx.commit()?;
     Ok(())
 }
@@ -1709,6 +1901,8 @@ pub fn store_current(conn: &Connection, plan: &Plan) -> Result<()> {
         baseline: plan.remote.clone(),
         control_hash: control_hash(&plan.target_config)?,
         remote_control_hash: plan.remote_control_hash.clone(),
+        control_config: Some(plan.target_config.clone()),
+        remote_control_config: plan.remote_control_config.clone(),
         last_synced_ms: now_ms(),
         previous_remote_vmk: None,
         host_name: plan.remote_host_name.clone(),
@@ -1722,6 +1916,7 @@ pub fn store_current(conn: &Connection, plan: &Plan) -> Result<()> {
     }
     write_state(&tx, "binding", &state)?;
     tx.execute("DELETE FROM sync_state WHERE key='pending'", [])?;
+    clear_password_changes(&tx)?;
     tx.commit()?;
     Ok(())
 }
@@ -1760,7 +1955,7 @@ pub(crate) fn unpack_sync_snapshot(
 ) -> Result<()> {
     let envelope: Envelope = serde_json::from_slice(plain).map_err(|_| invalid())?;
     if envelope.format != FORMAT
-        || envelope.version != 1
+        || ![1, 2].contains(&envelope.version)
         || envelope.schema_version != crate::SCHEMA_USER_VERSION
         || !valid_host_name(&envelope.host_name)
     {

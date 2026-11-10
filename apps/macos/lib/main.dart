@@ -18,6 +18,7 @@ import 'agent_readiness.dart';
 import 'settings_page.dart';
 import 'shortcuts_page.dart';
 import 'vault_tools.dart';
+import 'vault_transfer_tools.dart';
 import 'webdav_sync.dart';
 import 'webdav_bootstrap.dart';
 import 'vault_setup.dart';
@@ -72,6 +73,11 @@ class VaultHomePage extends StatefulWidget {
 class _VaultHomePageState extends State<VaultHomePage> {
   String _log = tr('vault.build.text');
   String _operationMessage = '';
+  String _pendingRecoveryKey = '';
+
+  void _retainRecoveryKey(String key) {
+    if (mounted) setState(() => _pendingRecoveryKey = key);
+  }
   final _password = TextEditingController();
   final _passwordFocus = FocusNode();
   final _newPassword = TextEditingController();
@@ -731,16 +737,22 @@ class _VaultHomePageState extends State<VaultHomePage> {
     Expanded(child: _vaultOverview()),
   ]) : _skippedSetup ? UnconfiguredVaultPage(onSetup: () => setState(() => _skippedSetup = false)) : Column(children: [
     if (_operationMessage.isNotEmpty) Padding(padding: const EdgeInsets.all(16), child: AppNotice(_operationMessage)),
+    Wrap(spacing: 10, children: [
+      TextButton(onPressed: _busy ? null : _openVaultDir, child: const LText('vaultTools.maintenance.switch')),
+      TextButton(onPressed: _busy || _pendingRecoveryKey.isNotEmpty ? null : () => _run(tr('vaultTools.maintenance.importJson'), () async {
+        await showVaultTransferTool(context, VaultTransferTool.importJson, onRecoveryKey: _retainRecoveryKey);
+      }), child: const LText('vaultTools.maintenance.importJson')),
+    ]),
     Expanded(child: VaultSetupChoices(busy: _busy, onCreate: () => setState(() => _creatingVault = true),
       onWebDav: _openRemote, onRestore: () => _recoverOvb(useRecovery: false),
       onSkip: () => setState(() => _skippedSetup = true))),
   ]));
 
   Future<void> _openVaultDir() async {
+    if (_busy || !mounted) return;
     final dir = await AgentBridge.pickDirectory();
     if (dir == null) return;
     await _run(tr('vault.openVaultDir.text'), () async {
-      await AgentBridge.lockVault();
       await AgentBridge.vaultOpenDir(dir);
       _onVaultLockedExternally();
       await _refreshStatus();
@@ -862,6 +874,16 @@ class _VaultHomePageState extends State<VaultHomePage> {
                           )),
                         ),
                       ),
+                    if (_pendingRecoveryKey.isNotEmpty)
+                      Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Card(child: Padding(
+                        padding: const EdgeInsets.all(12), child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          LText(_unlocked ? 'vaultTools.maintenance.saveKey' : 'vaultTools.maintenance.pendingKey'),
+                          if (_unlocked) ...[
+                            SelectableText(_pendingRecoveryKey),
+                            TextButton(onPressed: () => _retainRecoveryKey(''), child: const LText('vaultTools.maintenance.savedKey')),
+                          ],
+                        ]),
+                      ))),
                     Expanded(
                       child: agentReady
                           // 按需创建页面，保留切换状态；锁定时所有已创建页面都会收到新的 unlocked。
@@ -1170,6 +1192,23 @@ class _VaultHomePageState extends State<VaultHomePage> {
               Expanded(child: cards[1])
             ]);
           }),
+          const SizedBox(height: 16),
+          AppPanel(
+            title: tr('vaultTools.maintenance.title'),
+            subtitle: tr('vaultTools.maintenance.help'),
+            icon: Icons.folder_open_outlined,
+            child: Wrap(spacing: 10, runSpacing: 10, children: [
+              OutlinedButton(onPressed: _busy ? null : _openVaultDir,
+                child: const LText('vaultTools.maintenance.switch')),
+              for (final tool in VaultTransferTool.values)
+                if (_unlocked || tool == VaultTransferTool.importJson)
+                  OutlinedButton(onPressed: _busy || (_pendingRecoveryKey.isNotEmpty &&
+                      (tool == VaultTransferTool.importJson || tool == VaultTransferTool.resetRecovery)) ? null : () => _run(tr(tool.label), () async {
+                    await showVaultTransferTool(context, tool, onRecoveryKey: _retainRecoveryKey);
+                    await _refreshStatus();
+                  }), child: LText(tool.label)),
+            ]),
+          ),
           const SizedBox(height: 16),
           if (_unlocked) ...[
             AppPanel(

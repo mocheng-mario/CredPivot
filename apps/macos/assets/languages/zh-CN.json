@@ -5,6 +5,215 @@
   "name": "简体中文",
   "source_locale": "zh-CN",
   "messages": {
+    "vaultTools.maintenance.pendingKey": {
+      "source": "有尚未保存的新恢复码，请解锁后查看并保存。",
+      "translation": "有尚未保存的新恢复码，请解锁后查看并保存。",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.title": {
+      "source": "保险库管理",
+      "translation": "保险库管理",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.help": {
+      "source": "选择目录切换独立保险库，不合并数据；切换后需要重新解锁。",
+      "translation": "选择目录切换独立保险库，不合并数据；切换后需要重新解锁。",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.switch": {
+      "source": "选择保险库目录 / 切换库",
+      "translation": "选择保险库目录 / 切换库",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.exportJson": {
+      "source": "导出明文 JSON",
+      "translation": "导出明文 JSON",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.importJson": {
+      "source": "从明文创建新库",
+      "translation": "从明文创建新库",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.verifyRecovery": {
+      "source": "验证恢复码",
+      "translation": "验证恢复码",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.resetRecovery": {
+      "source": "重置恢复码",
+      "translation": "重置恢复码",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.exportJsonHelp": {
+      "source": "导出全部分区、回收站及密码、MFA 密钥、SSH 和通行密钥私钥。文件未加密，请妥善保管。需要输入当前主密码；不会覆盖已有文件。",
+      "translation": "导出全部分区、回收站及密码、MFA 密钥、SSH 和通行密钥私钥。文件未加密，请妥善保管。需要输入当前主密码；不会覆盖已有文件。",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.importJsonHelp": {
+      "source": "仅支持 CredPivot 导出的同模式版本明文 JSON（最大 64 MiB）。选择文件和空目录，设置独立新库的主密码。不覆盖当前库，不自动切换，不继承同步与本机配置。",
+      "translation": "仅支持 CredPivot 导出的同模式版本明文 JSON（最大 64 MiB）。选择文件和空目录，设置独立新库的主密码。不覆盖当前库，不自动切换，不继承同步与本机配置。",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.verifyRecoveryHelp": {
+      "source": "验证此恢复码能否解锁当前保险库。不更换密钥，也不重建保险库。",
+      "translation": "验证此恢复码能否解锁当前保险库。不更换密钥，也不重建保险库。",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.resetRecoveryHelp": {
+      "source": "必须提供当前主密码和旧恢复码。只替换恢复码，保留现有数据和主密码。旧备份仍需要旧恢复码。已绑定 WebDAV 的库须先断开同步。",
+      "translation": "必须提供当前主密码和旧恢复码。只替换恢复码，保留现有数据和主密码。旧备份仍需要旧恢复码。已绑定 WebDAV 的库须先断开同步。",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.required": {
+      "source": "请填写所需的主密码或恢复码。",
+      "translation": "请填写所需的主密码或恢复码。",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.passwordMismatch": {
+      "source": "新主密码至少 8 个字符，两次输入必须一致。",
+      "translation": "新主密码至少 8 个字符，两次输入必须一致。",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.newPassword": {
+      "source": "新库主密码",
+      "translation": "新库主密码",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.repeatPassword": {
+      "source": "再次输入新库主密码",
+      "translation": "再次输入新库主密码",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.verified": {
+      "source": "恢复码正确，可以解锁当前保险库。",
+      "translation": "恢复码正确，可以解锁当前保险库。",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.resetDone": {
+      "source": "恢复码已重置。请保存新恢复码并重新导出加密备份。",
+      "translation": "恢复码已重置。请保存新恢复码并重新导出加密备份。",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.completed": {
+      "source": "操作成功",
+      "translation": "操作成功",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.saveKey": {
+      "source": "请离线保存此新恢复码，关闭后无法再次查看。",
+      "translation": "请离线保存此新恢复码，关闭后无法再次查看。",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
+    "vaultTools.maintenance.savedKey": {
+      "source": "我已保存新恢复码",
+      "translation": "我已保存新恢复码",
+      "description": "保险库管理",
+      "placeholders": {},
+      "locations": [
+        "vault_transfer_tools.dart",
+        "main.dart"
+      ]
+    },
     "android.native.biometricCryptoMissing": {
       "source": "指纹已通过，但系统未返回已授权的加密操作。请重新设置指纹解锁。",
       "translation": "指纹已通过，但系统未返回已授权的加密操作。请重新设置指纹解锁。",
@@ -7077,8 +7286,8 @@
       ]
     },
     "vault.changePassword.text.item3": {
-      "source": "主密码已更新",
-      "translation": "主密码已更新",
+      "source": "主密码已在本机修改。如已接入 WebDAV，请到同步页面确认发布状态；其他设备需验证新主密码后恢复同步。",
+      "translation": "主密码已在本机修改。如已接入 WebDAV，请到同步页面确认发布状态；其他设备需验证新主密码后恢复同步。",
       "description": "vault: changePassword; text.",
       "placeholders": {},
       "locations": [
@@ -11222,8 +11431,8 @@
       ]
     },
     "sync.test.help": {
-      "source": "测试会在配置目录下新建随机临时子目录；目标目录不存在时会先创建。读写、删除和并发检查均在临时子目录中执行，不操作正式同步文件，不保存配置，也不上传保险库内容。正常结束会清理本次测试内容；断网、取消或出现未知文件时可能保留独立临时目录。",
-      "translation": "测试会在配置目录下新建随机临时子目录；目标目录不存在时会先创建。读写、删除和并发检查均在临时子目录中执行，不操作正式同步文件，不保存配置，也不上传保险库内容。正常结束会清理本次测试内容；断网、取消或出现未知文件时可能保留独立临时目录。",
+      "source": "测试会在配置目录的 .credpivot-tests/ 下新建随机临时子目录；目标目录不存在时会先创建。读写、删除和并发检查均在临时子目录中执行，不操作正式同步文件，不保存配置，也不上传保险库内容。正常结束会清理本次测试内容；断网、取消或出现未知文件时可能保留独立临时目录。",
+      "translation": "测试会在配置目录的 .credpivot-tests/ 下新建随机临时子目录；目标目录不存在时会先创建。读写、删除和并发检查均在临时子目录中执行，不操作正式同步文件，不保存配置，也不上传保险库内容。正常结束会清理本次测试内容；断网、取消或出现未知文件时可能保留独立临时目录。",
       "description": "WebDAV configuration test and initialization protection.",
       "placeholders": {},
       "locations": [
@@ -14109,8 +14318,8 @@
       ]
     },
     "android.password.changedHelp": {
-      "source": "请保管好新主密码。旧的生物识别授权已清除，请在设置中重新启用。同步后的其他设备也需要使用新密码重新接入。",
-      "translation": "请保管好新主密码。旧的生物识别授权已清除，请在设置中重新启用。同步后的其他设备也需要使用新密码重新接入。",
+      "source": "主密码已在本机修改。如已接入 WebDAV，请到同步页面确认发布状态；其他设备需验证新主密码后恢复同步。Android 指纹解锁需重新启用。",
+      "translation": "主密码已在本机修改。如已接入 WebDAV，请到同步页面确认发布状态；其他设备需验证新主密码后恢复同步。Android 指纹解锁需重新启用。",
       "description": "Android mobile interface.",
       "placeholders": {},
       "locations": [
@@ -16641,6 +16850,163 @@
       "locations": [
         "android_webdav.dart",
         "CredPivotPlatform.swift"
+      ]
+    },
+    "sync.errors.clientUpgrade": {
+      "source": "远端同步格式需要新版 CredPivot，请更新所有接入设备后重试。",
+      "translation": "远端同步格式需要新版 CredPivot，请更新所有接入设备后重试。",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.controlRollback": {
+      "source": "远端主密码配置版本低于已确认版本，已停止同步，避免旧配置覆盖新配置。",
+      "translation": "远端主密码配置版本低于已确认版本，已停止同步，避免旧配置覆盖新配置。",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.controlConflict": {
+      "source": "主密码配置版本相同但内容不同，无法确认变更顺序，已停止同步。请核对其他设备的改密记录。",
+      "translation": "主密码配置版本相同但内容不同，无法确认变更顺序，已停止同步。请核对其他设备的改密记录。",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.passwordChanged": {
+      "source": "主密码已在其他设备修改，同步已暂停。本地数据仍保留，请在同步页面点击“验证新主密码”。",
+      "translation": "主密码已在其他设备修改，同步已暂停。本地数据仍保留，请在同步页面点击“验证新主密码”。",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.passwordConflict": {
+      "source": "本机与其他设备都修改了主密码，另一设备已先发布。请在同步页面验证已发布的新主密码；本地记录仍会正常合并。",
+      "translation": "本机与其他设备都修改了主密码，另一设备已先发布。请在同步页面验证已发布的新主密码；本地记录仍会正常合并。",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
+      ]
+    },
+    "sync.errors.passwordUseNormalSync": {
+      "source": "当前保险库的主密码配置存在差异，请使用正常同步并验证新主密码，无需重新接入或覆盖本地记录。",
+      "translation": "当前保险库的主密码配置存在差异，请使用正常同步并验证新主密码，无需重新接入或覆盖本地记录。",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
+      ]
+    },
+    "sync.password.confirmTitle": {
+      "source": "确认主密码变更",
+      "translation": "确认主密码变更",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
+      ]
+    },
+    "sync.password.confirmHelp": {
+      "source": "其他设备已修改主密码。请输入远端的新主密码；应用后本机改用新密码解锁，本地未同步的记录将保留并正常合并。取消后仍可使用本地库，同步保持暂停。",
+      "translation": "其他设备已修改主密码。请输入远端的新主密码；应用后本机改用新密码解锁，本地未同步的记录将保留并正常合并。取消后仍可使用本地库，同步保持暂停。",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
+      ]
+    },
+    "sync.password.conflictHelp": {
+      "source": "本机改密尚未发布，另一设备已先发布了不同的主密码。请输入已发布的新主密码并检查合并预览。本地记录会保留并参与合并；本机尚未发布的密码将被放弃，不会自动递增版本覆盖远端。",
+      "translation": "本机改密尚未发布，另一设备已先发布了不同的主密码。请输入已发布的新主密码并检查合并预览。本地记录会保留并参与合并；本机尚未发布的密码将被放弃，不会自动递增版本覆盖远端。",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
+      ]
+    },
+    "sync.password.newPassword": {
+      "source": "远端已发布的新主密码",
+      "translation": "远端已发布的新主密码",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
+      ]
+    },
+    "sync.password.verify": {
+      "source": "验证新主密码",
+      "translation": "验证新主密码",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
+      ]
+    },
+    "sync.password.version": {
+      "source": "本机安全配置版本：{version}",
+      "translation": "本机安全配置版本：{version}",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {
+        "version": "同步状态字段"
+      },
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
+      ]
+    },
+    "sync.password.remoteVersion": {
+      "source": "待确认的远端安全配置版本：{version} · 来源：{host}",
+      "translation": "待确认的远端安全配置版本：{version} · 来源：{host}",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {
+        "version": "同步状态字段",
+        "host": "同步状态字段"
+      },
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
+      ]
+    },
+    "sync.password.pendingPublish": {
+      "source": "主密码已在本机修改，等待发布。当前本机使用新密码；其他设备尚未更新。同步成功后，其他设备需验证新主密码。",
+      "translation": "主密码已在本机修改，等待发布。当前本机使用新密码；其他设备尚未更新。同步成功后，其他设备需验证新主密码。",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {},
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
+      ]
+    },
+    "sync.password.preview": {
+      "source": "确认后采用第 {version} 版主密码配置，并按下方预览合并记录。主密码验证时间将更新；生物识别解锁如提示失效，请在设置中重新启用。",
+      "translation": "确认后采用第 {version} 版主密码配置，并按下方预览合并记录。主密码验证时间将更新；生物识别解锁如提示失效，请在设置中重新启用。",
+      "description": "WebDAV master password change state and confirmation.",
+      "placeholders": {
+        "version": "同步状态字段"
+      },
+      "locations": [
+        "webdav_sync.dart",
+        "sync.rs"
       ]
     }
   }

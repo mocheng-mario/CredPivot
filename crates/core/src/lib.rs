@@ -80,7 +80,7 @@ pub use vault_init::{create_vault_config, NewVaultMaterial};
 pub use vault_pipeline::{
     bootstrap_vault_dir, change_master_password_in_dir, clone_vault_to_empty_dir,
     ensure_empty_target, export_ovb_from_dir, recover_ovb_to_dir, recover_restore_point_to_dir,
-    security_rebuild_in_dir, RecoveryUnlock,
+    security_rebuild_in_dir, reset_recovery_key_in_dir, RecoveryUnlock,
 };
 
 mod credential_management;
@@ -90,3 +90,6 @@ pub use credential_management::{UriRule, MfaBinding};
 pub use credential_management::{VaultAction, manage_credentials, export_logical_json, update_login_from_browser, credential_origins, browser_login_candidates, record_credential_use};
 mod ssh_transfer;
 pub mod ssh_git;
+
+mod logical_transfer;
+pub use logical_transfer::import_logical_json_to_dir;

@@ -1018,25 +1018,27 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
     Ok(value)
 }
 
+pub(crate) const LOGICAL_TABLES: &[&str] = &[
+    "partitions",
+    "items",
+    "login_credentials",
+    "password_history",
+    "password_candidates",
+    "totp_credentials",
+    "ssh_keys",
+    "recovery_code_items",
+    "recovery_code_entries",
+    "server_login_profiles",
+    "passkey_credentials",
+    "credential_groups",
+    "import_mappings",
+];
+
 /// 可迁移的逻辑导出，显式列出业务表；不导出 VMK、钥匙串和本机配置。
 pub fn export_logical_json(conn: &Connection) -> Result<String> {
     let tx = conn.unchecked_transaction()?;
     let mut tables = serde_json::Map::new();
-    for table in [
-        "partitions",
-        "items",
-        "login_credentials",
-        "password_history",
-        "password_candidates",
-        "totp_credentials",
-        "ssh_keys",
-        "recovery_code_items",
-        "recovery_code_entries",
-        "server_login_profiles",
-        "passkey_credentials",
-        "credential_groups",
-        "import_mappings",
-    ] {
+    for &table in LOGICAL_TABLES {
         tables.insert(
             table.into(),
             json!(rows(&tx, &format!("SELECT * FROM {table}"), [])?),
