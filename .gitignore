@@ -62,3 +62,6 @@ apps/macos/lib/build_stamp.dart
 
 # 本地发布归档与校验和
 /dist/
+
+# review
+.review
