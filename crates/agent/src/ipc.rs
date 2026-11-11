@@ -13,7 +13,7 @@ use crate::ssh_session::SshSessionGrant;
 use crate::session_guard::expire_idle_session;
 use crate::protocol::{AgentRequest, AgentResponse};
 use crate::vault_session::{FillGrant, VaultSession};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
