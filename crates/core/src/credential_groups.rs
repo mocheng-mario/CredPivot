@@ -165,22 +165,27 @@ pub fn delete_credential_group(conn: &Connection, id: &str) -> Result<()> {
 
 pub fn set_item_group(conn: &Connection, item_id: &str, group_id: Option<&str>) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
+    set_item_group_in_tx(&tx, item_id, group_id)?;
+    tx.commit()?;
+    Ok(())
+}
+
+pub(crate) fn set_item_group_in_tx(conn: &Connection, item_id: &str, group_id: Option<&str>) -> Result<()> {
     if let Some(group) = group_id {
-        let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM credential_groups WHERE id=?1)", [group], |row| row.get(0))?;
+        let exists: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM credential_groups WHERE id=?1)", [group], |row| row.get(0))?;
         if !exists { return Err(CoreError::format("group not found")); }
     }
     let revision = new_revision();
     let ts = now_ms();
-    if tx.execute(
+    if conn.execute(
         "UPDATE items SET group_id=?1,current_revision=?2,updated_at_ms=?3 WHERE id=?4 AND trashed=0",
         params![group_id, revision, ts, item_id],
     )? == 0 {
         return Err(CoreError::format("item not found"));
     }
     for table in ["login_credentials", "totp_credentials", "ssh_keys", "recovery_code_items", "server_login_profiles"] {
-        tx.execute(&format!("UPDATE {table} SET current_revision=?1,updated_at_ms=?2 WHERE item_id=?3"), params![revision,ts,item_id])?;
+        conn.execute(&format!("UPDATE {table} SET current_revision=?1,updated_at_ms=?2 WHERE item_id=?3"), params![revision,ts,item_id])?;
     }
-    crate::mark_restore_dirty(&tx)?;
-    tx.commit()?;
+    crate::mark_restore_dirty(conn)?;
     Ok(())
 }

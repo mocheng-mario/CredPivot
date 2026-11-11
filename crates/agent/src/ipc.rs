@@ -287,7 +287,7 @@ pub async fn handle_request(
             | credpivot_core::VaultAction::CandidateDiscard { .. } | credpivot_core::VaultAction::HistoryRestore { .. }
             | credpivot_core::VaultAction::TrashRestore { .. } | credpivot_core::VaultAction::TrashPurge { .. }
             | credpivot_core::VaultAction::NoteCreate { .. } | credpivot_core::VaultAction::BitwardenImport { .. }
-            | credpivot_core::VaultAction::GoogleImport { .. }
+            | credpivot_core::VaultAction::GoogleImport { .. } | credpivot_core::VaultAction::ItemsBatch { .. }
             | credpivot_core::VaultAction::SshImport { .. } | credpivot_core::VaultAction::RecoveryEntryUse { .. }
             | credpivot_core::VaultAction::PartitionCreate {..} | credpivot_core::VaultAction::PartitionRename {..}
             | credpivot_core::VaultAction::PartitionDelete {..} | credpivot_core::VaultAction::PartitionReorder {..}

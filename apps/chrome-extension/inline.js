@@ -69,13 +69,17 @@ async function perform(type, values = {}) {
   setBusy(true); $('retry').hidden = true;
   status(type === 'inline_fill' ? '正在填充；验证码临近过期时会等待下一组…' : type === 'inline_connect' || values.automatic === true
     ? '正在发起验证，请完成系统指纹或主密码验证。可关闭面板取消。' : '正在检查连接并读取候选…');
-  try { render(await request(type,values)); }
+  try {
+    render(await request(type,values));
+    void request('inline_feedback',{message:''}).catch(() => {});
+  }
   catch (error) {
     const needsVerification = ['extension_gate_required','extension_gate_cancelled','extension_gate_paused'].includes(error.code);
     status(error.message,['extension_gate_required','extension_gate_paused'].includes(error.code) ? '' : 'error'); $('choices').hidden = true;
     $('connect').hidden = invalid;
     $('connect').textContent = error.code === 'extension_gate_cancelled' ? '重新连接并验证' : '连接与验证';
     $('retry').hidden = invalid || needsVerification;
+    void request('inline_feedback',{message:error.message}).catch(() => {});
   }
   finally { setBusy(false); }
 }
@@ -91,7 +95,9 @@ const heartbeat = setInterval(() => {
   if (!tabId || invalid) return;
   request('inline_ping').catch(() => {
     invalid = true; setBusy(false); $('connect').hidden = true; $('retry').hidden = true;
-    status('页面、输入框或连接已改变，请关闭面板后重新点击填充图标。','error');
+    const message = '页面、输入框或连接已改变，请关闭面板后重新点击填充图标。';
+    status(message,'error');
+    void request('inline_feedback',{message}).catch(() => {});
   });
 },20_000);
 window.addEventListener('pagehide',() => { clearInterval(heartbeat); });
@@ -102,5 +108,8 @@ window.addEventListener('pagehide',() => { clearInterval(heartbeat); });
     const info = await request('inline_ping');
     $('site').textContent = info.origin;
     await perform('inline_load',{automatic:true});
-  } catch (error) { invalid = true; setBusy(false); status(error.message,'error'); }
+  } catch (error) {
+    invalid = true; setBusy(false); status(error.message,'error');
+    void request('inline_feedback',{message:error.message}).catch(() => {});
+  }
 })();

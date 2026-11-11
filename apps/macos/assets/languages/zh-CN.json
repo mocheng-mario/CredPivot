@@ -5,6 +5,276 @@
   "name": "简体中文",
   "source_locale": "zh-CN",
   "messages": {
+    "navigation.collapsePartitions": {
+      "source": "折叠分区",
+      "translation": "折叠分区",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "app_navigation.dart"
+      ]
+    },
+    "navigation.expandPartitions": {
+      "source": "展开分区",
+      "translation": "展开分区",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "app_navigation.dart"
+      ]
+    },
+    "credentials.batch.enter": {
+      "source": "批量操作",
+      "translation": "批量操作",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.exit": {
+      "source": "退出批量",
+      "translation": "退出批量",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.selectAll": {
+      "source": "全选当前列表",
+      "translation": "全选当前列表",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.deselectAll": {
+      "source": "取消全选",
+      "translation": "取消全选",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.selected": {
+      "source": "已选 {count} 条",
+      "translation": "已选 {count} 条",
+      "description": "凭据列表与分区交互",
+      "placeholders": {
+        "count": {
+          "description": "count"
+        }
+      },
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.actions": {
+      "source": "操作",
+      "translation": "操作",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.moveGroup": {
+      "source": "移动到分组",
+      "translation": "移动到分组",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.ungroup": {
+      "source": "移出分组",
+      "translation": "移出分组",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.trash": {
+      "source": "删除（移入回收站）",
+      "translation": "删除（移入回收站）",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.noGroups": {
+      "source": "暂无可用分组，请先创建分组。",
+      "translation": "暂无可用分组，请先创建分组。",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.deleteTitle": {
+      "source": "批量删除",
+      "translation": "批量删除",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.ungroupTitle": {
+      "source": "批量移出分组",
+      "translation": "批量移出分组",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.moveTitle": {
+      "source": "批量移动到分组",
+      "translation": "批量移动到分组",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.deleteHelp": {
+      "source": "已选择 {count} 条记录，将移入回收站，可在回收站恢复。",
+      "translation": "已选择 {count} 条记录，将移入回收站，可在回收站恢复。",
+      "description": "凭据列表与分区交互",
+      "placeholders": {
+        "count": {
+          "description": "count"
+        }
+      },
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.ungroupHelp": {
+      "source": "将所选 {count} 条记录移出当前分组。",
+      "translation": "将所选 {count} 条记录移出当前分组。",
+      "description": "凭据列表与分区交互",
+      "placeholders": {
+        "count": {
+          "description": "count"
+        }
+      },
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.moveHelp": {
+      "source": "将所选 {count} 条记录移到「{group}」。",
+      "translation": "将所选 {count} 条记录移到「{group}」。",
+      "description": "凭据列表与分区交互",
+      "placeholders": {
+        "count": {
+          "description": "count"
+        },
+        "group": {
+          "description": "group"
+        }
+      },
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.done": {
+      "source": "已处理 {count} 条记录",
+      "translation": "已处理 {count} 条记录",
+      "description": "凭据列表与分区交互",
+      "placeholders": {
+        "count": {
+          "description": "count"
+        }
+      },
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "partitions.targetGroup": {
+      "source": "目标分组",
+      "translation": "目标分组",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart"
+      ]
+    },
+    "partitions.targetGroupHelp": {
+      "source": "统一归组会将本次迁移及其关联记录放入共享分组；同名共享分组会复用。",
+      "translation": "统一归组会将本次迁移及其关联记录放入共享分组；同名共享分组会复用。",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart"
+      ]
+    },
+    "partitions.keepGroups": {
+      "source": "保留原分组",
+      "translation": "保留原分组",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart"
+      ]
+    },
+    "partitions.newSharedGroup": {
+      "source": "新建共享分组…",
+      "translation": "新建共享分组…",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart"
+      ]
+    },
+    "partitions.groupName": {
+      "source": "分组名称",
+      "translation": "分组名称",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart"
+      ]
+    },
+    "partitions.groupNameHint": {
+      "source": "输入名称；不存在时自动创建",
+      "translation": "输入名称；不存在时自动创建",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart"
+      ]
+    },
+    "partitions.confirmKeepGroups": {
+      "source": "目标分组：保留原分组",
+      "translation": "目标分组：保留原分组",
+      "description": "凭据列表与分区交互",
+      "placeholders": {},
+      "locations": [
+        "credential_partitions.dart"
+      ]
+    },
+    "partitions.confirmTargetGroup": {
+      "source": "目标共享分组：{name}（不存在则创建）",
+      "translation": "目标共享分组：{name}（不存在则创建）",
+      "description": "凭据列表与分区交互",
+      "placeholders": {
+        "name": {
+          "description": "name"
+        }
+      },
+      "locations": [
+        "credential_partitions.dart"
+      ]
+    },
     "mfa.browser.title": {
       "source": "从浏览器添加 MFA",
       "translation": "从浏览器添加 MFA",

@@ -494,8 +494,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                   icon: Icons.key_outlined,
                   title: tr('credentials.build.title.item2'),
                   message: tr('credentials.build.message.item2'))
-              : ListView(
-                  children: buildGroupedListTiles(
+              : buildGroupedList(
                   scope: 'login',
                   groups: _groups,
                   items: visibleItems,
@@ -513,7 +512,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                       onTap: () => _select(row),
                     );
                   },
-                )),
+                ),
           detail: _selected == null
               ? null
               : CredentialDetails(
@@ -532,6 +531,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                         : linkedPasskeys.map((passkey) => '${passkey['rp_id']} · ${passkey['username']}').join('\n'),
                     tr('credentials.build.text.item4'): vaultDate(_selected!['password_active_since_ms'])
                   },
+                  copyableFields: {tr('common.website')},
                 ),
           actions: _selected == null
                 ? null
@@ -861,8 +861,7 @@ class _TotpPanelState extends State<_TotpPanel> {
                     icon: Icons.pin_outlined,
                     title: tr('credentials.build.title.item8'),
                     message: tr('credentials.build.message.item4'))
-                : ListView(
-                    children: buildGroupedListTiles(
+                : buildGroupedList(
                       scope: 'totp',
                       groups: _groups,
                       items: visibleItems,
@@ -877,7 +876,6 @@ class _TotpPanelState extends State<_TotpPanel> {
                           onTap: () => _select(row),
                         );
                       },
-                    ),
                   ),
             detail: _selected == null
                 ? null
@@ -1096,8 +1094,7 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                     icon: Icons.terminal_rounded,
                     title: tr('credentials.build.title.item11'),
                     message: tr('credentials.build.message.item5'))
-                : ListView(
-                    children: buildGroupedListTiles(
+                : buildGroupedList(
                       scope: 'ssh',
                       groups: _groups,
                       items: visibleItems,
@@ -1119,7 +1116,6 @@ class _SshKeysPanelState extends State<_SshKeysPanel> {
                           onTap: () => setState(() { _selected = row; }),
                         );
                       },
-                    ),
                   ),
             detail: _selected == null
                 ? null

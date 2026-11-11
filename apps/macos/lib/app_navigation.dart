@@ -15,7 +15,7 @@ const appPageDescriptions = [
   'partitions.description',
 ];
 
-class AppSidebar extends StatelessWidget {
+class AppSidebar extends StatefulWidget {
   const AppSidebar({
     super.key,
     required this.selectedIndex,
@@ -38,6 +38,20 @@ class AppSidebar extends StatelessWidget {
   final List<Map<String, dynamic>> partitions;
   final String selectedPartitionId;
   final ValueChanged<String> onPartitionSelected;
+
+  @override
+  State<AppSidebar> createState() => _AppSidebarState();
+}
+
+class _AppSidebarState extends State<AppSidebar> {
+  bool _credentialsExpanded = true;
+  int get selectedIndex => widget.selectedIndex;
+  bool get compact => widget.compact;
+  bool get agentReady => widget.agentReady;
+  bool get unlocked => widget.unlocked;
+  String get footer => widget.footer;
+  List<Map<String, dynamic>> get partitions => widget.partitions;
+  String get selectedPartitionId => widget.selectedPartitionId;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -85,11 +99,13 @@ class AppSidebar extends StatelessWidget {
           Expanded(
               child: ListView(padding: EdgeInsets.zero, children: [
             _item(context, 0, Icons.grid_view_rounded),
-            _item(context, 1, Icons.key_outlined),
-            for (final partition in partitions)
+            _item(context, 1, Icons.key_outlined,
+              active: selectedIndex == 1 && (partitions.isEmpty || !_credentialsExpanded),
+              expandable: partitions.isNotEmpty),
+            if (_credentialsExpanded) for (final partition in partitions)
               Padding(padding: EdgeInsets.only(left: compact ? 0 : 12), child: _item(context, 1, Icons.folder_outlined,
                 title: partition['name'].toString(), active: selectedIndex == 1 && selectedPartitionId == partition['id'],
-                onTap: () => onPartitionSelected(partition['id'].toString()))),
+                onTap: () => widget.onPartitionSelected(partition['id'].toString()))),
             _item(context, 8, Icons.folder_copy_outlined),
             _item(context, 2, Icons.language_rounded),
             _item(context, 7, Icons.cloud_sync_outlined),
@@ -145,7 +161,7 @@ class AppSidebar extends StatelessWidget {
         ]),
       );
 
-  Widget _item(BuildContext context, int index, IconData icon, {String? title, bool? active, VoidCallback? onTap}) {
+  Widget _item(BuildContext context, int index, IconData icon, {String? title, bool? active, VoidCallback? onTap, bool expandable = false}) {
     final selected = active ?? (selectedIndex == index && (index != 1 || partitions.isEmpty));
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -165,10 +181,10 @@ class AppSidebar extends StatelessWidget {
               color: Colors.transparent,
               child: InkWell(
                 borderRadius: BorderRadius.circular(11),
-                onTap: onTap ?? () => onSelected(index),
+                onTap: onTap ?? () => widget.onSelected(index),
                 child: Padding(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+                      EdgeInsets.symmetric(horizontal: compact && expandable ? 0 : 12, vertical: expandable ? 5 : 13),
                   child: Row(
                       mainAxisAlignment: compact
                           ? MainAxisAlignment.center
@@ -191,7 +207,7 @@ class AppSidebar extends StatelessWidget {
                                         ? AppColors.primary
                                         : AppColors.ink,
                                   ))),
-                          if (selected)
+                          if (selected && !expandable)
                             Container(
                                 width: 5,
                                 height: 5,
@@ -199,6 +215,13 @@ class AppSidebar extends StatelessWidget {
                                     color: AppColors.primary,
                                     shape: BoxShape.circle)),
                         ],
+                        if (expandable) IconButton(
+                          padding: EdgeInsets.zero,
+                          constraints: BoxConstraints.tightFor(width: compact ? 22 : 28, height: 37),
+                          tooltip: tr(_credentialsExpanded ? 'navigation.collapsePartitions' : 'navigation.expandPartitions'),
+                          onPressed: () => setState(() => _credentialsExpanded = !_credentialsExpanded),
+                          icon: Icon(_credentialsExpanded ? Icons.expand_less : Icons.expand_more, size: 18,
+                            color: AppColors.muted)),
                       ]),
                 ),
               ),

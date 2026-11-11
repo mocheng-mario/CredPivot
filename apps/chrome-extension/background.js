@@ -524,6 +524,13 @@ async function handleInlineMessage(message, sender) {
       (record.panelDocumentId && record.panelDocumentId !== sender.documentId)) throw inlineError('候选面板已失效，请重新操作');
   record.panelDocumentId ??= sender.documentId;
   if (message.type === 'inline_cancel') { cancelInline(record); return {ok:true}; }
+  if (message.type === 'inline_feedback') {
+    await checkInline(record,true);
+    await chrome.tabs.sendMessage(record.tabId,{type:'inline_feedback',token:record.token,
+      message:typeof message.message === 'string' ? message.message.slice(0,500) : ''},
+      {frameId:0,documentId:record.chromeDocumentId});
+    return {ok:true};
+  }
   if (message.type === 'inline_ping') {
     await checkInline(record,true);
     if (!record.panelReady) {

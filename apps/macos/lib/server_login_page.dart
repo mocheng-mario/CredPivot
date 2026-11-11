@@ -364,8 +364,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                   icon: Icons.dns_outlined,
                   title: tr('server.build.title'),
                   message: tr('server.build.message'))
-              : ListView(
-                  children: buildGroupedListTiles(
+              : buildGroupedList(
                   scope: 'server',
                   groups: _groups,
                   items: visibleItems,
@@ -400,7 +399,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                       onTap: () => setState(() => _selected = row),
                     );
                   },
-                )),
+                ),
           detail: _selected == null
               ? null
               : CredentialDetails(
@@ -421,6 +420,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                             ? tr('server.build.text.item6')
                             : tr('server.build.text.item7')),
                   },
+                  copyableFields: {tr('server.fields.host')},
                 ),
           actions: _selected == null
                 ? null

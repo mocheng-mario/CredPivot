@@ -761,13 +761,22 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
           onManage: () async { await showManageGroupsDialog(context, 'shared'); if (mounted) await load(); }),
         if (_working) const LinearProgressIndicator(),
       ],
-      body: ListView(children: [
+      body: mode == 'items' && visibleItems.isNotEmpty
+        ? CredentialBatchList(
+            key: ValueKey('tools-batch:${AgentBridge.activePartitionId}'),
+            scope: 'shared', groups: groups, items: visibleItems, grouped: false,
+            tileBuilder: (row) => _itemTile(context, row, mobile))
+        : ListView(children: [
           if (visibleItems.isEmpty && !_working)
             Padding(
                 padding: EdgeInsets.all(24),
                 child: LText(widget.trashOnly ? 'credentials.trash.empty' : 'vaultTools.build.text.item37')),
-          for (final row in visibleItems)
-            Card(
+          if (mode != 'items') for (final row in visibleItems) _itemTile(context, row, mobile),
+      ]),
+    );
+  }
+
+  Widget _itemTile(BuildContext context, Map<String, dynamic> row, bool mobile) => Card(
                 child: ListTile(
                     title: Text(row['title']?.toString() ?? '', maxLines: mobile ? 2 : null, overflow: mobile ? TextOverflow.ellipsis : null),
                     subtitle: LText(mode == 'trash'
@@ -857,10 +866,8 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
                                           vaultMessage(context, e);
                                         }
                                       })
-                          ])))
-      ]),
-    );
-  }
+                          ])));
+
 }
 
 Future<void> manageRecoveryEntries(
@@ -1485,7 +1492,10 @@ Future<void> openCredentialActions(BuildContext context, Map<String, dynamic> it
       title: Text(meta['title']?.toString() ?? ''),
       children: [
         if (kind == 'login') ...[
-          Padding(padding: const EdgeInsets.fromLTRB(24, 0, 24, 12), child: SelectableText('${current['origin']}\n${current['username']}')),
+          Padding(padding: const EdgeInsets.fromLTRB(24, 0, 24, 12), child: Column(children: [
+            CredentialPreviewValue(current['origin']?.toString() ?? ''),
+            CredentialPreviewValue(current['username']?.toString() ?? ''),
+          ])),
           SimpleDialogOption(onPressed: () => openCredentialActions(ctx,meta,action:'edit'), child: const LText('vaultTools.openCredentialActions.text.item2')),
           SimpleDialogOption(onPressed: () => openCredentialActions(ctx,meta,action:'history'), child: const LText('vaultTools.build.text.item4')),
           SimpleDialogOption(onPressed: () => copySelectedCredential(ctx,{...current,'kind':'login'}), child: const LText('vaultTools.openCredentialActions.text.item3')),
@@ -1496,7 +1506,10 @@ Future<void> openCredentialActions(BuildContext context, Map<String, dynamic> it
           SimpleDialogOption(onPressed: () => copyTotpCode(ctx,current['id'].toString()), child: const LText('credentials.build.text.item15')),
         ],
         if (kind == 'ssh_key') Padding(padding: const EdgeInsets.symmetric(horizontal:24), child: SelectableText(current['public_openssh']?.toString() ?? '')),
-        if (kind == 'server_login') Padding(padding: const EdgeInsets.symmetric(horizontal:24), child: SelectableText('${current['host']}:${current['port']}\n${current['manual_username'] ?? ''}')),
+        if (kind == 'server_login') Padding(padding: const EdgeInsets.symmetric(horizontal:24), child: Column(children: [
+          CredentialPreviewValue('${current['host']}:${current['port']}'),
+          CredentialPreviewValue(current['manual_username']?.toString() ?? ''),
+        ])),
         if (kind == 'recovery_codes') SimpleDialogOption(onPressed: () => manageRecoveryEntries(ctx,current), child: const LText('vaultTools.openCredentialActions.text.item5')),
         SimpleDialogOption(onPressed: () async { await editItemDetails(ctx,{...meta,...current,'item_id':itemId,'kind':kind}); AgentBridge.notifyVaultChanged(); }, child: const LText('vaultTools.openCredentialActions.text.item6')),
         SimpleDialogOption(onPressed: () => Navigator.pop(ctx), child: const LText('common.close')),

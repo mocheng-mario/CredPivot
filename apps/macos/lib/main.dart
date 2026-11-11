@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'agent_bridge.dart';
 import 'app_navigation.dart';
@@ -59,6 +60,17 @@ class CredPivotApp extends StatelessWidget {
       theme: buildAppTheme(brightness: Brightness.light),
       darkTheme: buildAppTheme(brightness: Brightness.dark),
       themeMode: AppPresentation.instance.mode,
+      // macOS 默认将 Home/End 交回系统；显式映射到文本光标，覆盖所有输入框。
+      builder: (context, child) => Shortcuts(shortcuts: const <ShortcutActivator, Intent>{
+        SingleActivator(LogicalKeyboardKey.home): ExtendSelectionToLineBreakIntent(forward: false, collapseSelection: true),
+        SingleActivator(LogicalKeyboardKey.end): ExtendSelectionToLineBreakIntent(forward: true, collapseSelection: true),
+        SingleActivator(LogicalKeyboardKey.home, shift: true): ExtendSelectionToLineBreakIntent(forward: false, collapseSelection: false),
+        SingleActivator(LogicalKeyboardKey.end, shift: true): ExtendSelectionToLineBreakIntent(forward: true, collapseSelection: false),
+        SingleActivator(LogicalKeyboardKey.home, control: true): ExtendSelectionToDocumentBoundaryIntent(forward: false, collapseSelection: true),
+        SingleActivator(LogicalKeyboardKey.end, control: true): ExtendSelectionToDocumentBoundaryIntent(forward: true, collapseSelection: true),
+        SingleActivator(LogicalKeyboardKey.home, control: true, shift: true): ExtendSelectionToDocumentBoundaryIntent(forward: false, collapseSelection: false),
+        SingleActivator(LogicalKeyboardKey.end, control: true, shift: true): ExtendSelectionToDocumentBoundaryIntent(forward: true, collapseSelection: false),
+      }, child: child ?? const SizedBox.shrink()),
       home: const VaultHomePage(),
     ));
   }

@@ -1,7 +1,7 @@
 (() => {
   if (window !== window.top || !/^https?:$/.test(location.protocol)) return;
   const version = chrome.runtime.getManifest().version;
-  if (globalThis.__credpivotContentVersion === version) return;
+  // 显式补装也用于修复同版本插件重载后的失效上下文，不能仅凭版本标记跳过。
   try { globalThis.__credpivotContentCleanup?.(); } catch (_) { /* 旧扩展上下文可能已失效。 */ }
   // 普通 HTTP 页面没有 randomUUID，但仍提供 getRandomValues；文档与输入框绑定不能因此失效。
   function randomId() {
@@ -14,7 +14,7 @@
   const listeners = [];
   let lastInput = null, contextInput = null, anchor = null, panel = null, token = null;
   let hidden = false, opening = false, delivering = false, generation = 0, frame = 0;
-  let host = null, shadow = null, badge = null, observer = null, panelTimer = null;
+  let host = null, shadow = null, badge = null, notice = null, observer = null, panelTimer = null, noticeTimer = null;
   let inlineFailure = '';
 
   function runtimeMessage(message) {
@@ -125,12 +125,14 @@
   function closePanel(cancel = true) {
     generation++; opening = false;
     clearTimeout(panelTimer); panelTimer = null;
+    clearTimeout(noticeTimer); if (notice) notice.hidden = true;
     const current = token; token = null;
     panel?.remove(); panel = null;
     if (cancel && current) void runtimeMessage({type:'inline_cancel', token:current, document_id:documentId}).catch(() => {});
   }
   function hideBadge() {
     if (badge) badge.hidden = true;
+    clearTimeout(noticeTimer); if (notice) notice.hidden = true;
     anchor = null;
     observer?.disconnect();
   }
@@ -153,9 +155,17 @@
     badge.style.top = `${Math.max(4, Math.min(rect.top + (rect.height - 26) / 2, innerHeight - 30))}px`;
     if (!badge.hidden) {
       const style = getComputedStyle(badge);
-      inlineFailure = !badge.getClientRects().length || style.visibility === 'hidden' ||
-        style.visibility === 'collapse' || Number(style.opacity) === 0
-        ? '页面样式阻止了填充入口显示，请使用工具栏填充' : '';
+      if (!badge.getClientRects().length || style.visibility === 'hidden' ||
+          style.visibility === 'collapse' || Number(style.opacity) === 0) {
+        inlineFailure = '页面样式阻止了填充入口显示，请使用工具栏填充';
+      }
+    }
+    if (notice && !notice.hidden) {
+      const width = Math.min(320, innerWidth - 16);
+      notice.style.width = `${width}px`;
+      notice.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - width - 8))}px`;
+      notice.style.top = `${Math.max(8, Math.min(rect.bottom + 34, innerHeight - notice.offsetHeight - 8))}px`;
+      notice.style.visibility = outside ? 'hidden' : 'visible';
     }
     if (panel) {
       const width = Math.max(220, Math.min(360, innerWidth - 16));
@@ -182,7 +192,7 @@
     host.style.setProperty('inset','0','important');
     host.style.setProperty('pointer-events','none','important');
     shadow = host.attachShadow({mode:'closed'});
-    const styles = 'button{position:fixed;width:26px;height:26px;border:1px solid #d8dafa;border-radius:8px;background:#565dd9;color:white;font:600 10px system-ui;box-shadow:0 2px 8px #0002;cursor:pointer;pointer-events:auto}button:focus-visible{outline:2px solid #565dd9;outline-offset:2px}button[hidden],iframe[hidden]{display:none}iframe{position:fixed;border:1px solid #dce0eb;border-radius:12px;background:white;box-shadow:0 8px 32px #0003;pointer-events:auto}';
+    const styles = 'button{position:fixed;width:26px;height:26px;border:1px solid #d8dafa;border-radius:8px;background:#565dd9;color:white;font:600 10px system-ui;box-shadow:0 2px 8px #0002;cursor:pointer;pointer-events:auto}button:focus-visible{outline:2px solid #565dd9;outline-offset:2px}button[hidden],iframe[hidden],.notice[hidden]{display:none}iframe{position:fixed;border:1px solid #dce0eb;border-radius:12px;background:white;box-shadow:0 8px 32px #0003;pointer-events:auto}.notice{position:fixed;box-sizing:border-box;padding:10px 12px;border:1px solid #efc3a6;border-radius:10px;background:#fff8ef;color:#663d12;font:13px/1.5 system-ui;overflow-wrap:anywhere;box-shadow:0 4px 16px #0002;pointer-events:none}';
     try {
       const sheet = new CSSStyleSheet(); sheet.replaceSync(styles); shadow.adoptedStyleSheets = [sheet];
     } catch (_) {
@@ -204,8 +214,23 @@
         void open(current);
       }
     });
-    shadow.append(badge); document.documentElement.append(host);
+    notice = document.createElement('div'); notice.className = 'notice'; notice.hidden = true;
+    notice.setAttribute('role','alert');
+    shadow.append(badge,notice); document.documentElement.append(host);
     observer ??= new MutationObserver(schedulePosition);
+  }
+  function showFailure(message) {
+    const raw = String(message || '页面填充面板未能打开，请再次点击图标或使用工具栏填充');
+    inlineFailure = /Extension context invalidated|Receiving end does not exist|message port closed/i.test(raw)
+      ? '插件连接已失效，请重新点击图标；若仍失败，请刷新网页后重试。' : raw;
+    if (!badge || !notice) return;
+    badge.textContent = '!'; badge.title = inlineFailure;
+    badge.setAttribute('aria-label',`CredPivot：${inlineFailure}`);
+    // 面板内已经显示同一原因时不再覆盖候选与验证按钮。
+    notice.textContent = inlineFailure; notice.hidden = Boolean(panel);
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => { notice.hidden = true; },10000);
+    position();
   }
   function showBadge(target) {
     if (hidden || !valid(target)) return;
@@ -226,7 +251,9 @@
     let openTimer;
     try {
       ensureHost(); anchor = target;
+      inlineFailure = '';
       badge.textContent = 'CP'; badge.title = 'CredPivot：正在打开填充面板';
+      badge.setAttribute('aria-label','使用 CredPivot 填充');
       const pending = runtimeMessage({type:'inline_open', document_id:documentId, target_id:target.id});
       // 只给创建面板的非敏感请求限时；不重放取密请求，也不截断用户的指纹验证。
       void pending.then((response) => {
@@ -252,15 +279,14 @@
       position();
       panelTimer = setTimeout(() => {
         if (!token) return;
-        closePanel(); badge.textContent = '!';
-        badge.title = '此网站未能显示页面填充面板，请使用浏览器工具栏中的 CredPivot 插件';
+        closePanel();
+        showFailure('此网站未能显示填充面板，请再次点击图标重试，或使用浏览器工具栏中的 CredPivot 插件。');
       },5000);
       return {ok:true};
     } catch (error) {
       if (generation !== current) return {ok:false};
       closePanel();
-      inlineFailure = error?.message || '页面填充面板未能打开，请再次点击图标或使用工具栏填充';
-      if (badge) { badge.textContent = '!'; badge.title = inlineFailure; }
+      showFailure(error?.message);
       return {ok:false,message:inlineFailure};
     }
     finally { clearTimeout(openTimer); if (generation === current) opening = false; }
@@ -289,6 +315,16 @@
     }
     if (msg.type === 'inline_ready' && msg.token === token) {
       clearTimeout(panelTimer); panelTimer = null; badge.title = 'CredPivot：点击关闭填充面板';
+      respond({ok:true}); return;
+    }
+    if (msg.type === 'inline_feedback' && msg.token === token) {
+      clearTimeout(panelTimer); panelTimer = null;
+      if (msg.message) showFailure(msg.message);
+      else {
+        inlineFailure = ''; clearTimeout(noticeTimer); if (notice) notice.hidden = true;
+        badge.textContent = 'CP'; badge.title = 'CredPivot：点击关闭填充面板';
+        badge.setAttribute('aria-label','使用 CredPivot 填充');
+      }
       respond({ok:true}); return;
     }
     if (msg.type === 'inline_preference') {

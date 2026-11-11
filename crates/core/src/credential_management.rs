@@ -16,8 +16,14 @@ pub enum VaultAction {
     PartitionRename { id: String, expected_revision: String, name: String },
     PartitionDelete { id: String, expected_revision: String },
     PartitionReorder { ids: Vec<String>, expected: std::collections::BTreeMap<String,String> },
-    PartitionMovePreview { item_ids: Vec<String>, target_partition_id: String },
-    PartitionMoveApply { item_ids: Vec<String>, target_partition_id: String, fingerprint: String },
+    ItemsBatch {
+        operation: String,
+        partition_id: String,
+        expected: std::collections::BTreeMap<String, String>,
+        #[serde(default)] group_id: Option<String>,
+    },
+    PartitionMovePreview { item_ids: Vec<String>, target_partition_id: String, #[serde(default)] target_group_name: Option<String> },
+    PartitionMoveApply { item_ids: Vec<String>, target_partition_id: String, fingerprint: String, #[serde(default)] target_group_name: Option<String> },
     GroupRename { id: String, name: String, expected_updated_at_ms: i64, #[serde(default)] scope: Option<String> },
     SshGitRulesTest { rules: Vec<String>, #[serde(default)] target: Option<String> },
     SshGitBindings,
@@ -529,6 +535,32 @@ fn security_report(conn: &Connection) -> Result<Value> {
     )
 }
 
+fn items_batch(conn: &Connection, operation: &str, partition: &str,
+    expected: &std::collections::BTreeMap<String, String>, group: Option<&str>) -> Result<Value> {
+    if !matches!(operation, "trash" | "group") || expected.is_empty() || expected.len() > 10000 {
+        return Err(CoreError::format("批量操作或所选记录无效"));
+    }
+    let tx = conn.unchecked_transaction()?;
+    // 先检查整批修订，再写入；任一记录改变或仍被引用时整批回滚。
+    let mut items = Vec::new();
+    for (id, revision) in expected {
+        let (current, item_partition, kind): (String, String, String) = tx.query_row(
+            "SELECT current_revision,partition_id,kind FROM items WHERE id=?1 AND trashed=0", [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .optional()?.ok_or(CoreError::Conflict)?;
+        if current != *revision || item_partition != partition { return Err(CoreError::Conflict); }
+        items.push((id, kind));
+    }
+    // 同批选择服务器与 SSH 密钥时，先删除引用方，仍有未选中的引用时沿用原有保护。
+    items.sort_by_key(|(_, kind)| kind == "ssh_key");
+    for (id, _) in items {
+        if operation == "trash" { crate::repo_m2::trash_item_in_tx(&tx, id)?; }
+        else { crate::credential_groups::set_item_group_in_tx(&tx, id, group)?; }
+    }
+    tx.commit()?;
+    Ok(json!({"count":expected.len()}))
+}
+
 pub fn manage_credentials(conn: &Connection, action: VaultAction) -> Result<Value> {
     use VaultAction::*;
     // 这些操作内部已有事务，避免嵌套 BEGIN。
@@ -538,8 +570,9 @@ pub fn manage_credentials(conn: &Connection, action: VaultAction) -> Result<Valu
         PartitionRename {id,expected_revision,name} => crate::partitions::rename(conn,&id,&expected_revision,&name),
         PartitionDelete {id,expected_revision} => crate::partitions::delete(conn,&id,&expected_revision),
         PartitionReorder {ids,expected} => crate::partitions::reorder(conn,&ids,&expected),
-        PartitionMovePreview {item_ids,target_partition_id} => crate::partitions::preview(conn,&item_ids,&target_partition_id),
-        PartitionMoveApply {item_ids,target_partition_id,fingerprint} => crate::partitions::migrate(conn,&item_ids,&target_partition_id,&fingerprint),
+        ItemsBatch {operation,partition_id,expected,group_id} => items_batch(conn,&operation,&partition_id,&expected,group_id.as_deref()),
+        PartitionMovePreview {item_ids,target_partition_id,target_group_name} => crate::partitions::preview_with_group(conn,&item_ids,&target_partition_id,target_group_name.as_deref()),
+        PartitionMoveApply {item_ids,target_partition_id,fingerprint,target_group_name} => crate::partitions::migrate_with_group(conn,&item_ids,&target_partition_id,&fingerprint,target_group_name.as_deref()),
         GroupRename {id,name,expected_updated_at_ms,scope} => {
             crate::credential_groups::update_credential_group_checked(conn,&id,&name,scope.as_deref(),Some(expected_updated_at_ms))?;
             Ok(json!({"renamed":true}))

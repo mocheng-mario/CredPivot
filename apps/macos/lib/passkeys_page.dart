@@ -177,8 +177,7 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                   icon: Icons.fingerprint_rounded,
                   title: tr('passkey.build.title'),
                   message: tr('passkey.build.message'))
-              : ListView(
-                  children: buildGroupedListTiles(
+              : buildGroupedList(
                       scope: 'passkey',
                       groups: _groups,
                       items: visible,
@@ -192,7 +191,7 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                             onTap: _busy
                                 ? null
                                 : () => _select(row),
-                          ))),
+                          )),
           detail: selected == null
               ? null
               : CredentialDetails(
@@ -208,7 +207,7 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                       tr('passkey.build.text.item6'): vaultDate(selected['created_at_ms']),
                       tr('passkey.build.text.item7'): vaultDate(selected['last_used_at_ms']),
                       tr('passkey.build.text.item8'): tr('passkey.build.text.item9')
-                    }),
+                    }, copyableFields: {tr('passkey.build.text.item4')}),
           actions: selected == null
               ? null
               : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

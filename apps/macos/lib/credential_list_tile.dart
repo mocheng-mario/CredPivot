@@ -2,6 +2,34 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 
 import 'app_ui.dart';
+import 'agent_bridge.dart';
+
+class CredentialPreviewValue extends StatelessWidget {
+  const CredentialPreviewValue(this.value, {super.key});
+  final String value;
+
+  Future<void> _copy(BuildContext context) async {
+    try {
+      final session = await AgentBridge.clipboardSession();
+      if (!context.mounted) return;
+      await AgentBridge.copyConcealed(value, session: session);
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: LText('common.copied')));
+    } catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e is AgentException ? tr(e.message) : tr('common.operationFailed'))));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Expanded(child: SelectableText(value.isEmpty ? tr('common.empty') : value,
+      style: Theme.of(context).textTheme.bodyMedium)),
+    if (value.isNotEmpty) IconButton(
+      tooltip: tr('common.copy'), visualDensity: VisualDensity.compact,
+      icon: const Icon(Icons.copy_outlined, size: 16), onPressed: () => _copy(context)),
+  ]);
+}
 
 Widget selectableCredentialTile({
   required BuildContext context,
@@ -245,11 +273,18 @@ class CredentialDetails extends StatelessWidget {
       {super.key,
       required this.title,
       required this.fields,
+      this.copyableFields = const {},
       this.icon = Icons.key_outlined});
 
   final String title;
   final Map<String, String> fields;
+  final Set<String> copyableFields;
   final IconData icon;
+
+  Widget _value(BuildContext context, MapEntry<String, String> field) => copyableFields.contains(field.key)
+    ? CredentialPreviewValue(field.value)
+    : SelectableText(field.value.isEmpty ? tr('common.empty') : field.value,
+        style: Theme.of(context).textTheme.bodyMedium);
 
   @override
   Widget build(BuildContext context) {
@@ -273,8 +308,7 @@ class CredentialDetails extends StatelessWidget {
               SizedBox(width: 96, child: LText(field.key,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.muted))),
               const SizedBox(width: 12),
-              Expanded(child: SelectableText(field.value.isEmpty ? tr('common.empty') : field.value,
-                style: Theme.of(context).textTheme.bodyMedium)),
+              Expanded(child: _value(context, field)),
             ]),
           ),
       ]);
@@ -293,8 +327,7 @@ class CredentialDetails extends StatelessWidget {
         appFieldRows([
           for (final field in fields.entries)
             AppFieldRow(label: tr(field.key),
-              child: SelectableText(field.value.isEmpty ? tr('common.empty') : field.value,
-                  style: Theme.of(context).textTheme.bodyMedium)),
+              child: _value(context, field)),
         ]),
       ]);
   }

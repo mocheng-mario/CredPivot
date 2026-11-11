@@ -165,10 +165,14 @@ Future<void> showPartitionMigration(BuildContext context, String source) async {
       AgentBridge.manage({'action': 'item_search', 'query': ''}, partitionId: source),
       AgentBridge.manage({'action': 'trash_list'}, partitionId: source),
     ]);
+    final groupLists = await Future.wait([for (final destination in destinations)
+      AgentBridge.listCredentialGroups('shared', partitionId: destination['id'].toString())]);
+    final targetGroups = {for (var i = 0; i < destinations.length; i++) destinations[i]['id'].toString(): groupLists[i]};
     if (!context.mounted) return;
     final items = [for (final result in results) ...(result['items'] as List).map((v) => Map<String, dynamic>.from(v as Map))];
     if (items.isEmpty) throw AgentException('partition', 'partitions.errors.selection');
     var target = destinations.first['id'].toString(), query = '';
+    var groupChoice = '', newGroupName = '';
     final selected = <String>{};
     final proceed = await showDialog<bool>(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, update) {
       final visible = items.where((r) => '${r['title']} ${r['account'] ?? ''}'.toLowerCase().contains(query.toLowerCase())).toList();
@@ -182,7 +186,18 @@ Future<void> showPartitionMigration(BuildContext context, String source) async {
             AppFieldRow(label: tr('partitions.target'), child: DropdownButtonFormField<String>(initialValue: target, isExpanded: true,
               decoration: InputDecoration(),
               items: destinations.map((p) => DropdownMenuItem(value: p['id'].toString(), child: Text(p['name'].toString()))).toList(),
-              onChanged: (value) { if (value != null) update(() => target = value); })),
+              onChanged: (value) { if (value != null) update(() { target = value; groupChoice = ''; newGroupName = ''; }); })),
+            const SizedBox(height: 12),
+            AppFieldRow(label: tr('partitions.targetGroup'), help: tr('partitions.targetGroupHelp'),
+              child: DropdownButtonFormField<String>(key: ValueKey(target), initialValue: groupChoice, isExpanded: true,
+                items: [
+                  const DropdownMenuItem(value: '', child: LText('partitions.keepGroups')),
+                  for (final group in targetGroups[target]!) DropdownMenuItem(value: group['id'].toString(), child: Text(group['name'].toString())),
+                  const DropdownMenuItem(value: '__new__', child: LText('partitions.newSharedGroup')),
+                ], onChanged: (value) { if (value != null) update(() { groupChoice = value; newGroupName = ''; }); })),
+            if (groupChoice == '__new__') Padding(padding: const EdgeInsets.only(top: 12), child: AppFieldRow(label: tr('partitions.groupName'),
+              child: TextField(maxLength: 80, onChanged: (value) => update(() => newGroupName = value),
+                decoration: InputDecoration(hintText: tr('partitions.groupNameHint'))))),
             const SizedBox(height: 12),
             AppFieldRow(label: tr('partitions.search'), child: TextField(decoration: InputDecoration(), onChanged: (value) => update(() => query = value))),
             Wrap(spacing: 12, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
@@ -215,12 +230,16 @@ Future<void> showPartitionMigration(BuildContext context, String source) async {
             }, childCount: visible.length)),
           ])),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('common.cancel')),
-          FilledButton(onPressed: selected.isEmpty ? null : () => Navigator.pop(ctx, true), child: const LText('partitions.preview'))],
+          FilledButton(onPressed: selected.isEmpty || (groupChoice == '__new__' && newGroupName.trim().isEmpty)
+            ? null : () => Navigator.pop(ctx, true), child: const LText('partitions.preview'))],
       );
     }));
     if (proceed != true || !context.mounted) return;
     final ids = selected.toList()..sort();
-    final preview = await AgentBridge.manage({'action': 'partition_move_preview', 'item_ids': ids, 'target_partition_id': target});
+    final String? targetGroupName = groupChoice.isEmpty ? null : groupChoice == '__new__' ? newGroupName.trim()
+      : targetGroups[target]!.firstWhere((group) => group['id'] == groupChoice)['name'].toString();
+    final preview = await AgentBridge.manage({'action': 'partition_move_preview', 'item_ids': ids, 'target_partition_id': target,
+      'target_group_name': targetGroupName});
     if (!context.mounted) return;
     final affected = (preview['items'] as List).cast<Map>();
     final confirmed = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
@@ -229,6 +248,7 @@ Future<void> showPartitionMigration(BuildContext context, String source) async {
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           LText('partitions.moveHelp', args: {'selected': ids.length, 'count': affected.length,
             'name': destinations.firstWhere((p) => p['id'] == target)['name']}),
+          LText(targetGroupName == null ? 'partitions.confirmKeepGroups' : 'partitions.confirmTargetGroup', args: {'name': targetGroupName}),
           const SizedBox(height: 12),
           Expanded(child: ListView.builder(itemCount: affected.length, itemBuilder: (_, index) {
             final item = affected[index];
@@ -242,7 +262,8 @@ Future<void> showPartitionMigration(BuildContext context, String source) async {
         FilledButton(onPressed: affected.isEmpty ? null : () => Navigator.pop(ctx, true), child: const LText('partitions.confirmMove'))],
     ));
     if (confirmed != true || !context.mounted || !await requireTouchId(context, reason: 'partitions.confirmMove', confirmed: true)) return;
-    await AgentBridge.manage({'action': 'partition_move_apply', 'item_ids': ids, 'target_partition_id': target, 'fingerprint': preview['fingerprint']});
+    await AgentBridge.manage({'action': 'partition_move_apply', 'item_ids': ids, 'target_partition_id': target,
+      'target_group_name': targetGroupName, 'fingerprint': preview['fingerprint']});
     AgentBridge.notifyVaultChanged();
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: LText('partitions.moved', args: {'count': affected.length})));
   } catch (e) { if (context.mounted) await _failure(context, e); }
