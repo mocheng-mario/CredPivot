@@ -319,8 +319,10 @@ class AgentBridge {
           {String? partitionId, bool allPartitions = false}) async =>
       payloadOf(await request({'type': 'vault_manage', 'action': action}, partitionId: partitionId, allPartitions: allPartitions));
 
-  static Future<List<String>> scanQrImage() async =>
-      (await _channel.invokeListMethod<String>('scanQrImage')) ?? [];
+  static Future<List<String>> scanQrImage({String? image}) async =>
+      (await _channel.invokeListMethod<String>('scanQrImage', image == null ? null : {'image': image})) ?? [];
+
+  static Future<void> showMainWindow() => _channel.invokeMethod('showMainWindow');
 
   static Future<void> writeTextFile(String path, String text) =>
       _channel.invokeMethod('writeTextFile', {'path': path, 'text': text});

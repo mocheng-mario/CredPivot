@@ -5,6 +5,7 @@ import {
   requestPageContext,
 } from "./fill_flow.js";
 import {handlePasskey, cancelPasskey, passkeySiteState, setPasskeySiteState, syncPasskeyScripts} from "./passkey_background.js";
+import {addMfa, cancelMfa} from "./mfa_background.js";
 
 chrome.runtime.onInstalled.addListener(() => {
   void syncPasskeyScripts().catch(() => {});
@@ -20,6 +21,7 @@ const HOST_NAME = "com.credpivot.chrome.m0";
 const NATIVE_IDLE_DISCONNECT_MS = 5 * 60 * 1000;
 const PROTOCOL_VERSION = 2;
 const NATIVE_REQUEST_TIMEOUT_MS = 30_000;
+const mfaResults = new Map();
 let nativeGateGeneration = 0;
 
 /** @type {chrome.runtime.Port | null} */
@@ -95,6 +97,8 @@ async function rememberSelectedAccount(tabId, origin, credentialId) {
 }
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  void cancelMfa(tabId, sendNative).catch(() => {});
+  mfaResults.delete(tabId);
   for (const record of inlineSessions.values()) if (record.tabId === tabId) cancelInline(record,false);
   (async () => {
     const stored = await chrome.storage.session.get(null);
@@ -568,9 +572,21 @@ function installInlineMenus() {
     create({id:'credpivot-fill',title:'CredPivot'});
     create({id:'credpivot-login',parentId:'credpivot-fill',title:'填充账号与密码'});
     create({id:'credpivot-otp',parentId:'credpivot-fill',title:'填充 MFA 验证码'});
+    create({id:'credpivot-add-mfa-qr',title:'识别此页面的 MFA 二维码',contexts:['page','image']});
   });
 }
 chrome.contextMenus?.onClicked.addListener((info,tab) => {
+  if (info.menuItemId === 'credpivot-add-mfa-qr' && tab?.id) {
+    void (async () => {
+      await chrome.action.setBadgeText({tabId:tab.id,text:'MFA'});
+      const response = await addMfa(tab.id,null,sendNative,requestBrowserVerification,clearMetadataCache);
+      const message = response?.ok ? 'MFA 已保存。网站要求时，请使用验证码完成启用。' : response?.message || '请从插件面板点击「连接与验证」后重新识别。';
+      mfaResults.set(tab.id,{ok:response?.ok === true,message});
+      await chrome.action.setBadgeText({tabId:tab.id,text:response?.ok ? '✓' : '!'});
+      await chrome.action.setTitle({tabId:tab.id,title:`CredPivot · ${message}`});
+    })().catch(() => {});
+    return;
+  }
   if (!['credpivot-login','credpivot-otp'].includes(info.menuItemId) || info.frameId !== 0 || !tab?.id) return;
   (async () => {
     await requestPageContext(tab.id);
@@ -583,6 +599,7 @@ chrome.contextMenus?.onClicked.addListener((info,tab) => {
 });
 chrome.tabs.onUpdated?.addListener((tabId,change) => {
   if (!change.url && change.status !== 'loading') return;
+  void cancelMfa(tabId,sendNative).catch(() => {});
   for (const record of inlineSessions.values()) if (record.tabId === tabId) cancelInline(record);
 });
 chrome.tabs.onActivated?.addListener(({tabId,windowId}) => {
@@ -620,6 +637,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // 只有扩展自己的界面能发起操作；网页及内容脚本不能自行保存或领取秘密。
       if (sender.id !== chrome.runtime.id || sender.tab || sender.url?.split("#")[0] !== chrome.runtime.getURL("popup.html")) {
         sendResponse({ok:false,code:"forbidden",message:"请从扩展面板操作"}); return;
+      }
+      if (msg.type === "add_mfa_qr") {
+        sendResponse(await addMfa(msg.tab_id, msg.image ?? null, sendNative, requestBrowserVerification, clearMetadataCache));
+        return;
+      }
+      if (msg.type === "cancel_mfa_qr") {
+        sendResponse(await cancelMfa(msg.tab_id, sendNative));
+        return;
+      }
+      if (msg.type === "mfa_result") {
+        sendResponse({ok:true,result:mfaResults.get(msg.tab_id) ?? null});
+        mfaResults.delete(msg.tab_id);
+        void chrome.action.setBadgeText({tabId:msg.tab_id,text:''}).catch(() => {});
+        return;
       }
       if (msg.type === "handshake") {
         if (typeof msg.gate_request_id !== 'string' || !/^[0-9a-f-]{36}$/.test(msg.gate_request_id)) {

@@ -60,6 +60,7 @@ pub struct VaultSession {
     pub ssh_signing_key_comment: String,
     pub ssh_authorization: crate::ssh_agent::SshAuthorization,
     pub passkey_requests: crate::passkey::PendingRequests,
+    pub browser_mfa_requests: crate::browser_mfa::PendingRequests,
     pub data_revision: String,
     pub idle_timeout: Duration,
     pub last_activity: Instant,
@@ -107,6 +108,7 @@ impl VaultSession {
             ssh_signing_key_comment: String::new(),
             ssh_authorization: Default::default(),
             passkey_requests: Default::default(),
+            browser_mfa_requests: Default::default(),
             data_revision: uuid::Uuid::new_v4().to_string(),
             idle_timeout: Duration::from_secs(settings.vault_idle_seconds),
             settings,
@@ -132,6 +134,7 @@ impl VaultSession {
     fn abort_partial_unlock(&mut self) {
         self.sync_plan = None;
         self.passkey_requests.clear();
+        self.browser_mfa_requests.clear();
         self.ssh_authorization.clear();
         self.ssh_signing_key_id = None;
         self.ssh_signing_key_comment.clear();
@@ -225,7 +228,7 @@ impl VaultSession {
 
     pub fn apply_settings(&mut self, settings: credpivot_core::AppSettings) -> bool {
         let security_changed = self.settings.security_differs(&settings);
-        if security_changed { self.sensitive_authenticated_at = None; self.ssh_authorization.clear(); self.passkey_requests.clear(); }
+        if security_changed { self.sensitive_authenticated_at = None; self.ssh_authorization.clear(); self.passkey_requests.clear(); self.browser_mfa_requests.clear(); }
         self.idle_timeout = Duration::from_secs(settings.vault_idle_seconds);
         self.settings = settings;
         security_changed
@@ -239,6 +242,7 @@ impl VaultSession {
         self.bootstrap_plan = None;
         self.sync_plan = None;
         self.passkey_requests.clear();
+        self.browser_mfa_requests.clear();
         if self.unlocked {
             if self.try_restore_point_if_due().is_err() {
                 crate::diagnostics::warn("backup", "restore point before lock failed");

@@ -159,6 +159,18 @@ fn map_extension_to_agent(
             request_id: envelope["gate_request_id"].as_str().unwrap_or("").into(),
         }),
         "status" | "agent.status" => Ok(AgentRequest::Status),
+        "mfa.begin" => Ok(AgentRequest::BrowserMfaBegin {
+            request_id: envelope["mfa_request_id"].as_str().unwrap_or("").into(),
+            origin: envelope["origin"].as_str().unwrap_or("").into(),
+            image: envelope["image"].as_str().unwrap_or("").into(),
+        }),
+        "mfa.poll" => Ok(AgentRequest::BrowserMfaPoll {
+            request_id: envelope["mfa_request_id"].as_str().unwrap_or("").into(),
+            origin: envelope["origin"].as_str().unwrap_or("").into(),
+        }),
+        "mfa.cancel" => Ok(AgentRequest::BrowserMfaCancel {
+            request_id: envelope["mfa_request_id"].as_str().unwrap_or("").into(),
+        }),
         "passkey.begin" => Ok(AgentRequest::PasskeyBegin {
             request_id: envelope["passkey_request_id"].as_str().unwrap_or("").into(),
             kind: envelope["kind"].as_str().unwrap_or("").into(),

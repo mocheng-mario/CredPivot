@@ -1841,7 +1841,7 @@ final class CredPivotPlatform: NSObject {
         requestObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
       }
       let requestType = requestObject?["type"] as? String ?? ""
-      if ["status", "sync_status", "app_settings_get"].contains(requestType) {
+      if ["status", "sync_status", "app_settings_get", "browser_mfa_pending"].contains(requestType) {
         let notice = LocalVaultUnlock.setupNotice
         let backgroundLaunch = AppDelegate.launchedForBrowser
         DispatchQueue.global(qos: .userInitiated).async {
@@ -2037,17 +2037,36 @@ final class CredPivotPlatform: NSObject {
       } catch {
         result(FlutterError(code: "io", message: NativePresentation.tr("native.result.message"), details: nil))
       }
+    case "showMainWindow":
+      NSApp.activate(ignoringOtherApps: true)
+      NSApp.windows.first(where: { $0.contentViewController is FlutterViewController })?.makeKeyAndOrderFront(nil)
+      result(nil)
     case "scanQrImage":
+      let embeddedImage = (call.arguments as? [String: String])?["image"]
       DispatchQueue.main.async {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image]
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { result([]); return }
+        let imageData: Data?
+        let imageUrl: URL?
+        if let embeddedImage = embeddedImage {
+          guard embeddedImage.utf8.count <= 2 * 1024 * 1024,
+                embeddedImage.hasPrefix("data:image/png;base64,") || embeddedImage.hasPrefix("data:image/jpeg;base64,"),
+                let separator = embeddedImage.firstIndex(of: ","),
+                let data = Data(base64Encoded: String(embeddedImage[embeddedImage.index(after: separator)...])) else {
+            result(FlutterError(code: "qr", message: NativePresentation.tr("native.result.message.item2"), details: nil)); return
+          }
+          imageData = data; imageUrl = nil
+        } else {
+          let panel = NSOpenPanel()
+          panel.allowedContentTypes = [.image]
+          panel.allowsMultipleSelection = false
+          guard panel.runModal() == .OK, let url = panel.url else { result([]); return }
+          imageUrl = url; imageData = nil
+        }
         DispatchQueue.global(qos: .userInitiated).async {
           do {
             let request = VNDetectBarcodesRequest()
             request.symbologies = [.qr]
-            try VNImageRequestHandler(url: url).perform([request])
+            let handler = imageData.map { VNImageRequestHandler(data: $0, options: [:]) } ?? VNImageRequestHandler(url: imageUrl!)
+            try handler.perform([request])
             let uris = (request.results ?? []).compactMap { $0.payloadStringValue }
               .filter { $0.lowercased().hasPrefix("otpauth://totp/") }
             DispatchQueue.main.async { result(uris) }

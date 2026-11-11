@@ -23,6 +23,7 @@ import 'webdav_sync.dart';
 import 'webdav_bootstrap.dart';
 import 'vault_setup.dart';
 import 'credential_partitions.dart';
+import 'totp_editor.dart';
 import 'main_android.dart' as android;
 
 Future<void> main() async {
@@ -81,6 +82,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
   final _password = TextEditingController();
   final _passwordFocus = FocusNode();
   final _newPassword = TextEditingController();
+  final _confirmNewPassword = TextEditingController();
   final _syncHostName = TextEditingController();
   final _recoveryKey = TextEditingController();
   // 备份可能来自其他保险库，恢复密码不与当前主密码共用输入状态。
@@ -108,6 +110,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
 
   Timer? _vaultLockPoll;
   bool _vaultLockPolling = false;
+  bool _browserMfaOpening = false;
   int _statusRequestGeneration = 0;
   int _lastVaultLockGen = 0;
   String? _lastDataRevision;
@@ -179,6 +182,9 @@ class _VaultHomePageState extends State<VaultHomePage> {
         await _refreshStatus();
       }
       _lastVaultLockGen = gen;
+      if (agentUnlocked && !_busy && !_browserMfaOpening && ModalRoute.of(context)?.isCurrent == true) {
+        unawaited(_openBrowserMfa());
+      }
     } catch (_) {
       // 失去后台状态时先遮住内容，不能继续展示上一次解锁会话的数据。
       if (mounted && _unlocked) notifyVaultLocked();
@@ -196,6 +202,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
     _recoveryKey.clear();
     _recoveryPassword.clear();
     _newPassword.clear();
+    _confirmNewPassword.clear();
     if (mounted) {
       setState(() {
         _status = {..._status, 'unlocked': false};
@@ -204,6 +211,31 @@ class _VaultHomePageState extends State<VaultHomePage> {
         _operationMessage = '';
       });
       _refreshStatus().catchError((Object _) {});
+    }
+  }
+
+  Future<void> _openBrowserMfa() async {
+    if (_browserMfaOpening || !mounted) return;
+    _browserMfaOpening = true;
+    Map<String, dynamic>? pending;
+    var saved = false;
+    try {
+      final response = AgentBridge.payloadOf(await AgentBridge.request({'type': 'browser_mfa_pending'}));
+      if (!mounted || response['request'] is! Map) return;
+      pending = Map<String, dynamic>.from(response['request'] as Map);
+      await AgentBridge.showMainWindow();
+      if (!mounted || !_unlocked) return;
+      saved = await showTotpEditor(context, browserRequest: pending);
+      if (saved && mounted) { AgentBridge.notifyVaultChanged(); await _refreshStatus(); }
+    } on AgentException catch (problem) {
+      if (mounted) _appendLog(AgentBridge.friendlyMessage(problem));
+    } catch (_) {
+      if (mounted) _appendLog(tr('mfa.showTotpEditor.message'));
+    } finally {
+      if (pending != null && !saved) {
+        try { await AgentBridge.request({'type': 'browser_mfa_resolve', 'request_id': pending['id'], 'approved': false}); } catch (_) {}
+      }
+      _browserMfaOpening = false;
     }
   }
 
@@ -220,6 +252,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
     _password.dispose();
     _passwordFocus.dispose();
     _newPassword.dispose();
+    _confirmNewPassword.dispose();
     _syncHostName.dispose();
     _recoveryKey.dispose();
     _recoveryPassword.dispose();
@@ -277,6 +310,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
         vaultRootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
         _password.clear();
         _newPassword.clear();
+        _confirmNewPassword.clear();
         _recoveryKey.clear();
         _recoveryPassword.clear();
         _showMasterPassword = false;
@@ -585,11 +619,16 @@ class _VaultHomePageState extends State<VaultHomePage> {
       _appendLog(tr('vault.changePassword.text'));
       return;
     }
+    if (newPassword != _confirmNewPassword.text) {
+      _appendLog(tr('vault.changePassword.mismatch'));
+      return;
+    }
     if (!await requireTouchId(context, reason: tr('vault.changePassword.reason')) || !mounted) return;
     await _run(tr('vault.changePassword.text.item2'), () async {
       await AgentBridge.vaultChangePassword(currentPassword, newPassword);
       _password.clear();
       _newPassword.clear();
+      _confirmNewPassword.clear();
       await _refreshStatus();
       _appendLog(tr('vault.changePassword.text.item3'));
     });
@@ -1218,27 +1257,41 @@ class _VaultHomePageState extends State<VaultHomePage> {
               child: Column(children: [
                 AppFieldRow(label: tr('vault.vaultOverview.text.item19'), child: TextField(
                     controller: _password,
+                    enabled: !_busy,
                     obscureText: true,
+                    autocorrect: false, enableSuggestions: false, enableIMEPersonalizedLearning: false,
                     decoration: InputDecoration())),
                 const SizedBox(height: 12),
                 AppFieldRow(label: tr('vault.vaultOverview.text.item20'), child: TextField(
                     controller: _newPassword,
+                    enabled: !_busy,
                     obscureText: true,
+                    autocorrect: false, enableSuggestions: false, enableIMEPersonalizedLearning: false,
                     decoration:
                         InputDecoration())),
+                const SizedBox(height: 12),
+                AppFieldRow(label: tr('vault.changePassword.confirm'), child: TextField(
+                    controller: _confirmNewPassword, enabled: !_busy, obscureText: true,
+                    autocorrect: false, enableSuggestions: false, enableIMEPersonalizedLearning: false,
+                    decoration: const InputDecoration())),
                 const SizedBox(height: 14),
                 Align(
                     alignment: Alignment.centerLeft,
                     child: Wrap(spacing: 10, runSpacing: 10, children: [
                       OutlinedButton(
-                          onPressed: _changePassword,
+                          onPressed: _busy ? null : _changePassword,
                           child: const LText('vault.vaultOverview.text.item21')),
-                      OutlinedButton.icon(
-                          onPressed: _exportOvb,
-                          icon: const Icon(Icons.file_download_outlined),
-                          label: const LText('vault.vaultOverview.text.item22')),
                     ])),
               ]),
+            ),
+            const SizedBox(height: 16),
+            AppPanel(
+              title: tr('vault.vaultOverview.text.item22'),
+              subtitle: tr('vault.backup.help'),
+              icon: Icons.file_download_outlined,
+              child: Align(alignment: Alignment.centerLeft, child: OutlinedButton.icon(
+                onPressed: _busy ? null : _exportOvb, icon: const Icon(Icons.file_download_outlined),
+                label: const LText('vault.vaultOverview.text.item22'))),
             ),
             const SizedBox(height: 16),
           ],

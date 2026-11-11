@@ -83,6 +83,9 @@ function updateControls() {
   $("fillOtp").disabled = busy || !ready || !mfaCandidates.some((m) => m.id === selectedTotpId);
   $("otp").disabled = busy || !ready || !mfaCandidates.length || (mfaCandidates.length === 1 && Boolean(selectedTotpId));
   $("otherMfas").disabled = busy || !ready;
+  $("scanMfa").disabled = busy || !ready || !targetOrigin;
+  $("uploadMfa").disabled = busy || !ready || !targetOrigin;
+  $("cancelMfa").disabled = !targetOrigin;
   $("passkeyToggle").disabled = busy || !targetOrigin?.startsWith("https://");
   $("otherMfas").hidden = !ready || !hasMoreMfas || allMfaMatches;
   $("capture").disabled = busy || !ready || !targetOrigin;
@@ -406,6 +409,48 @@ async function refreshPasskeyState() {
   $("passkeyToggle").textContent = passkeyEnabled ? "在此网站停用" : "在此网站启用";
 }
 
+async function addMfaImage(image = null) {
+  if (busy || !ready) return;
+  setBusy(true);
+  setStatus("请在 CredPivot App 中确认识别结果，并选择是否关联当前网站的账密。", "pending");
+  try {
+    const tab = await getTargetTab();
+    const response = await chrome.runtime.sendMessage({type: "add_mfa_qr", tab_id: tab.id, image});
+    if (!response?.ok) { showError(response); return; }
+    await refreshMfas();
+    setStatus("MFA 已保存。网站要求时，请使用生成的验证码完成网站上的启用步骤。", "success");
+  } catch (error) { showError({error: error.message}); }
+  finally { setBusy(false); }
+}
+
+async function addMfaFile(file) {
+  if (!file || busy || !ready) return;
+  if (!["image/png", "image/jpeg"].includes(file.type) || file.size > 1500 * 1024) {
+    setStatus("请选择不超过 1.5 MB 的 PNG 或 JPEG 图片。", "error"); return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => { void addMfaImage(reader.result); };
+  reader.onerror = () => setStatus("二维码图片读取失败，请重试。", "error");
+  reader.readAsDataURL(file);
+}
+
+$("scanMfa").addEventListener("click", () => { void addMfaImage(); });
+$("uploadMfa").addEventListener("click", () => $("mfaImage").click());
+$("mfaImage").addEventListener("change", (event) => {
+  void addMfaFile(event.target.files?.[0]); event.target.value = "";
+});
+$("cancelMfa").addEventListener("click", async () => {
+  try {
+    const tab = await getTargetTab();
+    await chrome.runtime.sendMessage({type: "cancel_mfa_qr", tab_id: tab.id});
+    setStatus("已取消待处理的 MFA 添加。");
+  } catch (error) { showError({error: error.message}); }
+});
+document.addEventListener("paste", (event) => {
+  const image = [...(event.clipboardData?.items || [])].find((item) => item.kind === "file" && item.type.startsWith("image/"));
+  if (image && ready && !busy) { event.preventDefault(); void addMfaFile(image.getAsFile()); }
+});
+
 $("passkeyToggle").addEventListener("click", async () => {
   if (busy) return;
   setBusy(true);
@@ -435,6 +480,8 @@ async function init() {
   }
   await refreshPasskeyState();
   await handshake('automatic');
+  const mfaResult = await chrome.runtime.sendMessage({type:'mfa_result',tab_id:targetTab?.id});
+  if (mfaResult?.result) setStatus(mfaResult.result.message,mfaResult.result.ok ? 'success' : 'error');
 }
 async function refreshInlinePreference() {
   const response = await chrome.runtime.sendMessage({type:'inline_site_state',tab_id:targetTab.id,origin:targetOrigin});

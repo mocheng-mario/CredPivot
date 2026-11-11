@@ -759,6 +759,16 @@ pub fn insert_totp_with_rules_in_partition(
     group_id: Option<&str>,
     website_rules: &[crate::UriRule],
 ) -> Result<String> {
+    let tx = conn.unchecked_transaction()?;
+    let id = insert_totp_with_rules_in_tx(&tx, partition_id, issuer, account, secret_base32, group_id, website_rules)?;
+    tx.commit()?;
+    Ok(id)
+}
+
+fn insert_totp_with_rules_in_tx(
+    conn: &Connection, partition_id: &str, issuer: &str, account: &str, secret_base32: &str,
+    group_id: Option<&str>, website_rules: &[crate::UriRule],
+) -> Result<String> {
     crate::partitions::require(conn, partition_id)?;
     crate::website_rules::validate_website_rules(website_rules)?;
     let parsed = crate::totp::parse_totp_input(secret_base32)?;
@@ -771,16 +781,13 @@ pub fn insert_totp_with_rules_in_partition(
     let revision = new_revision();
     let ts = now_ms();
     let title = format!("{issuer}:{account}");
-    let tx = conn
-        .unchecked_transaction()
-        .map_err(|e| CoreError::format(e.to_string()))?;
-    tx.execute(
+    conn.execute(
         "INSERT INTO items (id, kind, title, trashed, group_id, current_revision, created_at_ms, updated_at_ms, partition_id)
          VALUES (?1, 'totp', ?2, 0, ?3, ?4, ?5, ?5, ?6)",
         params![item_id, title, group_id, revision, ts, partition_id],
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
-    tx.execute(
+    conn.execute(
         "INSERT INTO totp_credentials (id, item_id, issuer, account, secret_base32, totp_algorithm, totp_digits, totp_period,
          current_revision, created_at_ms, updated_at_ms)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
@@ -799,10 +806,47 @@ pub fn insert_totp_with_rules_in_partition(
     )
     .map_err(|e| CoreError::format(e.to_string()))?;
     let details = crate::credential_management::ItemDetails { uris:website_rules.to_vec(),otp_extra_parameters:parsed.extra_parameters,..Default::default() };
-    tx.execute("UPDATE items SET details_json=?1 WHERE id=?2",params![serde_json::to_string(&details).map_err(|_|CoreError::format("MFA 详情编码失败"))?,item_id])?;
-    crate::mark_restore_dirty(&tx)?;
-    tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
+    conn.execute("UPDATE items SET details_json=?1 WHERE id=?2",params![serde_json::to_string(&details).map_err(|_|CoreError::format("MFA 详情编码失败"))?,item_id])?;
+    crate::mark_restore_dirty(conn)?;
     Ok(totp_id)
+}
+
+/// 浏览器添加的 MFA 和账号关联必须一起提交，不能留下只创建了一半的记录。
+pub fn insert_browser_totp(
+    conn: &Connection, partition_id: &str, origin: &str, linked_login_id: &str,
+    issuer: &str, account: &str, input: &str, website_rules: &[crate::UriRule],
+) -> Result<String> {
+    let page = url::Url::parse(origin).map_err(|_|CoreError::format("网站地址无效"))?;
+    if !matches!(page.scheme(), "https" | "http") || page.host_str().is_none()
+        || page.origin().ascii_serialization() != origin {
+        return Err(CoreError::format("网站来源无效"));
+    }
+    let tx = conn.unchecked_transaction()?;
+    let login = if linked_login_id.is_empty() { None } else {
+        if !crate::website_rules::credential_matches_origin(&tx, linked_login_id, origin)? {
+            return Err(CoreError::format("所选账密不属于当前网站"));
+        }
+        Some(get_login_row(&tx, linked_login_id)?)
+    };
+    let partition = match &login {
+        Some(login) => crate::partitions::item_partition(&tx, &login.item_id)?,
+        None => partition_id.to_string(),
+    };
+    let id = insert_totp_with_rules_in_tx(&tx, &partition, issuer, account, input, None, website_rules)?;
+    if let Some(login) = login {
+        let mut details = crate::credential_management::details_for(&tx, &login.item_id)?;
+        if details.linked_mfa_ids.len() >= 100 { return Err(CoreError::limit("MFA 关联过多")); }
+        details.linked_mfa_ids.push(id.clone());
+        crate::website_rules::save_linked_mfas(&tx, &login.item_id, &details.linked_mfa_ids)?;
+        let single = if details.linked_mfa_ids.len() == 1 { Some(id.as_str()) } else { None };
+        let revision = new_revision();
+        let timestamp = now_ms();
+        tx.execute("UPDATE login_credentials SET linked_totp_id=COALESCE(linked_totp_id,?1),current_revision=?2,updated_at_ms=?3 WHERE id=?4",
+            params![single,revision,timestamp,linked_login_id])?;
+        tx.execute("UPDATE items SET current_revision=?1,updated_at_ms=?2 WHERE id=?3",params![revision,timestamp,login.item_id])?;
+    }
+    tx.commit()?;
+    Ok(id)
 }
 
 pub fn insert_totp_row(

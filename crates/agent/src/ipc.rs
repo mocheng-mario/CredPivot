@@ -127,6 +127,7 @@ fn native_host_request_forbidden(req: &AgentRequest) -> bool {
         | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::BrowserTotpCode { .. } | AgentRequest::BrowserMfaSuggest { .. }
         | AgentRequest::CredentialFillPrepare { .. } | AgentRequest::CredentialFillConsume { .. }
         | AgentRequest::PasskeyBegin { .. } | AgentRequest::PasskeyPoll { .. } | AgentRequest::PasskeyCancel { .. }
+        | AgentRequest::BrowserMfaBegin { .. } | AgentRequest::BrowserMfaPoll { .. } | AgentRequest::BrowserMfaCancel { .. }
         | AgentRequest::CancelRequest { .. })
 }
 
@@ -135,6 +136,7 @@ fn req_requires_extension_gate(req: &AgentRequest) -> bool {
         req,
         AgentRequest::CredentialSave { .. }
             | AgentRequest::PasskeyBegin { .. } | AgentRequest::PasskeyPoll { .. }
+            | AgentRequest::BrowserMfaBegin { .. } | AgentRequest::BrowserMfaPoll { .. }
             | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::BrowserTotpCode { .. } | AgentRequest::BrowserMfaSuggest { .. }
             | AgentRequest::CredentialSuggest { .. }
             | AgentRequest::CredentialFillPrepare { .. }
@@ -276,6 +278,7 @@ pub async fn handle_request(
         | AgentRequest::RecoveryCodesCreate { .. } | AgentRequest::RecoveryCodesUpdate { .. }
         | AgentRequest::ServerProfileCreate { .. } | AgentRequest::ServerProfileUpdate { .. })
         || matches!(&req, AgentRequest::AppPasskey { kind, complete: true, .. } if kind == "create")
+        || matches!(&req, AgentRequest::BrowserMfaResolve { approved: true, .. })
         || matches!(&req, AgentRequest::CredentialGroupCreate { .. }
             | AgentRequest::CredentialGroupDelete { .. } | AgentRequest::CredentialItemSetGroup { .. })
         || matches!(&req,AgentRequest::VaultManage { action } if matches!(action,
@@ -305,6 +308,7 @@ pub async fn handle_request(
         if moving_partition {
             v.sync_plan=None;
             v.passkey_requests.clear();
+            v.browser_mfa_requests.clear();
             st.pending_fills.clear();
             st.pending_ssh_sessions.clear();
         }
@@ -397,6 +401,7 @@ async fn handle_request_inner(
         | AgentRequest::VaultManage { .. } | AgentRequest::AppCredentialPasswordUpdate { .. } | AgentRequest::AppPasskey { .. }
         | AgentRequest::SshAuthorizationsPending | AgentRequest::SshAuthorizationResolve { .. }
         | AgentRequest::PasskeyRequestsPending { .. } | AgentRequest::PasskeyResolve { .. } | AgentRequest::PasskeyList
+        | AgentRequest::BrowserMfaPending { .. } | AgentRequest::BrowserMfaResolve { .. }
         | AgentRequest::VaultResetRecoveryKey { .. } | AgentRequest::VaultExportJson { .. }
         | AgentRequest::VaultImportJson { .. } | AgentRequest::VaultVerifyRecoveryKey { .. } | AgentRequest::VaultOpenDir { .. }
         | AgentRequest::UnlockPassword { .. } | AgentRequest::VaultCreate { .. }) && !peer.from_app {
@@ -409,7 +414,8 @@ async fn handle_request_inner(
         | AgentRequest::LocalUnlockPolicySet { .. } | AgentRequest::LocalUnlockMaterial
         | AgentRequest::UnlockLocal { .. } | AgentRequest::UnlockPassword { .. }
         | AgentRequest::VerifyMasterPassword { .. }
-        | AgentRequest::SshAuthorizationsPending | AgentRequest::PasskeyRequestsPending { .. }) {
+        | AgentRequest::SshAuthorizationsPending | AgentRequest::PasskeyRequestsPending { .. }
+        | AgentRequest::BrowserMfaPending { .. } | AgentRequest::BrowserMfaPoll { .. } | AgentRequest::BrowserMfaCancel { .. }) {
         let mut v = st.vault.lock().await;
         if v.unlocked {
             let _ = v.try_restore_point_if_due();
@@ -532,6 +538,101 @@ async fn handle_request_inner(
             match credpivot_core::passkey::list(db.conn()) {
                 Ok(items) => AgentResponse::ok(json!({"items":items})),
                 Err(_) => AgentResponse::err("vault_error","读取通行密钥失败"),
+            }
+        }
+        AgentRequest::BrowserMfaBegin { request_id, origin, image } => {
+            if !peer.from_native_host { return AgentResponse::err("forbidden", "browser only"); }
+            if uuid::Uuid::parse_str(&request_id).is_err() || origin.len() > 4096
+                || !(origin.starts_with("https://") || origin.starts_with("http://"))
+                || origin.chars().any(char::is_control) || image.len() > 2 * 1024 * 1024
+                || (!image.is_empty() && !image.starts_with("data:image/png;base64,") && !image.starts_with("data:image/jpeg;base64,")) {
+                return AgentResponse::err("bad_args", "二维码请求无效或图片过大");
+            }
+            let Some(session) = peer.browser_session else { return AgentResponse::err("forbidden", "browser session required"); };
+            let mut v = st.vault.lock().await;
+            if !v.unlocked || v.db.is_none() { return AgentResponse::err("locked", "vault locked"); }
+            v.browser_mfa_requests.expire();
+            if v.browser_mfa_requests.0.contains_key(&request_id) || v.browser_mfa_requests.0.len() >= 4 {
+                return AgentResponse::err("busy", "已有 MFA 添加请求，请先处理或取消");
+            }
+            v.browser_mfa_requests.insert(request_id, origin, image, session);
+            AgentResponse::ok(json!({"state":"pending"}))
+        }
+        AgentRequest::BrowserMfaPoll { request_id, origin } => {
+            let mut v = st.vault.lock().await;
+            v.browser_mfa_requests.expire();
+            let Some(pending) = v.browser_mfa_requests.0.get(&request_id).filter(|p|
+                peer.from_native_host && Some(p.session) == peer.browser_session && p.origin == origin) else {
+                return AgentResponse::err("request_gone", "MFA 添加请求已取消或超时");
+            };
+            let outcome = pending.outcome.clone();
+            if let Some(outcome) = outcome {
+                v.browser_mfa_requests.0.remove(&request_id);
+                AgentResponse::ok(outcome)
+            } else { AgentResponse::ok(json!({"state":"pending"})) }
+        }
+        AgentRequest::BrowserMfaCancel { request_id } => {
+            let mut v = st.vault.lock().await;
+            if v.browser_mfa_requests.0.get(&request_id).is_some_and(|p| Some(p.session) == peer.browser_session) {
+                v.browser_mfa_requests.0.remove(&request_id);
+            }
+            AgentResponse::ok(json!({"cancelled":true}))
+        }
+        AgentRequest::BrowserMfaPending { request_id } => {
+            let mut v = st.vault.lock().await;
+            v.browser_mfa_requests.expire();
+            if !extension_gate_active(st) { v.browser_mfa_requests.clear(); }
+            if !request_id.is_empty() {
+                let active = v.browser_mfa_requests.0.get(&request_id).is_some_and(|p|
+                    p.outcome.is_none() && Some(p.session) == st.extension_gate_session);
+                return AgentResponse::ok(json!({"active":active}));
+            }
+            let Some((id, pending)) = v.browser_mfa_requests.0.iter().find(|(_,p)|
+                !p.claimed && p.outcome.is_none() && Some(p.session) == st.extension_gate_session) else {
+                return AgentResponse::ok(json!({"request":null}));
+            };
+            let (id, origin) = (id.clone(), pending.origin.clone());
+            let Some(db) = v.db.as_ref().filter(|_|v.unlocked) else { return AgentResponse::err("locked", "vault locked"); };
+            let candidates = (|| -> credpivot_core::Result<Value> {
+                let mut rows = Vec::new();
+                for login in credpivot_core::browser_login_candidates(db.conn())? {
+                    if credpivot_core::credential_matches_origin(db.conn(), &login.id, &origin)? { rows.push(serde_json::to_value(login).map_err(|_|credpivot_core::CoreError::format("账号列表编码失败"))?); }
+                }
+                let mut payload = json!({"candidates":rows});
+                credpivot_core::partitions::annotate(db.conn(), &mut payload, None)?;
+                Ok(payload["candidates"].take())
+            })();
+            let (candidates, unavailable) = match candidates {
+                Ok(rows) => (rows, false),
+                Err(_) => (json!([]), true),
+            };
+            let pending = v.browser_mfa_requests.0.get_mut(&id).unwrap();
+            pending.claimed = true;
+            AgentResponse::ok(json!({"request":{"id":id,"origin":origin,"login_candidates_unavailable":unavailable,
+                "image":pending.image.take().unwrap_or_default(),"login_candidates":candidates}}))
+        }
+        AgentRequest::BrowserMfaResolve { request_id, approved, linked_login_id, issuer, account, input, website_rules } => {
+            let mut v = st.vault.lock().await;
+            v.browser_mfa_requests.expire();
+            let Some(pending) = v.browser_mfa_requests.0.get(&request_id).filter(|p|
+                p.outcome.is_none() && Some(p.session) == st.extension_gate_session && extension_gate_active(st)) else {
+                return AgentResponse::err("request_gone", "MFA 添加请求已取消或超时");
+            };
+            let origin = pending.origin.clone();
+            if !approved {
+                v.browser_mfa_requests.0.get_mut(&request_id).unwrap().outcome = Some(json!({"state":"cancelled"}));
+                return AgentResponse::ok(json!({"resolved":true}));
+            }
+            if !v.unlocked || !v.authorize_sensitive_operation() { return AgentResponse::err("auth_required", "请先验证身份"); }
+            let Some(db) = v.db.as_ref() else { return AgentResponse::err("locked", "vault locked"); };
+            match credpivot_core::insert_browser_totp(db.conn(), partition.unwrap_or(credpivot_core::partitions::PERSONAL),
+                &origin, &linked_login_id, &issuer, &account, &input, &website_rules) {
+                Ok(id) => {
+                    v.browser_mfa_requests.0.get_mut(&request_id).unwrap().outcome = Some(json!({"state":"done","id":id}));
+                    v.touch_activity();
+                    AgentResponse::ok(json!({"resolved":true}))
+                }
+                Err(error) => AgentResponse::err("vault", error.to_string()),
             }
         }
         AgentRequest::PasskeyBegin { request_id, kind, origin, options } => {

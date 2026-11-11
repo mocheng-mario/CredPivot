@@ -5,6 +5,55 @@
   "name": "简体中文",
   "source_locale": "zh-CN",
   "messages": {
+    "mfa.browser.title": {
+      "source": "从浏览器添加 MFA",
+      "translation": "从浏览器添加 MFA",
+      "description": "浏览器二维码添加确认",
+      "placeholders": {},
+      "locations": ["totp_editor.dart"]
+    },
+    "mfa.browser.website": {
+      "source": "当前网站",
+      "translation": "当前网站",
+      "description": "浏览器二维码网站来源",
+      "placeholders": {},
+      "locations": ["totp_editor.dart"]
+    },
+    "mfa.browser.linkHelp": {
+      "source": "可关联当前网站的账密，也可暂不关联。关联后将保存到该账密所在分区。",
+      "translation": "可关联当前网站的账密，也可暂不关联。关联后将保存到该账密所在分区。",
+      "description": "浏览器 MFA 关联说明",
+      "placeholders": {},
+      "locations": ["totp_editor.dart"]
+    },
+    "mfa.browser.linksUnavailable": {
+      "source": "当前网站的账密暂时无法读取，可先独立保存 MFA，稍后在账密中关联。",
+      "translation": "当前网站的账密暂时无法读取，可先独立保存 MFA，稍后在账密中关联。",
+      "description": "可选账密列表读取失败",
+      "placeholders": {},
+      "locations": ["totp_editor.dart"]
+    },
+    "vault.changePassword.confirm": {
+      "source": "再次输入新主密码",
+      "translation": "再次输入新主密码",
+      "description": "修改主密码时确认输入",
+      "placeholders": {},
+      "locations": ["main.dart"]
+    },
+    "vault.changePassword.mismatch": {
+      "source": "两次输入的新主密码不一致。",
+      "translation": "两次输入的新主密码不一致。",
+      "description": "修改主密码校验",
+      "placeholders": {},
+      "locations": ["main.dart"]
+    },
+    "vault.backup.help": {
+      "source": "独立保存当前保险库的加密备份；导出时需要输入当前主密码。",
+      "translation": "独立保存当前保险库的加密备份；导出时需要输入当前主密码。",
+      "description": "保险库备份说明",
+      "placeholders": {},
+      "locations": ["main.dart"]
+    },
     "vaultTools.maintenance.pendingKey": {
       "source": "有尚未保存的新恢复码，请解锁后查看并保存。",
       "translation": "有尚未保存的新恢复码，请解锁后查看并保存。",
@@ -7847,8 +7896,8 @@
       ]
     },
     "vault.vaultOverview.description": {
-      "source": "导出需要再次输入当前主密码；更改主密码时同时填写新密码。",
-      "translation": "导出需要再次输入当前主密码；更改主密码时同时填写新密码。",
+      "source": "输入当前主密码，并输入两次新主密码以确认修改。",
+      "translation": "输入当前主密码，并输入两次新主密码以确认修改。",
       "description": "vault: vaultOverview; description.",
       "placeholders": {},
       "locations": [
@@ -8110,8 +8159,8 @@
       ]
     },
     "vault.vaultOverview.title": {
-      "source": "主密码与导出",
-      "translation": "主密码与导出",
+      "source": "更改主密码",
+      "translation": "更改主密码",
       "description": "vault: vaultOverview; title.",
       "placeholders": {},
       "locations": [

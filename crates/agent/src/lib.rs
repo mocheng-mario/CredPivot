@@ -5,6 +5,7 @@ mod error;
 mod ipc;
 mod paths;
 mod passkey;
+mod browser_mfa;
 mod peer_auth;
 mod protocol;
 mod runtime;

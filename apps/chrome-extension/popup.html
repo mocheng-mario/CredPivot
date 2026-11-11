@@ -42,6 +42,13 @@
         <select id="otp" disabled><option>连接后加载 MFA</option></select>
         <button id="otherMfas" class="text-button" hidden>查找其他匹配的 MFA</button>
         <p id="otpNote" class="muted">精确来源优先，其次通配符和正则；多个匹配项可自行选择。</p>
+        <div class="save-actions">
+          <button id="scanMfa" class="secondary-button" disabled>识别页面二维码</button>
+          <button id="uploadMfa" class="secondary-button" disabled>选择二维码图片</button>
+        </div>
+        <input id="mfaImage" type="file" accept="image/png,image/jpeg" hidden />
+        <button id="cancelMfa" class="text-button">取消待处理的 MFA 添加</button>
+        <p class="muted">也可在此面板按 Ctrl+V / ⌘V 粘贴图片，或在网页右键识别。识别和账密关联将在 App 中确认。</p>
       </section>
       <section class="account-panel" aria-labelledby="passkeyTitle">
         <div class="section-heading"><h2 id="passkeyTitle">通行密钥 · 预览</h2><span id="passkeyState">未启用</span></div>
