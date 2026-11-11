@@ -26,9 +26,6 @@ pub struct AppSettings {
     pub git_ssh_auth_seconds: u64,
     pub shortcut_search: String,
     pub shortcut_lock: String,
-    // 只接收旧配置中的此字段；复制已恢复为系统行为，保存时移除。
-    #[serde(skip_serializing)]
-    pub shortcut_copy: String,
     pub shortcut_new: String,
     pub theme: String,
     pub accent_color: String,
@@ -36,7 +33,6 @@ pub struct AppSettings {
     pub log_level: String,
     pub log_max_mb: u64,
     pub log_backup_count: usize,
-    // None 仅用于首次从 macOS 偏好迁入；迁入后写入明确的值。
     pub terminal_app_path: Option<String>,
     pub launch_at_login: Option<bool>,
     pub chrome_extension_id: Option<String>,
@@ -65,7 +61,6 @@ impl Default for AppSettings {
             git_ssh_auth_seconds: 300,
             shortcut_search: "command+k".into(),
             shortcut_lock: "command+l".into(),
-            shortcut_copy: String::new(),
             shortcut_new: "command+n".into(),
             theme: "system".into(),
             accent_color: "#565DD9".into(),
@@ -73,9 +68,9 @@ impl Default for AppSettings {
             log_level: "info".into(),
             log_max_mb: 2,
             log_backup_count: 1,
-            terminal_app_path: None,
-            launch_at_login: None,
-            chrome_extension_id: None,
+            terminal_app_path: Some(String::new()),
+            launch_at_login: Some(false),
+            chrome_extension_id: Some(String::new()),
             vault_directory: None,
             webdav: None,
             sync_host_names: std::collections::BTreeMap::new(),
@@ -170,45 +165,13 @@ pub fn read_app_settings() -> io::Result<AppSettings> {
     let path = app_settings_path();
     match fs::read(path) {
         Ok(bytes) => {
-            let mut settings: AppSettings = serde_json::from_slice(&bytes).map_err(|_| {
+            let settings: AppSettings = serde_json::from_slice(&bytes).map_err(|_| {
                 io::Error::new(io::ErrorKind::InvalidData, "配置文件 JSON 格式无效")
             })?;
-            // 旧版默认组合随本次调整迁移；其他自定义组合保持原样。
-            if settings.shortcut_copy == "command+shift+c" {
-                if matches!(settings.shortcut_search.as_str(), "command+shift+space" | "command+option+space") {
-                    settings.shortcut_search = "command+k".into();
-                }
-                if settings.shortcut_lock == "command+shift+l" {
-                    settings.shortcut_lock = "command+l".into();
-                }
-            }
             settings.validate()?;
             Ok(settings)
         }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            let mut settings = AppSettings::default();
-            // 首次生成统一配置时保留原有日志级别和浏览器空闲时间。
-            let parent = app_settings_path().parent().unwrap().to_path_buf();
-            if let Ok(level) = fs::read_to_string(parent.join("log_level")) {
-                if matches!(level.trim(), "debug" | "info" | "warn" | "error") {
-                    settings.log_level = level.trim().into();
-                }
-            }
-            if let Ok(seconds) = fs::read_to_string(parent.join("extension_gate_idle_secs")) {
-                if let Ok(value) = seconds.trim().parse::<u64>() {
-                    if (60..=1800).contains(&value) && value % 60 == 0 {
-                        settings.browser_idle_seconds = value;
-                    }
-                }
-            }
-            if let Ok(directory) = fs::read_to_string(parent.join("active_vault_dir")) {
-                let directory = directory.trim();
-                if PathBuf::from(directory).join("vault.json").is_file() {
-                    settings.vault_directory = Some(directory.into());
-                }
-            }
-            Ok(settings)
-        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(AppSettings::default()),
         Err(e) => Err(e),
     }
 }

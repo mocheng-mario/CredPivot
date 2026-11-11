@@ -100,7 +100,7 @@ fn edges(conn: &Connection) -> Result<Vec<(String,String)>> {
         let details: ItemDetails = serde_json::from_str(row["details_json"].as_str().unwrap_or("{}"))
             .map_err(|_|error("invalid"))?;
         for target in details.related_item_ids { result.push((source.into(),target)); }
-        for totp in details.linked_mfa_ids.into_iter().chain(details.mfa_bindings.into_iter().map(|b|b.totp_id)) {
+        for totp in details.linked_mfa_ids {
             let target: Option<String> = conn.query_row("SELECT item_id FROM totp_credentials WHERE id=?1",[totp],|r|r.get(0)).optional()?;
             if let Some(target)=target { result.push((source.into(),target)); }
         }
@@ -160,6 +160,12 @@ pub fn annotate(conn: &Connection, payload: &mut Value, scope: Option<&str>) -> 
         if let Some(values)=payload.get_mut(key).and_then(Value::as_array_mut) {
             for value in values.iter_mut() { row(conn,value)?; }
             if let Some(scope)=scope { values.retain(|v|v["partition_id"].as_str()==Some(scope)); }
+        }
+    }
+    // 可选账号列表已带分区信息，不再让逐项元数据查询影响通行密钥确认。
+    if let Some(scope)=scope {
+        if let Some(values)=payload.get_mut("login_candidates").and_then(Value::as_array_mut) {
+            values.retain(|v|v["partition_id"].as_str()==Some(scope));
         }
     }
     for key in ["credential","item"] {
@@ -250,7 +256,6 @@ BEGIN
  SELECT CASE WHEN NEW.group_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM credential_groups WHERE id=NEW.group_id AND partition_id=NEW.partition_id) THEN RAISE(ABORT,'partitions.errors.crossGroup') END;
  SELECT CASE WHEN EXISTS(SELECT 1 FROM json_each(NEW.details_json,'$.related_item_ids') j JOIN items t ON t.id=j.value WHERE t.partition_id<>NEW.partition_id)
  OR EXISTS(SELECT 1 FROM json_each(NEW.details_json,'$.linked_mfa_ids') j JOIN totp_credentials t ON t.id=j.value JOIN items i ON i.id=t.item_id WHERE i.partition_id<>NEW.partition_id)
- OR EXISTS(SELECT 1 FROM json_each(NEW.details_json,'$.mfa_bindings') j JOIN totp_credentials t ON t.id=json_extract(j.value,'$.totp_id') JOIN items i ON i.id=t.item_id WHERE i.partition_id<>NEW.partition_id)
  THEN RAISE(ABORT,'partitions.errors.crossLink') END;
 END;
 CREATE TRIGGER partition_group_{event} BEFORE {event} ON credential_groups WHEN {normal}

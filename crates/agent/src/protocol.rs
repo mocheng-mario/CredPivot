@@ -59,14 +59,16 @@ pub enum AgentRequest {
     PasskeyBegin { request_id: String, kind: String, origin: String, options: Value },
     PasskeyPoll { request_id: String, origin: String },
     PasskeyCancel { request_id: String },
-    PasskeyRequestsPending,
-    PasskeyResolve { request_id: String, approved: bool, #[serde(default)] credential_id: String, #[serde(default)] use_browser: bool },
+    PasskeyRequestsPending { #[serde(default)] status_only: bool },
+    PasskeyResolve { request_id: String, approved: bool, #[serde(default)] credential_id: String, #[serde(default)] use_browser: bool,
+        #[serde(default)] linked_login_id: String },
     PasskeyList,
     AppPasskey {
         kind: String, origin: String, options: Value, package_name: String,
         #[serde(default)] client_data_hash: Option<String>,
         #[serde(default)] complete: bool,
         #[serde(default)] credential_id: String,
+        #[serde(default)] linked_login_id: String,
     },
     CredentialSave {
         #[serde(default)]
@@ -325,7 +327,7 @@ impl AgentRequest {
             Self::PasskeyBegin { .. } => "passkey_begin",
             Self::PasskeyPoll { .. } => "passkey_poll",
             Self::PasskeyCancel { .. } => "passkey_cancel",
-            Self::PasskeyRequestsPending => "passkey_requests_pending",
+            Self::PasskeyRequestsPending { .. } => "passkey_requests_pending",
             Self::PasskeyResolve { .. } => "passkey_resolve",
             Self::PasskeyList => "passkey_list",
             Self::AppPasskey { .. } => "app_passkey",

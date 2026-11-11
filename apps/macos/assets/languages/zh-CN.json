@@ -4962,8 +4962,8 @@
       ]
     },
     "passkey.authorization.createBody": {
-      "source": "账号：{account}\n\n私钥保存在加密保险库中，随 CredPivot 加密备份迁移和恢复。",
-      "translation": "账号：{account}\n\n私钥保存在加密保险库中，随 CredPivot 加密备份迁移和恢复。",
+      "source": "账号：{account}\n\n可将此通行密钥关联到已有账密，也可暂不关联。关联时保存到账密所在分区。\n\n私钥保存在加密保险库中，随 CredPivot 加密备份迁移和恢复。",
+      "translation": "账号：{account}\n\n可将此通行密钥关联到已有账密，也可暂不关联。关联时保存到账密所在分区。\n\n私钥保存在加密保险库中，随 CredPivot 加密备份迁移和恢复。",
       "description": "native: consumePasskeyAuthorization; text.",
       "placeholders": {
         "account": {
@@ -4972,6 +4972,118 @@
       },
       "locations": [
         "CredPivotPlatform.swift"
+      ]
+    },
+    "passkey.links.label": {
+      "source": "将通行密钥关联到账密",
+      "translation": "将通行密钥关联到账密",
+      "description": "创建时选择接收通行密钥关联的账密。",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "passkey.links.accounts": {
+      "source": "引用此通行密钥的账密",
+      "translation": "引用此通行密钥的账密",
+      "description": "从通行密钥侧只读查看引用它的账密。",
+      "placeholders": {},
+      "locations": [
+        "passkeys_page.dart"
+      ]
+    },
+    "passkey.links.manage": {
+      "source": "管理通行密钥",
+      "translation": "管理通行密钥",
+      "description": "在账密侧管理关联的通行密钥。",
+      "placeholders": {},
+      "locations": [
+        "credentials_page.dart"
+      ]
+    },
+    "passkey.links.accountHelp": {
+      "source": "为当前账密选择通行密钥。取消关联不会删除通行密钥，仍可独立使用。",
+      "translation": "为当前账密选择通行密钥。取消关联不会删除通行密钥，仍可独立使用。",
+      "description": "账密引用独立通行密钥的关系说明。",
+      "placeholders": {},
+      "locations": [
+        "vault_tools.dart"
+      ]
+    },
+    "passkey.links.loadFailed": {
+      "source": "暂时无法读取通行密钥",
+      "translation": "暂时无法读取通行密钥",
+      "description": "账密详情中的通行密钥列表读取失败。",
+      "placeholders": {},
+      "locations": [
+        "credentials_page.dart"
+      ]
+    },
+    "passkey.links.unavailable": {
+      "source": "暂时无法读取可关联账密。可暂不关联继续创建，稍后在账密详情中关联此通行密钥。",
+      "translation": "暂时无法读取可关联账密。可暂不关联继续创建，稍后在账密详情中关联此通行密钥。",
+      "description": "账号候选读取失败时仍允许独立创建通行密钥。",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "android.native.passkeyAccountsUnavailable": {
+      "source": "暂时无法读取可关联账密。可暂不关联继续创建，稍后在账密详情中关联此通行密钥。",
+      "translation": "暂时无法读取可关联账密。可暂不关联继续创建，稍后在账密详情中关联此通行密钥。",
+      "description": "Android 账号候选读取失败时允许独立创建通行密钥。",
+      "placeholders": {},
+      "locations": [
+        "android/strings.xml"
+      ]
+    },
+    "passkey.links.edit": {
+      "source": "编辑资料",
+      "translation": "编辑资料",
+      "description": "编辑独立通行密钥的资料。",
+      "placeholders": {},
+      "locations": [
+        "passkeys_page.dart"
+      ]
+    },
+    "passkey.links.none": {
+      "source": "暂不关联账密",
+      "translation": "暂不关联账密",
+      "description": "创建通行密钥时不关联已有账号。",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "android.native.passkeyLinkAccount": {
+      "source": "将通行密钥关联到账密（可选）",
+      "translation": "将通行密钥关联到账密（可选）",
+      "description": "Android 创建通行密钥时选择关联账号。",
+      "placeholders": {},
+      "locations": [
+        "android/strings.xml"
+      ]
+    },
+    "android.native.passkeyNoAccount": {
+      "source": "暂不关联账密",
+      "translation": "暂不关联账密",
+      "description": "Android 创建通行密钥时不关联账号。",
+      "placeholders": {},
+      "locations": [
+        "android/strings.xml"
+      ]
+    },
+    "android.native.passkeyLinkedAccount": {
+      "source": "关联到此账密：{arg1}",
+      "translation": "关联到此账密：{arg1}",
+      "description": "Android 创建通行密钥的关联账号确认。",
+      "placeholders": {
+        "arg1": {
+          "description": "关联账号的名称、用户名和网站。"
+        }
+      },
+      "locations": [
+        "android/strings.xml"
       ]
     },
     "passkey.authorization.createReason": {

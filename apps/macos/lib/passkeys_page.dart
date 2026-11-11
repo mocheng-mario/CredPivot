@@ -201,6 +201,9 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                   fields: {
                       tr('passkey.build.text.item4'): selected['rp_id'].toString(),
                       tr('common.account'): selected['username'].toString(),
+                      tr('passkey.links.accounts'): (selected['linked_logins'] as List? ?? []).isEmpty
+                          ? tr('common.notLinked')
+                          : (selected['linked_logins'] as List).map((login) => '${login['title']} · ${login['username']}').join('\n'),
                       tr('passkey.build.text.item5'): selected['display_name'].toString(),
                       tr('passkey.build.text.item6'): vaultDate(selected['created_at_ms']),
                       tr('passkey.build.text.item7'): vaultDate(selected['last_used_at_ms']),
@@ -212,6 +215,12 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                   CredentialActionSection(
                     title: tr('server.build.title.item4'),
                     children: [
+                      OutlinedButton(
+                          onPressed: _busy ? null : () async {
+                            await editItemDetails(context, selected);
+                            if (mounted) await _refresh();
+                          },
+                          child: const LText('passkey.links.edit')),
                       OutlinedButton(
                           onPressed: _busy ? null : () async {
                             await showMoveItemToGroupDialog(context, scope: 'passkey',

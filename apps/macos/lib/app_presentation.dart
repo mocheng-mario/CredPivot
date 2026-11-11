@@ -169,8 +169,7 @@ class AppPresentation extends ChangeNotifier with WidgetsBindingObserver {
       if (translation is! String || translation.length > 8192)
         throw const FormatException('language.errors.entry');
       final source = _catalog[entry.key];
-      // 旧包可含已退役 key；运行时忽略，重新导出时以当前内置目录为准。
-      if (source is! Map) continue;
+      if (source is! Map) throw const FormatException('language.errors.entry');
       final expected = _parameters(source['source'] as String);
       final actual = _parameters(translation);
       if (translation.trim().isNotEmpty &&

@@ -396,7 +396,7 @@ async fn handle_request_inner(
         | AgentRequest::SyncBootstrapPrepare { .. } | AgentRequest::SyncBootstrapApply { .. } | AgentRequest::SyncBootstrapCancel | AgentRequest::SyncBootstrapFinish { .. }
         | AgentRequest::VaultManage { .. } | AgentRequest::AppCredentialPasswordUpdate { .. } | AgentRequest::AppPasskey { .. }
         | AgentRequest::SshAuthorizationsPending | AgentRequest::SshAuthorizationResolve { .. }
-        | AgentRequest::PasskeyRequestsPending | AgentRequest::PasskeyResolve { .. } | AgentRequest::PasskeyList
+        | AgentRequest::PasskeyRequestsPending { .. } | AgentRequest::PasskeyResolve { .. } | AgentRequest::PasskeyList
         | AgentRequest::VaultResetRecoveryKey { .. } | AgentRequest::VaultExportJson { .. }
         | AgentRequest::VaultImportJson { .. } | AgentRequest::VaultVerifyRecoveryKey { .. } | AgentRequest::VaultOpenDir { .. }
         | AgentRequest::UnlockPassword { .. } | AgentRequest::VaultCreate { .. }) && !peer.from_app {
@@ -409,7 +409,7 @@ async fn handle_request_inner(
         | AgentRequest::LocalUnlockPolicySet { .. } | AgentRequest::LocalUnlockMaterial
         | AgentRequest::UnlockLocal { .. } | AgentRequest::UnlockPassword { .. }
         | AgentRequest::VerifyMasterPassword { .. }
-        | AgentRequest::SshAuthorizationsPending | AgentRequest::PasskeyRequestsPending) {
+        | AgentRequest::SshAuthorizationsPending | AgentRequest::PasskeyRequestsPending { .. }) {
         let mut v = st.vault.lock().await;
         if v.unlocked {
             let _ = v.try_restore_point_if_due();
@@ -486,7 +486,7 @@ async fn handle_request_inner(
         }
         AgentRequest::BrowserRequest { .. } => AgentResponse::err("forbidden", "nested browser request"),
         AgentRequest::Ping => AgentResponse::ok(json!({ "pong": true })),
-        AgentRequest::AppPasskey { kind, origin, options, package_name, client_data_hash, complete, credential_id } => {
+        AgentRequest::AppPasskey { kind, origin, options, package_name, client_data_hash, complete, credential_id, linked_login_id } => {
             #[cfg(target_os = "android")]
             {
                 let mut v = st.vault.lock().await;
@@ -497,11 +497,23 @@ async fn handle_request_inner(
                     Err(_) => return AgentResponse::err("passkey_request", "通行密钥请求无效或不受支持"),
                 };
                 let result = if complete {
-                    request.complete_in_partition(db.conn(), &credential_id, partition.unwrap_or(credpivot_core::partitions::PERSONAL))
+                    request.complete_in_partition(db.conn(), &credential_id, partition.unwrap_or(credpivot_core::partitions::PERSONAL), &linked_login_id)
                         // WebAuthn 结果不使用通用 credential 字段，避免附加本地分区名称后交给网站。
                         .map(|credential|json!({"result":credential}))
                 } else {
-                    request.candidates(db.conn()).map(|items|json!({"items":items,"rp_id":request.rp_id,"username":request.username,"excluded":request.excluded(db.conn()).unwrap_or(true)}))
+                    request.candidates(db.conn()).map(|items| {
+                        let (logins, unavailable) = if request.create {
+                            match request.login_candidates(db.conn()) {
+                                Ok(logins) => (logins, false),
+                                Err(_) => {
+                                    crate::diagnostics::warn("passkey", "linked account list unavailable");
+                                    (Vec::new(), true)
+                                }
+                            }
+                        } else { (Vec::new(), false) };
+                        json!({"items":items,"login_candidates":logins,"login_candidates_unavailable":unavailable,
+                            "rp_id":request.rp_id,"username":request.username,"excluded":request.excluded(db.conn()).unwrap_or(true)})
+                    })
                 };
                 match result {
                     Ok(payload) => { v.touch_activity(); AgentResponse::ok(payload) },
@@ -510,7 +522,7 @@ async fn handle_request_inner(
             }
             #[cfg(not(target_os = "android"))]
             {
-                let _ = (kind, origin, options, package_name, client_data_hash, complete, credential_id);
+                let _ = (kind, origin, options, package_name, client_data_hash, complete, credential_id, linked_login_id);
                 AgentResponse::err("unsupported", "Android credential provider only")
             }
         }
@@ -562,19 +574,36 @@ async fn handle_request_inner(
             }
             AgentResponse::ok(json!({"cancelled":true}))
         }
-        AgentRequest::PasskeyRequestsPending => {
+        AgentRequest::PasskeyRequestsPending { status_only } => {
             let mut v = st.vault.lock().await;
             v.passkey_requests.expire();
             if !extension_gate_active(st) { v.passkey_requests.clear(); }
             let Some(db) = v.db.as_ref().filter(|_|v.unlocked) else { return AgentResponse::ok(json!({"requests":[]})); };
-            let requests: Vec<_> = v.passkey_requests.0.iter().filter(|(_,p)|p.outcome.is_none() && Some(p.session) == st.extension_gate_session).filter_map(|(id,p)| {
-                p.request.candidates(db.conn()).ok().map(|c|json!({"id":id,"create":p.request.create,
+            let pending = v.passkey_requests.0.iter().filter(|(_,p)|p.outcome.is_none() && Some(p.session) == st.extension_gate_session);
+            if status_only {
+                // 弹窗存活检查只依赖请求状态，不重复读取可选账号或凭据资料。
+                let ids: Vec<_> = pending.map(|(id,_)|id).collect();
+                return AgentResponse::ok(json!({"request_ids":ids}));
+            }
+            let requests: Vec<_> = pending.filter_map(|(id,p)| {
+                let c = p.request.candidates(db.conn()).ok()?;
+                let (logins, unavailable) = if p.request.create {
+                    match p.request.login_candidates(db.conn()) {
+                        Ok(logins) => (logins, false),
+                        Err(_) => {
+                            crate::diagnostics::warn("passkey", "linked account list unavailable");
+                            (Vec::new(), true)
+                        }
+                    }
+                } else { (Vec::new(), false) };
+                Some(json!({"id":id,"create":p.request.create,
                     "origin":p.request.origin,"rp_id":p.request.rp_id,"username":p.request.username,
-                    "display_name":p.request.display_name,"candidates":c}))
+                    "display_name":p.request.display_name,"candidates":c,"login_candidates":logins,
+                    "login_candidates_unavailable":unavailable}))
             }).collect();
             AgentResponse::ok(json!({"requests":requests}))
         }
-        AgentRequest::PasskeyResolve { request_id, approved, credential_id, use_browser } => {
+        AgentRequest::PasskeyResolve { request_id, approved, credential_id, use_browser, linked_login_id } => {
             let mut v = st.vault.lock().await;
             v.passkey_requests.expire();
             let Some(pending) = v.passkey_requests.0.get(&request_id).filter(|p|p.outcome.is_none() && Some(p.session) == st.extension_gate_session && extension_gate_active(st)) else {
@@ -589,7 +618,7 @@ async fn handle_request_inner(
                 if request.excluded(db.conn()).unwrap_or(true) {
                     crate::passkey::rejected("InvalidStateError","此网站已经注册过该通行密钥")
                 } else {
-                    match request.complete(db.conn(),&credential_id) {
+                    match request.complete(db.conn(),&credential_id,&linked_login_id) {
                         Ok(credential) => json!({"state":"done","credential":credential}),
                         Err(_) => crate::passkey::rejected("UnknownError","通行密钥操作失败，请重试"),
                     }

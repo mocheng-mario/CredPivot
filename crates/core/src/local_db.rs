@@ -2,10 +2,10 @@
 
 use crate::crypto::derive_sqlcipher_key;
 use crate::error::{CoreError, Result};
-use crate::migrate::migrate_to_latest;
+use crate::schema::{initialize_schema, validate_schema_version};
 use crate::limits::MAX_OVB_FILE_BYTES;
 use hex::encode;
-use rusqlite::{backup::Backup, Connection};
+use rusqlite::{backup::Backup, Connection, OpenFlags};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -39,16 +39,24 @@ fn open_connection(path: &Path, key: &[u8; 32], create: bool) -> Result<Connecti
             fs::create_dir_all(parent).map_err(|e| CoreError::io(e.to_string()))?;
         }
     }
-    let conn = Connection::open(path).map_err(|e| CoreError::io(e.to_string()))?;
+    let flags = if create {
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+    } else {
+        OpenFlags::SQLITE_OPEN_READ_WRITE
+    };
+    let conn = Connection::open_with_flags(path, flags)
+        .map_err(|e| CoreError::io(e.to_string()))?;
     apply_cipher_key(&conn, key)?;
     if !create {
-        // 探测密钥是否正确（任意已迁移表均可；失败即 Auth）。
+        // 先探测密钥，避免把解密失败误报成结构版本错误。
         let probe = conn
             .prepare("SELECT 1 FROM sqlite_master LIMIT 1")
             .map_err(|_| CoreError::Auth)?;
         drop(probe);
+        validate_schema_version(&conn)?;
+    } else {
+        initialize_schema(&conn)?;
     }
-    migrate_to_latest(&conn)?;
     Ok(conn)
 }
 

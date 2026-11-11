@@ -122,7 +122,7 @@ pub fn update_credential_group_checked(conn: &Connection, id: &str, name: &str, 
     Ok(())
 }
 
-/// scope 复用现有字段，不改变快照结构；已有数据库打开时也补装幂等约束。
+/// 新数据库初始化时安装分组范围约束。
 pub(crate) fn install_constraints(conn: &Connection) -> Result<()> {
     let normal="NOT EXISTS(SELECT 1 FROM sync_state WHERE key IN ('applying','partition_moving'))";
     let item_scope="CASE NEW.kind WHEN 'ssh_key' THEN 'ssh' WHEN 'server_login' THEN 'server' ELSE NEW.kind END";

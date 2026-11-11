@@ -188,9 +188,6 @@ pub struct ItemDetails {
     pub related_item_ids: Vec<String>,
     // 导入规则原样保留；只启用已支持的匹配模式，其他模式须用户确认后修改。
     pub uris: Vec<UriRule>,
-    // 仅用于升级旧的账号网站关联；新数据只保存 MFA ID。
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub mfa_bindings: Vec<MfaBinding>,
     pub linked_mfa_ids: Vec<String>,
     // 旧关联范围须用户确认后才能成为 MFA 自身的浏览器填充规则。
     pub pending_mfa_uris: Vec<UriRule>,
@@ -216,12 +213,6 @@ pub struct UriRule {
     pub id: String,
     pub uri: String,
     pub match_mode: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MfaBinding {
-    pub totp_id: String,
-    pub website_rule_ids: Vec<String>,
 }
 
 fn id() -> String {
@@ -280,6 +271,7 @@ pub(crate) fn details_for(conn: &Connection, item: &str) -> Result<ItemDetails> 
         })?;
     parse(&text)
 }
+
 pub(crate) fn history_limit(conn: &Connection, credential: &str) -> Result<usize> {
     let item: String = conn.query_row(
         "SELECT item_id FROM login_credentials WHERE id=?1",
@@ -795,13 +787,13 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             group_id,
         } => {
             check_revision(&active_item(&tx, &item_id)?, &expected_revision)?;
+            let kind: String = tx.query_row("SELECT kind FROM items WHERE id=?1", [&item_id], |r|r.get(0))?;
             crate::website_rules::validate_website_rules(&details.uris)?;
             crate::website_rules::validate_linked_mfas(&tx, &details.linked_mfa_ids)?;
             // 填充范围与 MFA 关联只能在对应编辑器修改，资料保存不能绕过它们。
             let stored = details_for(&tx, &item_id)?;
             details.uris = stored.uris;
             details.linked_mfa_ids = stored.linked_mfa_ids;
-            details.mfa_bindings = stored.mfa_bindings;
             details.pending_mfa_uris = stored.pending_mfa_uris;
             details.ssh_git_rules = crate::ssh_git::normalize_rules(&details.ssh_git_rules)?;
             if !matches!(details.ssh_sign_policy.as_str(), "" | "session" | "confirm" | "biometric")
@@ -832,6 +824,10 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
                     return Err(CoreError::format("不能关联自身"));
                 }
                 active_item(&tx, related)?;
+                if kind == "passkey"
+                    && tx.query_row("SELECT kind='login' FROM items WHERE id=?1", [related], |r|r.get::<_,bool>(0))? {
+                    return Err(CoreError::format("请在账密记录中关联通行密钥"));
+                }
             }
             details
                 .tags

@@ -7,6 +7,8 @@ use ovb1_structure::parse_layout;
 use std::fs;
 use std::path::PathBuf;
 
+mod legacy_upgrade;
+
 #[derive(Parser)]
 #[command(name = "credpivot-cli", version, about = "CredPivot vault inspect / verify / recover")]
 struct Cli {
@@ -16,6 +18,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// 独立升级检查：仅输出计数；--apply 备份后迁移，不导出秘密
+    UpgradeLegacy {
+        /// 不指定时读取本机配置中的保险库目录
+        vault_dir: Option<PathBuf>,
+        #[arg(long)]
+        apply: bool,
+        /// 仅在旧配置缺少该项时使用，避免猜测系统登录项状态
+        #[arg(long, action = clap::ArgAction::Set)]
+        launch_at_login: Option<bool>,
+    },
     /// 查看 vault.json 或 .ovb 元数据（不解密业务）
     Inspect {
         path: PathBuf,
@@ -52,6 +64,12 @@ enum Commands {
 fn main() {
     let cli = Cli::parse();
     let code = match cli.command {
+        Commands::UpgradeLegacy { vault_dir, apply, launch_at_login } => {
+            match legacy_upgrade::run(vault_dir, apply, launch_at_login) {
+                Ok(()) => 0,
+                Err(message) => { eprintln!("升级未完成：{message}"); 1 }
+            }
+        }
         Commands::Inspect { path } => cmd_inspect(&path),
         Commands::Verify { path } => cmd_verify(&path),
         Commands::UnlockTest { vault_dir } => cmd_unlock_test(&vault_dir),

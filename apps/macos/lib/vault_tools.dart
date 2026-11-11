@@ -316,6 +316,8 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
   bool get isLogin => widget.row['kind'] == 'login' || widget.row.containsKey('origin');
+  bool generalRelation(Map item) => !(isLogin && item['kind'] == 'passkey')
+      && !(widget.row['kind'] == 'passkey' && item['kind'] == 'login');
   late String? groupId = widget.groups.any((group) => group['id'] == widget.data['group_id']) ? widget.data['group_id'] as String? : null;
   late int activeSince = (widget.data['password_active_since_ms'] as num?)?.toInt() ?? 0;
   late final Set<String> related = (details['related_item_ids'] as List? ?? [])
@@ -509,19 +511,32 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                         ],
                         onChanged: busy ? null : (v) => setState(() => details['mfa_state'] = v))),
                     ],
+                    if (isLogin) ...[
+                      const Divider(),
+                      LText('credentials.passkey.title', style: Theme.of(context).textTheme.titleMedium),
+                      const LText('passkey.links.accountHelp'),
+                      if (!widget.all.any((item) => item['kind'] == 'passkey')) const LText('common.noRecords'),
+                      for (final item in widget.all.where((item) => item['kind'] == 'passkey')) CheckboxListTile(
+                        dense: true,
+                        title: Text(item['title']?.toString() ?? ''),
+                        value: related.contains(item['id']),
+                        onChanged: busy ? null : (value) => setState(() => value == true
+                            ? related.add(item['id'].toString()) : related.remove(item['id'])),
+                      ),
+                    ],
                     const Divider(),
                     LText('vaultTools.build.text.item26', style: Theme.of(context).textTheme.titleMedium),
                     const LText('vaultTools.build.text.item27'),
                     if (related.isNotEmpty) Wrap(spacing: 8, runSpacing: 8, children: [
-                      for (final item in widget.all.where((v) => related.contains(v['id']))) ActionChip(
+                      for (final item in widget.all.where((v) => generalRelation(v) && related.contains(v['id']))) ActionChip(
                         avatar: const Icon(Icons.open_in_new, size: 16),
                         label: Text(item['title']?.toString() ?? ''),
                         onPressed: busy ? null : () => openCredentialActions(context, Map<String, dynamic>.from(item))),
                     ]),
-                    if (widget.all.any((v) => (v['related_item_ids'] as List? ?? []).contains(widget.row['item_id'] ?? widget.row['id']))) ...[
+                    if (widget.all.any((v) => generalRelation(v) && (v['related_item_ids'] as List? ?? []).contains(widget.row['item_id'] ?? widget.row['id']))) ...[
                       const LText('vaultTools.build.text.item28'),
                       Wrap(spacing: 8, runSpacing: 8, children: [
-                        for (final item in widget.all.where((v) => (v['related_item_ids'] as List? ?? []).contains(widget.row['item_id'] ?? widget.row['id']))) ActionChip(
+                        for (final item in widget.all.where((v) => generalRelation(v) && (v['related_item_ids'] as List? ?? []).contains(widget.row['item_id'] ?? widget.row['id']))) ActionChip(
                           label: Text(item['title']?.toString() ?? ''),
                           onPressed: busy ? null : () => openCredentialActions(context, Map<String, dynamic>.from(item))),
                       ]),
@@ -536,7 +551,7 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                           onDeleted: () =>
                               setState(() => related.remove(stale))),
                     for (final item in widget.all.where((v) =>
-                        v['id'] != (widget.row['item_id'] ?? widget.row['id'])))
+                        generalRelation(v) && v['id'] != (widget.row['item_id'] ?? widget.row['id'])))
                       CheckboxListTile(
                           dense: true,
                           title: LText('${item['title']} · ${item['kind']}'),

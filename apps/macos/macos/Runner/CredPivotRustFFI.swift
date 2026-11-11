@@ -40,7 +40,6 @@ enum CredPivotRustFFI {
     let code = credpivot_agent_start()
     if code == 0 {
       LocalVaultUnlock.restorePolicy()
-      AppPreferences.migrateLegacyPreferences()
     }
     return code
   }
@@ -51,7 +50,6 @@ enum CredPivotRustFFI {
     let code = credpivot_agent_restart()
     if code == 0 {
       LocalVaultUnlock.restorePolicy()
-      AppPreferences.migrateLegacyPreferences()
     }
     return code
   }

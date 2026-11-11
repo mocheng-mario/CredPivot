@@ -398,9 +398,13 @@ version = "0.1.0-beta.2"
 dependencies = [
  "clap",
  "credpivot-core",
+ "fs2",
  "ovb1-structure",
  "rpassword",
+ "rusqlite",
  "serde_json",
+ "uuid",
+ "zeroize",
 ]
 
 [[package]]

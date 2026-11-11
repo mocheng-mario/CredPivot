@@ -39,9 +39,9 @@ class AndroidWebDav {
   Future<String> _hash(List<int> data) async => (await _channel.invokeMethod<String>('androidSha256', Uint8List.fromList(data)))!;
 
   bool _isTestDirectoryPath(String path) {
-    // 兼容旧版根目录清理记录；共享父目录本身不能成为删除目标。
     const container = '$_testDirectoryRoot/';
-    final name = path.startsWith(container) ? path.substring(container.length) : path;
+    if (!path.startsWith(container)) return false;
+    final name = path.substring(container.length);
     return RegExp(r'^\.credpivot-test-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$').hasMatch(name);
   }
 
@@ -119,7 +119,7 @@ class AndroidWebDav {
   }
 
   Future<Map<String, dynamic>> _normalize(Map<String, dynamic> args) async {
-    final input = (args['server_url'] ?? args['root'] ?? '').toString().trim();
+    final input = (args['server_url'] ?? '').toString().trim();
     final uri = Uri.tryParse(input);
     if (uri == null || uri.scheme != 'https' || uri.host.isEmpty || uri.userInfo.isNotEmpty || uri.hasQuery || uri.hasFragment ||
         RegExp(r'[\x00-\x20\x7f\\]').hasMatch(input) || uri.pathSegments.any((s) => s == '.' || s == '..')) { _fail('sync.errors.address'); }

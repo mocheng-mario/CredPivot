@@ -24,6 +24,10 @@
     <string name="passkey_target">网站：%1$s\n调用应用：%2$s\n已校验的来源：%3$s</string>
     <string name="passkey_excluded">该网站已经存在排除列表中的通行密钥。</string>
     <string name="passkey_create_account">为 %1$s 创建通行密钥</string>
+    <string name="passkey_link_account">将通行密钥关联到账密（可选）</string>
+    <string name="passkey_no_account">暂不关联账密</string>
+    <string name="passkey_linked_account">关联到此账密：%1$s</string>
+    <string name="passkey_accounts_unavailable">暂时无法读取可关联账密。可暂不关联继续创建，稍后在账密详情中关联此通行密钥。</string>
     <string name="autofill_service_label">CredPivot 密码与验证码</string>
     <string name="autofill_unlock">解锁 CredPivot / 重试验证</string>
     <string name="autofill_master_password">使用主密码验证</string>

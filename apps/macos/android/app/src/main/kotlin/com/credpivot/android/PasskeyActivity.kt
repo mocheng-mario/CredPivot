@@ -115,11 +115,11 @@ class PasskeyActivity : Activity() {
         })
     }
 
-    private fun call(complete: Boolean = false, credential: String = ""): JSONObject = NativeAgent.call("partition_request", "partition_id" to partition,
+    private fun call(complete: Boolean = false, credential: String = "", linkedLoginId: String = ""): JSONObject = NativeAgent.call("partition_request", "partition_id" to partition,
         "request" to JSONObject().put("type", "app_passkey").put("kind", if (create) "create" else "get")
             .put("origin", origin).put("package_name", info.packageName).put("options", options)
             .put("client_data_hash", hash?.let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) } ?: JSONObject.NULL)
-            .put("complete", complete).put("credential_id", credential))
+            .put("complete", complete).put("credential_id", credential).put("linked_login_id", linkedLoginId))
 
     private fun load() {
         updateBusy(true)
@@ -150,9 +150,27 @@ class PasskeyActivity : Activity() {
             notice.text = strings.get(R.string.passkey_target, result.getString("rp_id"), info.packageName, origin)
             if (create) {
                 if (result.optBoolean("excluded")) { notice.append("\n" + strings.get(R.string.passkey_excluded)); return@execute }
+                if (result.optBoolean("login_candidates_unavailable")) notice.append("\n" + strings.get(R.string.passkey_accounts_unavailable))
+                val candidates = result.optJSONArray("login_candidates") ?: JSONArray()
+                val logins = (0 until candidates.length()).map { candidates.getJSONObject(it) }
+                rows.addView(TextView(this).apply { text = strings.get(R.string.passkey_link_account) })
+                val choices = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+                val labels = listOf(strings.get(R.string.passkey_no_account)) + logins.map {
+                    "${it.getString("title")} · ${it.getString("username")} · ${it.getString("origin")}" }
+                for ((index, label) in labels.withIndex()) {
+                    val option = RadioButton(this).apply { id = View.generateViewId(); text = label; tag = index }
+                    choices.addView(option)
+                    if (index == 0) choices.check(option.id)
+                }
+                rows.addView(choices)
                 rows.addView(Button(this).apply {
                     text = strings.get(R.string.passkey_create_account, result.optString("username"))
-                    setOnClickListener { confirm("") }
+                    setOnClickListener {
+                        if (requestGeneration == generation) {
+                            val selected = choices.findViewById<RadioButton>(choices.checkedRadioButtonId)?.tag as? Int ?: 0
+                            confirm("", logins.getOrNull(selected - 1))
+                        }
+                    }
                 })
             } else {
                 val entries = result.optJSONArray("items") ?: JSONArray()
@@ -168,16 +186,20 @@ class PasskeyActivity : Activity() {
         }
     }
 
-    private fun confirm(credential: String) {
+    private fun confirm(credential: String, login: JSONObject? = null) {
         if (busy) return
         val selectedPartition = partition
+        val linkedLoginId = login?.getString("id").orEmpty()
+        val association = if (!create) "" else "\n\n" + (
+            if (login == null) strings.get(R.string.passkey_no_account)
+            else strings.get(R.string.passkey_linked_account, "${login.getString("title")} · ${login.getString("username")} · ${login.getString("origin")}"))
         AlertDialog.Builder(this).setTitle(strings.get(if (create) R.string.passkey_create else R.string.passkey_choose))
-            .setMessage(notice.text).setNegativeButton(android.R.string.cancel, null)
+            .setMessage(notice.text.toString() + association).setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(android.R.string.ok) { _, _ -> authenticate {
                 if (selectedPartition != partition) { notice.text = strings.get(R.string.passkey_failed); return@authenticate }
                 updateBusy(true)
                 var response = ""
-                execute({ response = call(true, credential).getJSONObject("result").toString() }) {
+                execute({ response = call(true, credential, linkedLoginId).getJSONObject("result").toString() }) {
                     val result = Intent()
                     if (create) PendingIntentHandler.setCreateCredentialResponse(result, CreatePublicKeyCredentialResponse(response))
                     else PendingIntentHandler.setGetCredentialResponse(result, GetCredentialResponse(PublicKeyCredential(response)))

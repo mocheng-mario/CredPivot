@@ -1,7 +1,7 @@
 use crate::credential_management::{details_for, UriRule};
 use crate::{CoreError, Result};
 use regex::{Regex, RegexBuilder};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use url::Url;
 
@@ -223,7 +223,6 @@ pub(crate) fn save_linked_mfas(conn: &Connection, item_id: &str, ids: &[String])
     validate_linked_mfas(conn, ids)?;
     let mut details = details_for(conn, item_id)?;
     details.linked_mfa_ids = ids.to_vec();
-    details.mfa_bindings.clear();
     conn.execute("UPDATE items SET details_json=?1 WHERE id=?2", params![serde_json::to_string(&details).map_err(|_|CoreError::format("MFA 关联无法编码"))?,item_id])?;
     Ok(())
 }
@@ -301,25 +300,6 @@ pub fn mfa_matches_origin(conn: &Connection, totp_id: &str, origin: &str) -> Res
     Ok(false)
 }
 
-/// 对旧数据一次性分配稳定规则 ID，并保留旧单 MFA 关联的实际适用范围。
-pub(crate) fn migrate_mfa_bindings(conn: &Connection) -> Result<()> {
-    let mut stmt = conn.prepare("SELECT i.id,i.details_json,c.origin,c.linked_totp_id FROM items i LEFT JOIN login_credentials c ON c.item_id=i.id")?;
-    let rows = stmt.query_map([], |r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,Option<String>>(2)?,r.get::<_,Option<String>>(3)?)))?;
-    for row in rows {
-        let (item, json, origin, totp) = row?;
-        let mut details: crate::credential_management::ItemDetails = serde_json::from_str(&json).map_err(|_|CoreError::format("网站规则数据无效，迁移已取消"))?;
-        if details.uris.is_empty() {
-            if let Some(uri) = origin { details.uris.push(UriRule { id:uuid::Uuid::new_v4().to_string(),uri,match_mode:"exact_origin".into() }); }
-        }
-        if let Some(totp_id) = totp {
-            let active: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM totp_credentials t JOIN items i ON i.id=t.item_id WHERE t.id=?1 AND i.trashed=0)", [&totp_id], |r|r.get(0))?;
-            if active { details.mfa_bindings = vec![crate::MfaBinding {totp_id,website_rule_ids:details.uris.iter().map(|r|r.id.clone()).collect()}]; }
-        }
-        conn.execute("UPDATE items SET details_json=?1 WHERE id=?2", params![serde_json::to_string(&details).map_err(|_|CoreError::format("MFA 关联迁移失败"))?,item])?;
-    }
-    Ok(())
-}
-
 pub(crate) fn detach_mfa_references(conn:&Connection, item_id:&str) -> Result<()> {
     let mut stmt = conn.prepare("SELECT id FROM totp_credentials WHERE item_id=?1")?;
     let ids = stmt.query_map([item_id],|r|r.get::<_,String>(0))?.collect::<std::result::Result<Vec<_>,_>>()?;
@@ -328,10 +308,9 @@ pub(crate) fn detach_mfa_references(conn:&Connection, item_id:&str) -> Result<()
     let logins = stmt.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<std::result::Result<Vec<_>,_>>()?;
     for (login,item) in logins {
         let mut details = details_for(conn,&item)?;
-        let count = details.mfa_bindings.len() + details.linked_mfa_ids.len();
+        let count = details.linked_mfa_ids.len();
         details.linked_mfa_ids.retain(|id| !ids.contains(id));
-        details.mfa_bindings.retain(|b| !ids.contains(&b.totp_id));
-        if count != details.mfa_bindings.len() + details.linked_mfa_ids.len() {
+        if count != details.linked_mfa_ids.len() {
             let revision = crate::repo::new_revision();
             let ts = crate::repo::now_ms();
             conn.execute("UPDATE items SET details_json=?1,current_revision=?2,updated_at_ms=?3 WHERE id=?4",params![serde_json::to_string(&details).map_err(|_|CoreError::format("MFA 关联编码失败"))?,revision,ts,item])?;
@@ -339,31 +318,5 @@ pub(crate) fn detach_mfa_references(conn:&Connection, item_id:&str) -> Result<()
         }
     }
     for id in ids { conn.execute("UPDATE login_credentials SET linked_totp_id=NULL WHERE linked_totp_id=?1",[id])?; }
-    Ok(())
-}
-
-/// v10 的账号范围保留为待确认建议，不能静默扩大某个 MFA 的独立填充范围。
-pub(crate) fn migrate_mfa_owned_rules(conn: &Connection) -> Result<()> {
-    let mut stmt = conn.prepare("SELECT i.id FROM items i JOIN login_credentials c ON c.item_id=i.id")?;
-    let items = stmt.query_map([],|r|r.get::<_,String>(0))?.collect::<std::result::Result<Vec<_>,_>>()?;
-    for item in items {
-        let mut details = details_for(conn, &item)?;
-        for binding in &details.mfa_bindings {
-            let target: Option<String> = conn.query_row("SELECT t.item_id FROM totp_credentials t JOIN items i ON i.id=t.item_id WHERE t.id=?1 AND i.trashed=0",[&binding.totp_id],|r|r.get(0)).optional()?;
-            let Some(target) = target else { continue; };
-            if !details.linked_mfa_ids.contains(&binding.totp_id) { details.linked_mfa_ids.push(binding.totp_id.clone()); }
-            let mut mfa = details_for(conn, &target)?;
-            for rule in details.uris.iter().filter(|r|binding.website_rule_ids.contains(&r.id)) {
-                if !mfa.uris.iter().chain(mfa.pending_mfa_uris.iter()).any(|r|r.uri == rule.uri && r.match_mode == rule.match_mode) {
-                    let mut rule = rule.clone();
-                    rule.id = uuid::Uuid::new_v4().to_string();
-                    mfa.pending_mfa_uris.push(rule);
-                }
-            }
-            conn.execute("UPDATE items SET details_json=?1 WHERE id=?2",params![serde_json::to_string(&mfa).map_err(|_|CoreError::format("MFA 迁移失败"))?,target])?;
-        }
-        details.mfa_bindings.clear();
-        conn.execute("UPDATE items SET details_json=?1 WHERE id=?2",params![serde_json::to_string(&details).map_err(|_|CoreError::format("MFA 迁移失败"))?,item])?;
-    }
     Ok(())
 }

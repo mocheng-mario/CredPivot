@@ -515,18 +515,13 @@ class WebDavSyncPage extends StatelessWidget {
   static Future<Map<String, dynamic>?> configurationDraft(BuildContext context, {bool bootstrap = false, Map<String, dynamic>? initialSettings}) async {
     final sync = WebDavSync.instance;
     final stored = initialSettings ?? (bootstrap ? <String, dynamic>{} : sync.settings);
-    final storedServer = stored['server_url']?.toString() ?? '';
     final server = TextEditingController(
-        text: storedServer.isEmpty
-            ? stored['root']?.toString() ?? ''
-            : storedServer);
+        text: stored['server_url']?.toString() ?? '');
     final existing = Uri.tryParse(server.text);
     final port = TextEditingController(
         text: stored['port']?.toString() ?? (existing?.hasPort == true ? existing!.port.toString() : ''));
     final directory = TextEditingController(
-        text: storedServer.isEmpty
-            ? ((stored['location'] is String) ? '' : 'CredPivot')
-            : stored['directory']?.toString() ?? '');
+        text: stored['directory']?.toString() ?? 'CredPivot');
     final username = TextEditingController(
         text: stored['username']?.toString() ?? '');
     final password = TextEditingController(text: bootstrap ? stored['password']?.toString() ?? '' : '');
@@ -1223,7 +1218,7 @@ class WebDavSyncPage extends StatelessWidget {
     if (field == 'related_item_ids') return tr('sync.fields.relatedRecords');
     if (['tags', 'favorite', 'category'].contains(field)) return tr('sync.fields.organization');
     if (['history_limit', 'reminder_days', 'mfa_state', 'ssh_sign_policy'].contains(field)) return tr('sync.fields.policy');
-    if (['linked_mfa_ids', 'mfa_bindings', 'otp_extra_parameters'].contains(field)) return tr('sync.fields.mfa');
+    if (['linked_mfa_ids', 'otp_extra_parameters'].contains(field)) return tr('sync.fields.mfa');
     if (field == 'linked_login_id') return tr('sync.fields.loginLink');
     if (field == 'partition_id') return tr('partitions.label');
     if (field == 'linked_ssh_key_id') return tr('sync.fields.ssh');

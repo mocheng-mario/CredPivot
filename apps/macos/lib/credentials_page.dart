@@ -327,6 +327,8 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
   final _search = TextEditingController();
   List<Map<String, dynamic>> _items = [];
   List<Map<String, dynamic>> _groups = [];
+  List<Map<String, dynamic>> _passkeys = [];
+  bool _passkeysUnavailable = false;
   String? _filterGroupId;
   Map<String, dynamic>? _selected;
   String _status = '';
@@ -356,12 +358,21 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
     setState(() => _busy = true);
     try {
       final q = _search.text.trim();
-      final items = await AgentBridge.listCredentials(q.isEmpty ? null : q);
-      final groups = await loadCredentialGroups('login');
+      final partition = AgentBridge.activePartitionId;
+      final items = await AgentBridge.listCredentials(q.isEmpty ? null : q, partition);
+      final groups = await loadCredentialGroups('login', partitionId: partition);
+      List<Map<String, dynamic>> passkeys = [];
+      var passkeysUnavailable = false;
+      try {
+        final response = AgentBridge.payloadOf(await AgentBridge.request({'type': 'passkey_list'}, partitionId: partition));
+        passkeys = (response['items'] as List? ?? []).map((row) => Map<String, dynamic>.from(row as Map)).toList();
+      } catch (_) { passkeysUnavailable = true; }
       if (!mounted || generation != _refreshGeneration) return;
       final selectedId = _selected?['id'];
       _items = items;
       _groups = groups;
+      _passkeys = passkeys;
+      _passkeysUnavailable = passkeysUnavailable;
       // 刷新后使用当前版本，避免连续编辑仍携带上一次的 revision。
       _selected = null;
       for (final row in _items) {
@@ -412,6 +423,8 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
         .where((row) =>
             _filterGroupId == null || row['group_id'] == _filterGroupId)
         .toList();
+    final linkedPasskeys = _passkeys.where((passkey) =>
+        (passkey['linked_logins'] as List? ?? []).any((login) => login['id'] == _selected?['id'])).toList();
     return CredentialPanel(
       detailsOnly: widget.initialSelection != null,
       detailNotice: _status.isEmpty ? null : AppNotice(_status),
@@ -514,6 +527,9 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                     tr('common.website'): _selected!['origin']?.toString() ?? '',
                     tr('common.username'): _selected!['username']?.toString() ?? '',
                     tr('common.password'): '••••••••',
+                    tr('credentials.passkey.title'): _passkeysUnavailable ? tr('passkey.links.loadFailed')
+                        : linkedPasskeys.isEmpty ? tr('common.notLinked')
+                        : linkedPasskeys.map((passkey) => '${passkey['rp_id']} · ${passkey['username']}').join('\n'),
                     tr('credentials.build.text.item4'): vaultDate(_selected!['password_active_since_ms'])
                   },
                 ),
@@ -539,6 +555,15 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                                 _copyPassword(_selected!['id'] as String),
                             child: const LText('server.build.text.item11'),
                           ),
+                        ],
+                      ),
+                      CredentialActionSection(
+                        title: tr('credentials.passkey.title'),
+                        children: [
+                          OutlinedButton(onPressed: _busy ? null : () async {
+                            await editItemDetails(context, _selected!);
+                            if (mounted) await _refresh();
+                          }, child: const LText('passkey.links.manage')),
                         ],
                       ),
                       CredentialActionSection(

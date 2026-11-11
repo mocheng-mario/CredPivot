@@ -37,6 +37,7 @@ pub struct Summary {
     pub created_at_ms: i64,
     pub last_used_at_ms: Option<i64>,
     pub group_id: Option<String>,
+    pub linked_logins: Vec<Value>,
 }
 
 fn invalid() -> CoreError {
@@ -194,7 +195,7 @@ impl Request {
     }
 
     pub fn candidates(&self, conn: &Connection) -> Result<Vec<Summary>> {
-        Ok(list(conn)?
+        Ok(list_summaries(conn)?
             .into_iter()
             .filter(|r| {
                 r.rp_id == self.rp_id
@@ -213,15 +214,34 @@ impl Request {
                 .any(|r| self.credential_ids.contains(&r.credential_id)))
     }
 
-    /// 仅在 App 对本次请求确认并完成身份验证后调用。
-    pub fn complete(&self, conn: &Connection, selected: &str) -> Result<Value> {
-        let partition = if self.create { crate::partitions::PERSONAL.to_string() } else {
-            conn.query_row("SELECT i.partition_id FROM passkey_credentials p JOIN items i ON i.id=p.item_id WHERE p.credential_id=?1 AND i.trashed=0", [selected], |r|r.get::<_,String>(0))?
-        };
-        self.complete_in_partition(conn, selected, &partition)
+    fn website_origin(&self) -> String {
+        if self.android_package.is_some() { format!("https://{}", self.rp_id) } else { self.origin.clone() }
     }
 
-    pub fn complete_in_partition(&self, conn: &Connection, selected: &str, partition: &str) -> Result<Value> {
+    pub fn login_candidates(&self, conn: &Connection) -> Result<Vec<Value>> {
+        let mut logins = crate::credential_management::rows(conn, "SELECT l.id,l.item_id,i.title,l.origin,l.username,i.partition_id,p.name AS partition_name
+            FROM login_credentials l JOIN items i ON i.id=l.item_id JOIN partitions p ON p.id=i.partition_id
+            WHERE i.trashed=0 ORDER BY i.title,l.username,l.id", [])?;
+        let origin = self.website_origin();
+        logins.retain(|login| login["id"].as_str().is_some_and(|id|
+            crate::website_rules::credential_matches_origin(conn, id, &origin).unwrap_or(false)));
+        Ok(logins)
+    }
+
+    /// 仅在 App 对本次请求确认并完成身份验证后调用。
+    pub fn complete(&self, conn: &Connection, selected: &str, linked_login_id: &str) -> Result<Value> {
+        let partition = if self.create {
+            if linked_login_id.is_empty() { crate::partitions::PERSONAL.to_string() } else {
+                let login = crate::repo_m2::get_login_row(conn, linked_login_id)?;
+                crate::partitions::item_partition(conn, &login.item_id)?
+            }
+        } else {
+            conn.query_row("SELECT i.partition_id FROM passkey_credentials p JOIN items i ON i.id=p.item_id WHERE p.credential_id=?1 AND i.trashed=0", [selected], |r|r.get::<_,String>(0))?
+        };
+        self.complete_in_partition(conn, selected, &partition, linked_login_id)
+    }
+
+    pub fn complete_in_partition(&self, conn: &Connection, selected: &str, partition: &str, linked_login_id: &str) -> Result<Value> {
         crate::partitions::require(conn, partition)?;
         let tx = conn.unchecked_transaction()?;
         let mut client_json = json!({"type":if self.create {"webauthn.create"} else {"webauthn.get"},
@@ -240,6 +260,17 @@ impl Request {
             if self.excluded(&tx)? {
                 return Err(CoreError::format("此网站已存在被排除的通行密钥"));
             }
+            let linked_login = if linked_login_id.is_empty() { None } else {
+                // 确认期间网站规则可能被修改，保存时仍须满足候选范围。
+                if !crate::website_rules::credential_matches_origin(&tx, linked_login_id, &self.website_origin())? {
+                    return Err(CoreError::format("关联账号与当前网站不匹配"));
+                }
+                let login = crate::repo_m2::get_login_row(&tx, linked_login_id)?;
+                if crate::partitions::item_partition(&tx, &login.item_id)? != partition {
+                    return Err(CoreError::format("关联账号必须与通行密钥位于同一分区"));
+                }
+                Some(login)
+            };
             let key = SigningKey::random(&mut OsRng);
             let encoded = key.verifying_key().to_encoded_point(false);
             let x = encoded.x().ok_or_else(invalid)?;
@@ -258,6 +289,19 @@ impl Request {
             )?;
             tx.execute("INSERT INTO passkey_credentials(credential_id,item_id,rp_id,user_handle,username,display_name,private_key,created_at_ms)
                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",params![id,item,self.rp_id,self.user_handle,self.username,self.display_name,secret.as_slice(),ts])?;
+            if let Some(login) = linked_login {
+                let mut details = crate::credential_management::details_for(&tx, &login.item_id)?;
+                if details.related_item_ids.len() >= 100 {
+                    return Err(CoreError::limit("账密关联记录数量已达上限"));
+                }
+                // 与 MFA 一样，由账密引用独立凭据；创建与关联在同一事务提交。
+                details.related_item_ids.push(item.clone());
+                let revision = new_revision();
+                tx.execute("UPDATE items SET details_json=?1,current_revision=?2,updated_at_ms=?3 WHERE id=?4",
+                    params![serde_json::to_string(&details).map_err(|_| invalid())?,revision,ts,login.item_id])?;
+                tx.execute("UPDATE login_credentials SET current_revision=?1,updated_at_ms=?2 WHERE id=?3",
+                    params![revision,ts,login.id])?;
+            }
             auth_data.extend_from_slice(&[0u8; 16]); // 无硬件认证声明：零 AAGUID + none attestation。
             auth_data.extend_from_slice(&(raw_id.len() as u16).to_be_bytes());
             auth_data.extend_from_slice(&raw_id);
@@ -336,7 +380,22 @@ fn cbor_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
     out.extend_from_slice(bytes);
 }
 
+fn logins(conn: &Connection, passkey_item: &str) -> Result<Vec<Value>> {
+    crate::credential_management::rows(conn, "SELECT l.id,l.item_id,i.title,l.origin,l.username
+        FROM login_credentials l JOIN items i ON i.id=l.item_id WHERE i.trashed=0
+        AND EXISTS (SELECT 1 FROM json_each(i.details_json,'$.related_item_ids') related WHERE related.value=?1)
+        ORDER BY i.title,l.username,l.id", [passkey_item])
+}
+
 pub fn list(conn: &Connection) -> Result<Vec<Summary>> {
+    let mut items = list_summaries(conn)?;
+    for item in &mut items {
+        item.linked_logins = logins(conn, &item.item_id)?;
+    }
+    Ok(items)
+}
+
+fn list_summaries(conn: &Connection) -> Result<Vec<Summary>> {
     let mut stmt = conn.prepare("SELECT p.credential_id,p.item_id,p.rp_id,p.username,p.display_name,p.created_at_ms,u.last_used_at_ms,i.group_id
         FROM passkey_credentials p JOIN items i ON i.id=p.item_id LEFT JOIN local_usage u ON u.item_id=p.item_id
         WHERE i.trashed=0 ORDER BY p.created_at_ms DESC,p.credential_id")?;
@@ -350,8 +409,8 @@ pub fn list(conn: &Connection) -> Result<Vec<Summary>> {
             created_at_ms: r.get(5)?,
             last_used_at_ms: r.get(6)?,
             group_id: r.get(7)?,
+            linked_logins: Vec::new(),
         })
     })?;
-    rows.collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
+    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
 }

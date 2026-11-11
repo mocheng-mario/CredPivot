@@ -19,12 +19,9 @@ pub const MAX_SYNC_BYTES: usize = 64 * 1024 * 1024;
 #[serde(deny_unknown_fields)]
 pub struct WebDavSettings {
     pub root: String,
-    // root 保留最终地址和原连接标识；展示字段不参与保险库绑定和钥匙串索引。
-    #[serde(default)]
+    // root 用于最终请求地址和连接标识；server_url、directory 用于配置展示。
     pub provider: String,
-    #[serde(default)]
     pub server_url: String,
-    #[serde(default)]
     pub directory: String,
     pub username: String,
     pub location: String,
@@ -50,7 +47,7 @@ impl WebDavSettings {
             && !self.root.chars().any(char::is_control)
             && matches!(
                 self.provider.as_str(),
-                "" | "custom" | "nutstore" | "nextcloud" | "owncloud"
+                "custom" | "nutstore" | "nextcloud" | "owncloud"
             )
             && self.valid_directory()
             && !self.username.is_empty()
@@ -64,10 +61,6 @@ impl WebDavSettings {
     }
 
     fn valid_directory(&self) -> bool {
-        // 旧配置只有 root，展示时将它作为服务器地址，避免迁移时改变连接身份。
-        if self.server_url.is_empty() {
-            return self.directory.is_empty();
-        }
         let Ok(mut server) = url::Url::parse(&self.server_url) else {
             return false;
         };
@@ -649,7 +642,7 @@ fn changed_fields(a: Option<&Record>, b: Option<&Record>) -> Vec<String> {
                                         // 只返回固定字段名，备注、自定义字段及 MFA 参数的实际值不进入预览。
                                         for field in ["notes", "tags", "favorite", "category", "custom_fields", "related_item_ids",
                                             "uris", "linked_mfa_ids", "history_limit", "reminder_days", "mfa_state",
-                                            "ssh_sign_policy", "mfa_bindings", "pending_mfa_uris", "otp_extra_parameters"] {
+                                            "ssh_sign_policy", "pending_mfa_uris", "otp_extra_parameters"] {
                                             if a.get(field) != b.get(field) {
                                                 fields.insert(format!("{table}.details_json.{field}"));
                                                 known = true;
@@ -1729,7 +1722,7 @@ pub fn validate_document(doc: &Document) -> Result<()> {
     // 只用内存库校验结构和约束，任何失败都不能影响正在使用的保险库。
     let conn = Connection::open_in_memory()?;
     conn.execute_batch("PRAGMA temp_store=MEMORY;")?;
-    crate::migrate_to_latest(&conn)?;
+    crate::initialize_schema(&conn)?;
     conn.execute("INSERT INTO sync_state VALUES ('applying','1')", [])?;
     conn.execute("DELETE FROM partitions",[])?;
     load_rows(&conn, doc)?;

@@ -4,7 +4,7 @@ use tempfile::tempdir;
 
 fn memory_db() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
-    credpivot_core::migrate_to_latest(&conn).unwrap();
+    credpivot_core::initialize_schema(&conn).unwrap();
     conn
 }
 

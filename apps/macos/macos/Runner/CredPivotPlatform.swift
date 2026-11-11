@@ -229,9 +229,9 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
   private let probeJournalKey = "credpivot.webdav.pendingProbes"
   private let testDirectoryRoot = ".credpivot-tests"
   private func testDirectoryPath(_ path: String) -> Bool {
-    // 同时识别旧版根目录路径和新版分层路径，继续按本机清单清理历史残留。
     let container = testDirectoryRoot + "/"
-    let name = path.hasPrefix(container) ? String(path.dropFirst(container.count)) : path
+    guard path.hasPrefix(container) else { return false }
+    let name = String(path.dropFirst(container.count))
     let prefix = ".credpivot-test-"
     return name.hasPrefix(prefix) && UUID(uuidString:String(name.dropFirst(prefix.count))) != nil
   }
@@ -331,8 +331,7 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
   }
   private func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format:"%02x", $0) }.joined() }
   private func normalized(_ args: [String: Any]) throws -> [String: Any] {
-    let serverInput = args["server_url"] as? String ?? ""
-    let input = serverInput.isEmpty ? args["root"] as? String ?? "" : serverInput
+    let input = args["server_url"] as? String ?? ""
     guard input.rangeOfCharacter(from:.controlCharacters) == nil,
           var parts = URLComponents(string: input.trimmingCharacters(in:.whitespacesAndNewlines)),
           parts.scheme?.lowercased() == "https", let host = parts.host, !host.isEmpty,
@@ -624,23 +623,22 @@ private final class WebDAVListing: NSObject, XMLParserDelegate {
       onCheck?(["key":key,"passed":passed,"statuses":statuses,"skipped":skipped])
     }
     writeCapabilities = nil
-    if let server = config["server_url"] as? String, !server.isEmpty,
-       let root = config["root"] as? String {
-      var parent = config
-      parent["root"] = server
-      // 服务器入口必须存在；仅逐级创建用户指定的相对目录，不猜测 /dav 等服务路径。
-      try await directory(parent,"",create:false)
-      guard let target = URL(string:root), let base = URL(string:server),
-            target.path.hasPrefix(base.path) else { throw WebDAVFailure("sync.errors.directoryPath") }
-      var prefix = ""
-      for segment in target.path.dropFirst(base.path.count).split(separator:"/") {
-        var component = CharacterSet.urlPathAllowed
-        component.remove(charactersIn:"/%?#:")
-        guard let encoded = String(segment).addingPercentEncoding(withAllowedCharacters:component) else { throw WebDAVFailure("sync.errors.directoryPath") }
-        prefix += encoded + "/"
-        try await directory(parent,prefix)
-      }
-    } else { try await directory(config,"") }
+    guard let server = config["server_url"] as? String, !server.isEmpty,
+          let root = config["root"] as? String else { throw WebDAVFailure("sync.errors.configuration") }
+    var parent = config
+    parent["root"] = server
+    // 服务器入口必须存在；仅逐级创建用户指定的相对目录，不猜测 /dav 等服务路径。
+    try await directory(parent,"",create:false)
+    guard let target = URL(string:root), let base = URL(string:server),
+          target.path.hasPrefix(base.path) else { throw WebDAVFailure("sync.errors.directoryPath") }
+    var prefix = ""
+    for segment in target.path.dropFirst(base.path.count).split(separator:"/") {
+      var component = CharacterSet.urlPathAllowed
+      component.remove(charactersIn:"/%?#:")
+      guard let encoded = String(segment).addingPercentEncoding(withAllowedCharacters:component) else { throw WebDAVFailure("sync.errors.directoryPath") }
+      prefix += encoded + "/"
+      try await directory(parent,prefix)
+    }
     checked("directory")
     try await directory(config,testDirectoryRoot + "/")
     let testDirectory = testDirectoryRoot + "/.credpivot-test-" + UUID().uuidString.lowercased()
@@ -1637,6 +1635,12 @@ final class CredPivotPlatform: NSObject {
     }
   }
 
+  @objc private func selectPasskeyAccount(_ sender: NSButton) {
+    for case let button as NSButton in sender.superview?.subviews ?? [] {
+      button.state = button === sender ? .on : .off
+    }
+  }
+
   private func consumePasskeyAuthorization(requests: [[String: Any]]) {
     guard !showingPasskeyAuthorization, !showingSshAuthorization, !TouchIdGate.isAuthenticating, NSApp.modalWindow == nil,
           let request = requests.first, let id = request["id"] as? String else { return }
@@ -1652,7 +1656,51 @@ final class CredPivotPlatform: NSObject {
       ? website + "\n" + NativePresentation.tr("passkey.authorization.createBody", arguments: ["account": account])
       : website + "\n\n" + NativePresentation.tr("native.consumePasskeyAuthorization.text.item3")
     let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 380, height: 28), pullsDown: false)
-    if !create {
+    var accountButtons: [NSButton] = []
+    var accountIds = [""]
+    if create {
+      if request["login_candidates_unavailable"] as? Bool == true {
+        alert.informativeText += "\n\n" + NativePresentation.tr("passkey.links.unavailable")
+      }
+      var labels = [NativePresentation.tr("passkey.links.none")]
+      let logins = request["login_candidates"] as? [[String: Any]] ?? []
+      for (index, login) in logins.enumerated() {
+        guard let loginId = login["id"] as? String, !loginId.isEmpty else { continue }
+        let label = passkeyAccountLabel(login["username"] as? String ?? "", login["title"] as? String ?? "")
+        let site = passkeyAccountLabel(login["origin"] as? String ?? "", "")
+        let partition = login["partition_name"] as? String ?? ""
+        let prefix = partition.isEmpty ? "" : "[\(partition)] "
+        labels.append("\(index + 1). \(prefix)\(label) · \(site)")
+        accountIds.append(loginId)
+      }
+      // 直接显示可取消的单选列表，避免下拉菜单的跟踪循环挡住确认窗操作。
+      let contentHeight = CGFloat(labels.count) * 32
+      let listHeight = min(contentHeight, 192)
+      let choices = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: contentHeight))
+      for (index, title) in labels.enumerated() {
+        let button = NSButton(radioButtonWithTitle: title, target: self, action: #selector(selectPasskeyAccount(_:)))
+        button.frame = NSRect(x: 0, y: contentHeight - CGFloat(index + 1) * 32, width: 360, height: 28)
+        button.cell?.lineBreakMode = .byTruncatingTail
+        button.toolTip = title
+        button.tag = index
+        button.state = index == 0 ? .on : .off
+        choices.addSubview(button)
+        accountButtons.append(button)
+      }
+      let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 380, height: listHeight))
+      scroll.documentView = choices
+      scroll.hasVerticalScroller = true
+      scroll.autohidesScrollers = true
+      scroll.drawsBackground = false
+      scroll.contentView.scroll(to: NSPoint(x: 0, y: contentHeight - listHeight))
+      scroll.reflectScrolledClipView(scroll.contentView)
+      let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: listHeight + 30))
+      let label = NSTextField(labelWithString: NativePresentation.tr("passkey.links.label"))
+      label.frame = NSRect(x: 0, y: listHeight + 8, width: 380, height: 20)
+      accessory.addSubview(label)
+      accessory.addSubview(scroll)
+      alert.accessoryView = accessory
+    } else {
       for (index, candidate) in candidates.enumerated() {
         let label = passkeyAccountLabel(candidate["username"] as? String ?? "", candidate["display_name"] as? String ?? "")
         let partition = candidate["partition_name"] as? String ?? ""
@@ -1665,10 +1713,12 @@ final class CredPivotPlatform: NSObject {
     alert.addButton(withTitle: NativePresentation.tr(create ? NativePresentation.tr("passkey.authorization.save") : NativePresentation.tr("passkey.authorization.login")))
     alert.addButton(withTitle: NativePresentation.tr("passkey.authorization.useBrowser"))
     alert.addButton(withTitle: NativePresentation.tr("common.cancel"))
+    alert.buttons[1].keyEquivalent = ""
+    alert.buttons.last?.keyEquivalent = "\u{1b}"
     // 取消、跳转、锁库后关闭失效确认窗；实际签名前 Agent 还会再次校验请求。
     let expiry = Timer(timeInterval: 0.5, repeats: true) { _ in
-      guard let pending = LocalVaultUnlock.request(["type": "passkey_requests_pending"])?["requests"] as? [[String: Any]],
-            pending.contains(where: { $0["id"] as? String == id }) else {
+      guard let pending = LocalVaultUnlock.request(["type": "passkey_requests_pending", "status_only": true])?["request_ids"] as? [String],
+            pending.contains(id) else {
         NSApp.abortModal()
         alert.window.orderOut(nil)
         return
@@ -1678,10 +1728,12 @@ final class CredPivotPlatform: NSObject {
     NSApp.activate(ignoringOtherApps: true)
     let decision = alert.runModal()
     expiry.invalidate()
-    let selected = picker.selectedItem?.representedObject as? String ?? ""
+    let selected = create ? accountIds[accountButtons.first(where: { $0.state == .on })?.tag ?? 0]
+      : (picker.selectedItem?.representedObject as? String ?? "")
     let complete: (Bool) -> Void = { [weak self] approved in
       let result = LocalVaultUnlock.request(["type": "passkey_resolve", "request_id": id,
-        "approved": approved, "credential_id": selected, "use_browser": decision == .alertSecondButtonReturn])
+        "approved": approved, "credential_id": create ? "" : selected,
+        "linked_login_id": create ? selected : "", "use_browser": decision == .alertSecondButtonReturn])
       if approved && result?["resolved"] as? Bool == true { self?.channel.invokeMethod("onVaultChanged", arguments: nil) }
       self?.showingPasskeyAuthorization = false
     }
@@ -2263,28 +2315,6 @@ enum AppPreferences {
     return LocalVaultUnlock.request(["type": "app_settings_set", "settings": current]) != nil
   }
 
-  static func migrateLegacyPreferences() {
-    let current = settings()
-    guard !current.isEmpty else { return }
-    var changes: [String: Any] = [:]
-    let legacyChrome = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".credpivot/chrome_extension_id")
-    if current["terminal_app_path"] as? String == nil {
-      changes["terminal_app_path"] = UserDefaults.standard.string(forKey: "credpivot.terminal.app_path") ?? ""
-    }
-    if current["chrome_extension_id"] as? String == nil {
-      let old = (try? String(contentsOf: legacyChrome, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      changes["chrome_extension_id"] = old.range(of: "^[a-p]{32}$", options: .regularExpression) != nil ? old : ""
-    }
-    if current["launch_at_login"] as? Bool == nil {
-      let login = LoginItemRegistrar.status()
-      changes["launch_at_login"] = login["enabled"] as? Bool == true || login["requires_approval"] as? Bool == true
-    }
-    guard !changes.isEmpty, update(changes) else { return }
-    // 只有统一配置写入成功后才移除旧存储，防止迁移失败丢失偏好。
-    UserDefaults.standard.removeObject(forKey: "credpivot.terminal.app_path")
-    UserDefaults.standard.removeObject(forKey: "credpivot.terminal.app")
-    try? FileManager.default.removeItem(at: legacyChrome)
-  }
 }
 
 // MARK: - 本机解锁（Secure Enclave + 登录钥匙串，不依赖共享钥匙串 entitlement）
@@ -3115,7 +3145,6 @@ enum ConcealedPasteboard {
 }
 
 enum TerminalLauncher {
-  private static let legacyIdKey = "credpivot.terminal.app"
   /// 旧版自定义启动项，已不再使用。
   private static let legacyLaunchModeKey = "credpivot.terminal.launch_mode"
   private static let legacyLauncherPathKey = "credpivot.terminal.launcher_path"
@@ -3166,9 +3195,7 @@ enum TerminalLauncher {
 
   @discardableResult
   static func setAppPath(_ path: String) -> Bool {
-    guard AppPreferences.update(["terminal_app_path": path]) else { return false }
-    UserDefaults.standard.removeObject(forKey: legacyIdKey)
-    return true
+    return AppPreferences.update(["terminal_app_path": path])
   }
 
   static func pickApplication() -> [String: String]? {
@@ -3795,7 +3822,7 @@ enum NativePresentation {
           let translated = value["messages"] as? [String: [String: Any]], translated.count <= 10000 else { return }
     var candidate = updated
     for (key, entry) in translated {
-      guard let source = reference[key]?["source"] as? String else { continue }
+      guard let source = reference[key]?["source"] as? String else { return }
       guard let translation = entry["translation"] as? String, translation.count <= 8192 else { return }
       if translation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
       guard parameters(source) == parameters(translation) else { return }

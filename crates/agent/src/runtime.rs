@@ -45,9 +45,6 @@ impl AgentRuntime {
         if !credpivot_core::app_settings_path().exists() {
             let settings = credpivot_core::read_app_settings()?;
             credpivot_core::write_app_settings(&settings)?;
-            for legacy in ["log_level", "extension_gate_idle_secs", "active_vault_dir"] {
-                let _ = std::fs::remove_file(crate::paths::runtime_dir().join(legacy));
-            }
         }
         crate::peer_auth::bootstrap_trusted_askpass_env();
         crate::diagnostics::init();
