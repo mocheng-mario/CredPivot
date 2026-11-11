@@ -69,8 +69,10 @@ impl Default for AppSettings {
             log_max_mb: 2,
             log_backup_count: 1,
             terminal_app_path: Some(String::new()),
-            launch_at_login: Some(false),
-            chrome_extension_id: Some(String::new()),
+            // 缺失表示还没选择。默认 false 会在启动时被当成关闭，并注销系统登录项。
+            launch_at_login: None,
+            // 缺失不是用户清空。空字符串才会移除已安装的浏览器连接。
+            chrome_extension_id: None,
             vault_directory: None,
             webdav: None,
             sync_host_names: std::collections::BTreeMap::new(),

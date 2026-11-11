@@ -692,8 +692,11 @@ class _AndroidSettingsState extends State<_AndroidSettings> with WidgetsBindingO
         Wrap(spacing: 8, runSpacing: 8, children: [
           TextButton(onPressed: busy ? null : () async {
             try {
-              final locale = await AppPresentation.instance.importPack();
-              if (mounted && locale != null) setState(() => settings['language'] = locale);
+              final imported = await AppPresentation.instance.importPack();
+              if (mounted && imported != null) setState(() {
+                settings['language'] = imported.locale;
+                if (imported.skipped > 0) message = tr('language.status.skippedKeys', args: {'count': imported.skipped});
+              });
             } catch (error) { if (mounted) setState(() => message = AppPresentation.instance.errorMessage(error)); }
           }, child: const LText('android.language.import')),
           TextButton(onPressed: busy ? null : () async {

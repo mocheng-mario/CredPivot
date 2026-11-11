@@ -136,7 +136,7 @@ class AppPresentation extends ChangeNotifier with WidgetsBindingObserver {
   Set<String> _parameters(String text) =>
       _parameterPattern.allMatches(text).map((m) => m[1]!).toSet();
 
-  Map<String, dynamic> _validate(dynamic data) {
+  Map<String, dynamic> _validate(dynamic data, {List<String>? skipped}) {
     if (data is Map && data['version'] == 1)
       throw const FormatException('language.errors.legacy');
     if (data is! Map ||
@@ -169,7 +169,11 @@ class AppPresentation extends ChangeNotifier with WidgetsBindingObserver {
       if (translation is! String || translation.length > 8192)
         throw const FormatException('language.errors.entry');
       final source = _catalog[entry.key];
-      if (source is! Map) throw const FormatException('language.errors.entry');
+      // 当前版本已不再使用的条目跳过，其余译文仍然可用。
+      if (source is! Map) {
+        skipped?.add(entry.key as String);
+        continue;
+      }
       final expected = _parameters(source['source'] as String);
       final actual = _parameters(translation);
       if (translation.trim().isNotEmpty &&
@@ -187,13 +191,14 @@ class AppPresentation extends ChangeNotifier with WidgetsBindingObserver {
     };
   }
 
-  Future<String?> importPack() async {
+  Future<({String locale, int skipped})?> importPack() async {
     final path = await AgentBridge.pickOpenFile();
     if (path == null) return null;
     final text = await AgentBridge.readTextFile(path);
     if (utf8.encode(text).length > _maxBytes)
       throw const FormatException('language.errors.tooLarge');
-    final pack = _validate(jsonDecode(text));
+    final skipped = <String>[];
+    final pack = _validate(jsonDecode(text), skipped: skipped);
     final locale = pack['locale'].toString();
     if (locale == 'zh-CN')
       throw const FormatException('language.errors.reservedLocale');
@@ -203,7 +208,7 @@ class AppPresentation extends ChangeNotifier with WidgetsBindingObserver {
     _packs[locale] = pack;
     names[locale] = pack['name'].toString();
     notifyListeners();
-    return locale;
+    return (locale: locale, skipped: skipped.length);
   }
 
   Map<String, dynamic> _export(String locale, String name,

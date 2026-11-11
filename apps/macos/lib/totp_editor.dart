@@ -60,9 +60,11 @@ class _TotpEditorState extends State<_TotpEditor> {
     super.initState();
     initialSnapshot = snapshot();
     if (input.text.isNotEmpty) scheduleMicrotask(() => parseInput(fillMetadata: false));
-    if (widget.browserRequest != null) scheduleMicrotask(() async {
-      final image = widget.browserRequest!.remove('image')?.toString();
-      await scan(image: image?.isNotEmpty == true ? image : null);
+    if (widget.browserRequest != null) scheduleMicrotask(() {
+      var image = widget.browserRequest!.remove('image')?.toString();
+      final future = scan(image: image != null && image.isNotEmpty ? image : null);
+      image = null;
+      unawaited(future);
     });
     if (widget.browserRequest != null) requestWatch = Timer.periodic(const Duration(seconds: 2), (_) async {
       if (!mounted || busy || closing || checkingRequest) return;
@@ -121,7 +123,12 @@ class _TotpEditorState extends State<_TotpEditor> {
     if (!mounted || scanning || busy || closing) return;
     setState(() => scanning = true);
     try {
-      final uris = await AgentBridge.scanQrImage(image: image);
+      List<String> uris;
+      try {
+        uris = await AgentBridge.scanQrImage(image: image);
+      } finally {
+        image = null;
+      }
       if (!mounted || closing) return;
       if (uris.isEmpty) { setState(() => error = tr('mfa.scan.text')); return; }
       String? chosen = uris.first;

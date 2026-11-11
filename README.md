@@ -25,7 +25,7 @@ S3 只有占位入口；HOTP、其他 SSH 私钥算法和 Chrome iframe 登录�
 
 每个归档附带 `.sha256`。在归档所在目录执行 `shasum -a 256 -c <归档名>.sha256` 校验传输完整性；校验和不能代替发行方身份验证。
 
-App 版本以 `apps/macos/pubspec.yaml` 为准，当前为 `0.1.0-beta.5+6`；Rust Agent、Native Host 与 CLI 的包版本为 `0.1.0-beta.2`，配套 Chrome 扩展为 `0.9.12`。App 诊断页集中展示版本、构建标识、协议、Schema 和 Native Host 安装状态；插件弹窗显示浏览器实际加载的插件版本及本机组件版本，版本不一致时提供更新步骤。不同组件不要求版本号相同。当前没有应用自动更新器，升级采用手动替换。
+App 版本以 `apps/macos/pubspec.yaml` 为准，当前为 `0.1.0-beta.5+6`；Rust Agent、Native Host 与 CLI 的包版本为 `0.1.0-beta.2`，配套 Chrome 扩展为 `0.9.13`。App 诊断页集中展示版本、构建标识、协议、Schema 和 Native Host 安装状态；插件弹窗显示浏览器实际加载的插件版本及本机组件版本，版本不一致时提供更新步骤。不同组件不要求版本号相同。当前没有应用自动更新器，升级采用手动替换。
 
 ## 开始使用与备份
 

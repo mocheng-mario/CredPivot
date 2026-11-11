@@ -16,6 +16,7 @@
   let hidden = false, opening = false, delivering = false, generation = 0, frame = 0;
   let host = null, shadow = null, badge = null, notice = null, observer = null, panelTimer = null, noticeTimer = null;
   let inlineFailure = '';
+  let regionTask = null, regionFinish = null;
 
   function runtimeMessage(message) {
     try { return chrome.runtime.sendMessage(message); }
@@ -300,7 +301,102 @@
       targetId:valid(target) ? target.id : null, targetKind:valid(target) ? target.kind : null,
       targetValid:message.target_id ? Boolean(valid(target)) : true};
   }
+  function selectMfaRegion() {
+    if (regionTask) return regionTask;
+    regionTask = new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.setAttribute('data-credpivot-region', '');
+      for (const [property, value] of [['all', 'initial'], ['display', 'block'], ['position', 'fixed'], ['inset', '0'], ['z-index', '2147483647'], ['pointer-events', 'auto']]) {
+        overlay.style.setProperty(property, value, 'important');
+      }
+      const root = overlay.attachShadow({mode: 'closed'});
+      const style = document.createElement('style');
+      style.textContent = '.shade{position:fixed;inset:0;cursor:crosshair;touch-action:none;background:rgba(0,0,0,.28)}.box{position:fixed;box-sizing:border-box;border:2px solid #fff;outline:1px solid #111;background:transparent;box-shadow:0 0 0 9999px rgba(0,0,0,.28)}.box[hidden]{display:none}.hint{position:fixed;top:16px;left:50%;transform:translateX(-50%);display:flex;gap:12px;align-items:center;padding:8px 10px 8px 14px;border-radius:10px;background:#1c1d27;color:#fff;font:13px/1.4 system-ui,sans-serif;box-shadow:0 6px 20px #0006}button{border:0;border-radius:8px;background:#fff;color:#1c1d27;font:600 13px system-ui,sans-serif;padding:6px 10px;cursor:pointer}';
+      const shade = document.createElement('div');
+      shade.className = 'shade';
+      const box = document.createElement('div');
+      box.className = 'box';
+      box.hidden = true;
+      const hint = document.createElement('div');
+      hint.className = 'hint';
+      const label = document.createElement('span');
+      label.textContent = '拖动框选二维码区域，2 分钟后自动取消';
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.textContent = '取消';
+      hint.append(label, cancel);
+      root.append(style, shade, box, hint);
+      document.documentElement.append(overlay);
+      let start = null, done = false, timer = 0;
+      const finish = (result) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        window.removeEventListener('keydown', onKey, true);
+        overlay.remove();
+        regionTask = null;
+        regionFinish = null;
+        // 先去掉遮罩再截图，避免把选框本身截进去。
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(result)));
+      };
+      const onKey = (event) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        event.stopPropagation();
+        finish({ok: false, cancelled: true});
+      };
+      const place = (from, to) => {
+        const x = Math.max(0, Math.min(from.x, to.x, window.innerWidth));
+        const y = Math.max(0, Math.min(from.y, to.y, window.innerHeight));
+        const right = Math.max(0, Math.min(Math.max(from.x, to.x), window.innerWidth));
+        const bottom = Math.max(0, Math.min(Math.max(from.y, to.y), window.innerHeight));
+        const rect = {x, y, width: Math.max(0, right - x), height: Math.max(0, bottom - y)};
+        box.style.left = `${rect.x}px`;
+        box.style.top = `${rect.y}px`;
+        box.style.width = `${rect.width}px`;
+        box.style.height = `${rect.height}px`;
+        return rect;
+      };
+      window.addEventListener('keydown', onKey, true);
+      timer = setTimeout(() => finish({ok: false, timedOut: true}), 120_000);
+      cancel.addEventListener('pointerdown', (event) => event.stopPropagation());
+      cancel.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        finish({ok: false, cancelled: true});
+      });
+      shade.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        shade.setPointerCapture(event.pointerId);
+        start = {x: event.clientX, y: event.clientY};
+        shade.style.background = 'transparent';
+        box.hidden = false;
+        place(start, start);
+      });
+      shade.addEventListener('pointermove', (event) => {
+        if (start) place(start, {x: event.clientX, y: event.clientY});
+      });
+      shade.addEventListener('pointerup', (event) => {
+        if (!start) return;
+        const rect = place(start, {x: event.clientX, y: event.clientY});
+        start = null;
+        if (rect.width < 12 || rect.height < 12) {
+          box.hidden = true;
+          shade.style.background = 'rgba(0,0,0,.28)';
+          label.textContent = '请拖出一个包含二维码的区域';
+          return;
+        }
+        finish({ok: true, rect, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight});
+      });
+      shade.addEventListener('pointercancel', () => { start = null; box.hidden = true; shade.style.background = 'rgba(0,0,0,.28)'; });
+      regionFinish = finish;
+    });
+    return regionTask;
+  }
   function onMessage(msg, _sender, respond) {
+    if (msg.type === 'mfa_select_region') { selectMfaRegion().then(respond); return true; }
+    if (msg.type === 'mfa_select_cancel') { regionFinish?.({ok: false, cancelled: true}); respond({ok: true}); return; }
     if (msg.type === 'fill_context') { respond(context(msg)); return; }
     if (msg.type === 'inline_menu_context') {
       const target = bind(contextInput, msg.mode);
@@ -379,7 +475,7 @@
   listen(document,'keydown',(event) => { if (event.isTrusted && event.key === 'Escape') closePanel(); },true);
   listen(window,'scroll',schedulePosition,true);
   listen(window,'resize',schedulePosition);
-  listen(window,'pagehide',() => { closePanel(); hideBadge(); targets.clear(); });
+  listen(window,'pagehide',() => { regionFinish?.({ok: false, cancelled: true}); closePanel(); hideBadge(); targets.clear(); });
   listen(window,'pageshow',(event) => {
     if (!event.isTrusted) return;
     // BFCache 返回沿用旧脚本，不会再次执行 document_idle；恢复当前输入框的入口即可。
@@ -397,6 +493,7 @@
   globalThis.__credpivotContentReady = true;
   globalThis.__credpivotContentVersion = version;
   globalThis.__credpivotContentCleanup = () => {
+    regionFinish?.({ok: false, cancelled: true});
     closePanel(); observer?.disconnect(); if (frame) cancelAnimationFrame(frame);
     for (const remove of listeners) remove();
     try { chrome.runtime.onMessage.removeListener(onMessage); } catch (_) { /* 扩展更新后旧监听可能已经失效。 */ }

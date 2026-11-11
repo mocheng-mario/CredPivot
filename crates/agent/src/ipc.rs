@@ -574,10 +574,12 @@ async fn handle_request_inner(
         }
         AgentRequest::BrowserMfaCancel { request_id } => {
             let mut v = st.vault.lock().await;
-            if v.browser_mfa_requests.0.get(&request_id).is_some_and(|p| Some(p.session) == peer.browser_session) {
-                v.browser_mfa_requests.0.remove(&request_id);
-            }
-            AgentResponse::ok(json!({"cancelled":true}))
+            let matches = v.browser_mfa_requests.0.get(&request_id)
+                .is_some_and(|p| Some(p.session) == peer.browser_session);
+            if !matches { return AgentResponse::ok(json!({"cancelled":true})); }
+            // 保存已经写入结果时，把完成状态交回扩展，避免扩展把成功显示成跳转失败后再次添加。
+            let outcome = v.browser_mfa_requests.0.remove(&request_id).and_then(|pending| pending.outcome);
+            AgentResponse::ok(outcome.unwrap_or_else(|| json!({"cancelled":true})))
         }
         AgentRequest::BrowserMfaPending { request_id } => {
             let mut v = st.vault.lock().await;

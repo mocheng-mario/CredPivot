@@ -236,10 +236,12 @@ Future<void> showPartitionMigration(BuildContext context, String source, {Set<St
     }));
     if (proceed != true || !context.mounted) return;
     final ids = selected.toList()..sort();
-    final String? targetGroupName = groupChoice.isEmpty ? null : groupChoice == '__new__' ? newGroupName.trim()
-      : targetGroups[target]!.firstWhere((group) => group['id'] == groupChoice)['name'].toString();
+    final selectedGroup = groupChoice.isEmpty || groupChoice == '__new__' ? null
+      : targetGroups[target]!.firstWhere((group) => group['id'].toString() == groupChoice);
+    final String? targetGroupName = groupChoice == '__new__' ? newGroupName.trim() : selectedGroup?['name']?.toString();
+    final String? targetGroupId = selectedGroup?['id']?.toString();
     final preview = await AgentBridge.manage({'action': 'partition_move_preview', 'item_ids': ids, 'target_partition_id': target,
-      'target_group_name': targetGroupName});
+      'target_group_name': targetGroupId == null ? targetGroupName : null, 'target_group_id': targetGroupId});
     if (!context.mounted) return;
     final affected = (preview['items'] as List).cast<Map>();
     final confirmed = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
@@ -263,7 +265,8 @@ Future<void> showPartitionMigration(BuildContext context, String source, {Set<St
     ));
     if (confirmed != true || !context.mounted || !await requireTouchId(context, reason: 'partitions.confirmMove', confirmed: true)) return;
     await AgentBridge.manage({'action': 'partition_move_apply', 'item_ids': ids, 'target_partition_id': target,
-      'target_group_name': targetGroupName, 'fingerprint': preview['fingerprint']});
+      'target_group_name': targetGroupId == null ? targetGroupName : null, 'target_group_id': targetGroupId,
+      'fingerprint': preview['fingerprint']});
     AgentBridge.notifyVaultChanged();
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: LText('partitions.moved', args: {'count': affected.length})));
   } catch (e) { if (context.mounted) await _failure(context, e); }

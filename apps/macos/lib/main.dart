@@ -234,7 +234,9 @@ class _VaultHomePageState extends State<VaultHomePage> {
     try {
       final response = AgentBridge.payloadOf(await AgentBridge.request({'type': 'browser_mfa_pending'}));
       if (!mounted || response['request'] is! Map) return;
-      pending = Map<String, dynamic>.from(response['request'] as Map);
+      final source = response['request'] as Map;
+      pending = Map<String, dynamic>.from(source);
+      source.remove('image');
       await AgentBridge.showMainWindow();
       if (!mounted || !_unlocked) return;
       saved = await showTotpEditor(context, browserRequest: pending);
@@ -244,6 +246,7 @@ class _VaultHomePageState extends State<VaultHomePage> {
     } catch (_) {
       if (mounted) _appendLog(tr('mfa.showTotpEditor.message'));
     } finally {
+      pending?.remove('image');
       if (pending != null && !saved) {
         try { await AgentBridge.request({'type': 'browser_mfa_resolve', 'request_id': pending['id'], 'approved': false}); } catch (_) {}
       }

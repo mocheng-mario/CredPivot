@@ -2897,10 +2897,29 @@ enum ChromeHostInstaller {
     }
   }
 
+  /// 设置里还没有扩展 ID 时，只认升级前写在私有目录中的那一份。
+  private static func legacyExtensionId() -> String? {
+    let url = credPivotDir.appendingPathComponent("chrome_extension_id")
+    guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+          values.isRegularFile == true, values.isSymbolicLink != true,
+          let size = values.fileSize, size > 0, size <= 16384,
+          let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+    let id = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return id.range(of: "^[a-p]{32}$", options: .regularExpression) == nil ? nil : id
+  }
+
   static func applyPreference() -> [String: Any] {
     // 启动新版 App 时同步固定目录，避免只更新 Native Host、插件文件仍停留在旧版本。
     _ = extensionDirectoryPath()
-    if let id = storedExtensionId() { return install(extensionId: id) }
+    let raw = AppPreferences.settings()["chrome_extension_id"]
+    if let id = (raw as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty {
+      return install(extensionId: id)
+    }
+    // 没有这项设置时不能删掉现有连接；只有用户明确保存成空字符串才移除清单。
+    if raw == nil || raw is NSNull {
+      if let legacy = legacyExtensionId() { return install(extensionId: legacy) }
+      return ["ok": true]
+    }
     do {
       if FileManager.default.fileExists(atPath: manifestURL.path) { try FileManager.default.removeItem(at: manifestURL) }
       return ["ok": true]
@@ -3852,7 +3871,8 @@ enum NativePresentation {
           let translated = value["messages"] as? [String: [String: Any]], translated.count <= 10000 else { return }
     var candidate = updated
     for (key, entry) in translated {
-      guard let source = reference[key]?["source"] as? String else { return }
+      // 版本下线的文案不能让整份语言包失效，原生界面继续使用其余译文。
+      guard let source = reference[key]?["source"] as? String else { continue }
       guard let translation = entry["translation"] as? String, translation.count <= 8192 else { return }
       if translation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
       guard parameters(source) == parameters(translation) else { return }

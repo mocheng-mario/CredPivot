@@ -60,6 +60,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _restoringDefaults || _updatingSsh;
   bool get _loginNeedsApply =>
       _login['supported'] == true &&
+      _draft['launch_at_login'] is bool &&
       ((_draft['launch_at_login'] == true) != (_login['enabled'] == true) ||
           _login['requires_approval'] == true);
 
@@ -293,17 +294,20 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     _terminal.text = settings['terminal_app_path']?.toString() ?? '';
     _extensionId.text = settings['chrome_extension_id']?.toString() ?? '';
-    _draft['launch_at_login'] = settings['launch_at_login'] == true;
+    // 未设置保持空值。当成 false 再保存，会在用户改其他设置时注销登录项。
+    _draft['launch_at_login'] = settings['launch_at_login'] is bool ? settings['launch_at_login'] : null;
   }
 
   Future<void> _importLanguage() async {
     try {
-      final locale = await AppPresentation.instance.importPack();
-      if (locale != null && mounted) {
+      final imported = await AppPresentation.instance.importPack();
+      if (imported != null && mounted) {
         setState(() {
-          _draft['language'] = locale;
+          _draft['language'] = imported.locale;
           _dirty = true;
-          _message = tr('settings.build.status');
+          _message = imported.skipped == 0
+              ? tr('settings.build.status')
+              : tr('language.status.skippedKeys', args: {'count': imported.skipped});
         });
       }
     } catch (error) {
@@ -505,7 +509,11 @@ class _SettingsPageState extends State<SettingsPage> {
             : value;
       }
       next['terminal_app_path'] = _terminal.text.trim();
-      next['chrome_extension_id'] = _extensionId.text.trim();
+      final extensionId = _extensionId.text.trim();
+      final storedExtensionId = current['settings']['chrome_extension_id'];
+      final storedText = storedExtensionId is String ? storedExtensionId.trim() : '';
+      // 输入框没变时保留原来的空值，避免把“尚未迁移”写成空字符串后删掉浏览器连接。
+      if (extensionId != storedText) next['chrome_extension_id'] = extensionId;
       final result = await AgentBridge.saveAppSettings(next);
       AppPresentation.instance.apply(next);
       await widget.onSaved();

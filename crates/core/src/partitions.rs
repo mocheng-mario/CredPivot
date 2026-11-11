@@ -195,13 +195,26 @@ pub fn import_ssh_key(conn: &Connection, partition: &str, label: &str, pem: &str
 }
 
 pub fn preview(conn: &Connection, selected: &[String], target: &str) -> Result<Value> {
-    preview_with_group(conn, selected, target, None)
+    preview_with_group(conn, selected, target, None, None)
 }
 
-pub fn preview_with_group(conn: &Connection, selected: &[String], target: &str, target_group_name: Option<&str>) -> Result<Value> {
+pub fn preview_with_group(conn: &Connection, selected: &[String], target: &str, target_group_name: Option<&str>, target_group_id: Option<&str>) -> Result<Value> {
     require(conn,target)?;
     if selected.is_empty() || selected.len()>10000 { return Err(error("selection")); }
-    let target_group_name = target_group_name.map(str::trim);
+    // 已有分组按 ID 落点。同名共享分组存在时，按名称会选中 ID 最小的另一个分组。
+    let target_group_id = match target_group_id.map(str::trim).filter(|id| !id.is_empty()) {
+        Some(id) => {
+            if uuid::Uuid::parse_str(id).is_err() { return Err(error("notFound")); }
+            let found: Option<(String, String)> = conn.query_row(
+                "SELECT partition_id, scope FROM credential_groups WHERE id=?1",
+                [id], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
+            let Some((partition, scope)) = found else { return Err(error("notFound")); };
+            if partition != target || scope != "shared" { return Err(error("groupScope")); }
+            Some(id.to_string())
+        }
+        None => None,
+    };
+    let target_group_name = if target_group_id.is_some() { None } else { target_group_name.map(str::trim) };
     if let Some(name) = target_group_name {
         if name.is_empty() || name.chars().count()>80 || name.chars().any(char::is_control)
             || name.eq_ignore_ascii_case("internal_work") { return Err(error("groupName")); }
@@ -223,24 +236,26 @@ pub fn preview_with_group(conn: &Connection, selected: &[String], target: &str, 
     }
     let moved: Vec<_> = items.iter().filter(|r|component.contains(r["id"].as_str().unwrap_or("")) && r["partition_id"]!=target).cloned().collect();
     // 整体图的修订也参与预览指纹，防止确认后新增的反向引用被悄悄带入迁移。
-    let fingerprint = hex::encode(Sha256::digest(serde_json::to_vec(&json!({"items":items,"edges":relations,"target":target,"selected":selected.iter().collect::<BTreeSet<_>>(),"target_group_name":target_group_name,
+    let fingerprint = hex::encode(Sha256::digest(serde_json::to_vec(&json!({"items":items,"edges":relations,"target":target,"selected":selected.iter().collect::<BTreeSet<_>>(),"target_group_name":target_group_name,"target_group_id":target_group_id,
         "partitions":rows(conn,"SELECT * FROM partitions ORDER BY id",[])?,"groups":rows(conn,"SELECT * FROM credential_groups ORDER BY id",[]) ?}))
         .map_err(|_|error("invalid"))?));
-    Ok(json!({"items":moved,"count":moved.len(),"selected_count":selected.len(),"fingerprint":fingerprint,"target_partition_id":target,"target_group_name":target_group_name}))
+    Ok(json!({"items":moved,"count":moved.len(),"selected_count":selected.len(),"fingerprint":fingerprint,"target_partition_id":target,"target_group_name":target_group_name,"target_group_id":target_group_id}))
 }
 
 pub fn migrate(conn: &Connection, selected: &[String], target: &str, expected: &str) -> Result<Value> {
-    migrate_with_group(conn, selected, target, expected, None)
+    migrate_with_group(conn, selected, target, expected, None, None)
 }
 
-pub fn migrate_with_group(conn: &Connection, selected: &[String], target: &str, expected: &str, target_group_name: Option<&str>) -> Result<Value> {
+pub fn migrate_with_group(conn: &Connection, selected: &[String], target: &str, expected: &str, target_group_name: Option<&str>, target_group_id: Option<&str>) -> Result<Value> {
     let tx = conn.unchecked_transaction()?;
-    let plan = preview_with_group(&tx,selected,target,target_group_name)?;
+    let plan = preview_with_group(&tx,selected,target,target_group_name,target_group_id)?;
     if plan["fingerprint"].as_str()!=Some(expected) { return Err(CoreError::Conflict); }
     // 关联迁移可能包含不同类型，统一归组只使用目标分区的共享分组。
     // 创建与迁移在同一事务，取消预览或迁移失败都不会留下空分组。
     let target_group = if plan["count"].as_u64().unwrap_or(0)>0 {
-        if let Some(name) = plan["target_group_name"].as_str() {
+        if let Some(id) = plan["target_group_id"].as_str() {
+            Some(id.to_string())
+        } else if let Some(name) = plan["target_group_name"].as_str() {
             let existing:Option<String>=tx.query_row("SELECT id FROM credential_groups WHERE partition_id=?1 AND scope='shared' AND lower(name)=lower(?2) ORDER BY id LIMIT 1",
                 params![target,name],|r|r.get(0)).optional()?;
             Some(match existing { Some(id)=>id, None=>crate::credential_groups::create_credential_group_in_partition(&tx,target,"shared",name)?.id })

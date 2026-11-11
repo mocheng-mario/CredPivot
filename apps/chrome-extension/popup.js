@@ -414,6 +414,17 @@ async function refreshPasskeyState() {
   $("passkeyToggle").textContent = passkeyEnabled ? "在此网站停用" : "在此网站启用";
 }
 
+async function startPageScan() {
+  if (busy || !ready) return;
+  try {
+    const tab = await getTargetTab();
+    const response = await chrome.runtime.sendMessage({type: "add_mfa_qr", tab_id: tab.id});
+    if (!response?.pending) { showError(response || {error: "请重新打开插件后识别"}); return; }
+    // 面板挡住页面时无法框选，应答后立即关闭，把焦点还给网页。
+    window.close();
+  } catch (error) { showError({error: error.message}); }
+}
+
 async function addMfaImage(image = null) {
   if (busy || !ready) return;
   setBusy(true);
@@ -439,7 +450,7 @@ async function addMfaFile(file) {
   reader.readAsDataURL(file);
 }
 
-$("scanMfa").addEventListener("click", () => { void addMfaImage(); });
+$("scanMfa").addEventListener("click", () => { void startPageScan(); });
 $("uploadMfa").addEventListener("click", () => $("mfaImage").click());
 $("mfaImage").addEventListener("change", (event) => {
   void addMfaFile(event.target.files?.[0]); event.target.value = "";

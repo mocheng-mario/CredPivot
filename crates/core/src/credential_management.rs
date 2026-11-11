@@ -26,8 +26,8 @@ pub enum VaultAction {
     DuplicateLogins { partition_id: String },
     LoginMergePreview { keeper: String, sources: Vec<String> },
     LoginMergeApply { keeper: String, sources: Vec<String>, fingerprint: String },
-    PartitionMovePreview { item_ids: Vec<String>, target_partition_id: String, #[serde(default)] target_group_name: Option<String> },
-    PartitionMoveApply { item_ids: Vec<String>, target_partition_id: String, fingerprint: String, #[serde(default)] target_group_name: Option<String> },
+    PartitionMovePreview { item_ids: Vec<String>, target_partition_id: String, #[serde(default)] target_group_name: Option<String>, #[serde(default)] target_group_id: Option<String> },
+    PartitionMoveApply { item_ids: Vec<String>, target_partition_id: String, fingerprint: String, #[serde(default)] target_group_name: Option<String>, #[serde(default)] target_group_id: Option<String> },
     GroupRename { id: String, name: String, expected_updated_at_ms: i64, #[serde(default)] scope: Option<String> },
     SshGitRulesTest { rules: Vec<String>, #[serde(default)] target: Option<String> },
     SshGitBindings,
@@ -597,8 +597,8 @@ pub fn manage_credentials(conn: &Connection, action: VaultAction) -> Result<Valu
                 Ok(json!({"order":order.unwrap_or_else(||"updated".into())}))
             }
         }
-        PartitionMovePreview {item_ids,target_partition_id,target_group_name} => crate::partitions::preview_with_group(conn,&item_ids,&target_partition_id,target_group_name.as_deref()),
-        PartitionMoveApply {item_ids,target_partition_id,fingerprint,target_group_name} => crate::partitions::migrate_with_group(conn,&item_ids,&target_partition_id,&fingerprint,target_group_name.as_deref()),
+        PartitionMovePreview {item_ids,target_partition_id,target_group_name,target_group_id} => crate::partitions::preview_with_group(conn,&item_ids,&target_partition_id,target_group_name.as_deref(),target_group_id.as_deref()),
+        PartitionMoveApply {item_ids,target_partition_id,fingerprint,target_group_name,target_group_id} => crate::partitions::migrate_with_group(conn,&item_ids,&target_partition_id,&fingerprint,target_group_name.as_deref(),target_group_id.as_deref()),
         GroupRename {id,name,expected_updated_at_ms,scope} => {
             crate::credential_groups::update_credential_group_checked(conn,&id,&name,scope.as_deref(),Some(expected_updated_at_ms))?;
             Ok(json!({"renamed":true}))

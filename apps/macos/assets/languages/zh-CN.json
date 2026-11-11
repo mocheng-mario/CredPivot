@@ -4413,6 +4413,21 @@
         "settings_page.dart"
       ]
     },
+    "language.status.skippedKeys": {
+      "source": "语言包已导入，保存配置后应用。已跳过 {count} 个当前版本不使用的条目。",
+      "translation": "语言包已导入，保存配置后应用。已跳过 {count} 个当前版本不使用的条目。",
+      "description": "Shown after import when some message keys are no longer in the app.",
+      "placeholders": {
+        "count": {
+          "description": "Number of skipped language entries."
+        }
+      },
+      "locations": [
+        "app_presentation.dart",
+        "settings_page.dart",
+        "main_android.dart"
+      ]
+    },
     "language.status.skippedFile": {
       "source": "未加载语言包 {file}：{reason}",
       "translation": "未加载语言包 {file}：{reason}",
