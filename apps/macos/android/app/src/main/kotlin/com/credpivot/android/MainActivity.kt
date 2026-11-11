@@ -82,6 +82,10 @@ class MainActivity : FlutterActivity() {
 
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
         when {
+            call.method == "componentVersions" -> {
+                val info = packageManager.getPackageInfo(packageName, 0)
+                result.success(mapOf("app_version" to info.versionName, "app_build" to info.longVersionCode.toString()))
+            }
             call.method == "startAgent" -> work(result) {
                 if (NativeAgent.start() != 0) throw AgentFailure("agent_not_started", "启动本机 Agent 失败")
                 verification.restorePolicy(); null

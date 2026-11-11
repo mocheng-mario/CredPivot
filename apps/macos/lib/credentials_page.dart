@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -21,6 +22,7 @@ import 'server_login_page.dart';
 import 'touch_id_gate.dart';
 import 'passkeys_page.dart';
 import 'credential_partitions.dart';
+import 'duplicate_logins.dart';
 
 Future<void> _showTextRevealDialog(
   BuildContext context, {
@@ -325,6 +327,7 @@ class _LoginPasswordPanel extends StatefulWidget {
 
 class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
   final _search = TextEditingController();
+  Timer? _searchDebounce;
   List<Map<String, dynamic>> _items = [];
   List<Map<String, dynamic>> _groups = [];
   List<Map<String, dynamic>> _passkeys = [];
@@ -349,10 +352,12 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
   void dispose() {
     AgentBridge.vaultChanges.removeListener(_onVaultChanged);
     _search.dispose();
+    _searchDebounce?.cancel();
     super.dispose();
   }
 
   Future<void> _refresh() async {
+    _searchDebounce?.cancel();
     if (!mounted) return;
     final generation = ++_refreshGeneration;
     setState(() => _busy = true);
@@ -434,6 +439,9 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
           title: tr('credentials.login.title'),
           subtitle: tr('credentials.login.count', args: {'count': visibleItems.length}),
           action: Wrap(spacing: 8, runSpacing: 8, children: [
+            if (defaultTargetPlatform == TargetPlatform.android)
+              IconButton(tooltip:tr('duplicates.title'),onPressed:_busy ? null : () => showDuplicateLogins(context),icon:const Icon(Icons.compare_arrows))
+            else OutlinedButton.icon(onPressed:_busy ? null : () => showDuplicateLogins(context),icon:const Icon(Icons.compare_arrows),label:const LText('duplicates.title')),
             if (defaultTargetPlatform == TargetPlatform.android) ...[
               IconButton.outlined(
                 tooltip: tr('import.google.action'),
@@ -466,8 +474,15 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
             decoration: InputDecoration(
                 isDense: defaultTargetPlatform == TargetPlatform.android,
                 hintText: tr('credentials.build.text.item2'),
-                prefixIcon: Icon(Icons.search_rounded)),
-            onSubmitted: (_) => _refresh(),
+                prefixIcon: Icon(Icons.search_rounded),
+                suffixIcon: _search.text.isEmpty ? null : IconButton(tooltip: tr('credentials.list.clearSearch'),
+                  icon: const Icon(Icons.clear), onPressed: () { _searchDebounce?.cancel(); _search.clear(); _refresh(); })),
+            onChanged: (_) {
+              _searchDebounce?.cancel(); ++_refreshGeneration;
+              setState(() {});
+              _searchDebounce = Timer(const Duration(milliseconds:250), _refresh);
+            },
+            onSubmitted: (_) { _searchDebounce?.cancel(); _refresh(); },
           )),
           const SizedBox(width: 8),
           IconButton(

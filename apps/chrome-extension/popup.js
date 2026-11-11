@@ -259,6 +259,11 @@ async function handshake(verify = false) {
       if (!state?.ok) { showError(state); return; }
       payload = {...payload, ...state.payload};
     }
+    const extensionVersion = chrome.runtime.getManifest().version;
+    $('componentVersions').textContent = `插件 ${extensionVersion} · Agent ${payload.agent_version || '未知'} · Native Host ${payload.native_host_version || '未知'} · 协议 ${payload.protocol_version || '未知'} · Schema ${payload.schema_user_version || '未知'}`;
+    $('componentUpdate').textContent = payload.expected_extension_version && extensionVersion !== payload.expected_extension_version
+      ? `App 配套插件为 ${payload.expected_extension_version}。请在 App 打开插件目录，在扩展管理页重新加载，再重新连接。`
+      : '更新 App 后请重新加载配套插件；本机组件不一致时，在 App 更新 Native Host，再重新连接。';
     if (!payload.unlocked || !payload.database_attached || !payload.extension_gate_active) {
       showError({ code: !payload.unlocked ? "locked" : !payload.database_attached ? "database_unavailable" : "extension_gate_required", message: "保险库未就绪，请在 App 中重新解锁后连接。" });
       return;

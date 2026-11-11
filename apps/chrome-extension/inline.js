@@ -9,7 +9,13 @@ function setBusy(value) {
   $('search').disabled = value || invalid;
 }
 async function request(type, values = {}) {
-  const response = await chrome.runtime.sendMessage({type,token,tab_id:tabId,...values});
+  let response = await chrome.runtime.sendMessage({type,token,tab_id:tabId,...values});
+  if (response?.code === 'inline_session_expired' && ['inline_ping','inline_load'].includes(type)) {
+    const resumed = await chrome.runtime.sendMessage({type:'inline_resume',token,tab_id:tabId});
+    if (!resumed?.ok) throw Object.assign(new Error(resumed?.message || '请重新点击网页填充图标'),{code:resumed?.code});
+    if (type === 'inline_ping') return {...resumed,resumed:true};
+    response = await chrome.runtime.sendMessage({type,token,tab_id:tabId,...values,automatic:false});
+  }
   if (!response?.ok) throw Object.assign(new Error(response?.message || '本机连接中断，请关闭面板后重试'),{code:response?.code});
   return response;
 }
@@ -79,6 +85,7 @@ async function perform(type, values = {}) {
     $('connect').hidden = invalid;
     $('connect').textContent = error.code === 'extension_gate_cancelled' ? '重新连接并验证' : '连接与验证';
     $('retry').hidden = invalid || needsVerification;
+    metadata = null; $('list').replaceChildren(); $('account').replaceChildren();
     void request('inline_feedback',{message:error.message}).catch(() => {});
   }
   finally { setBusy(false); }
@@ -93,7 +100,12 @@ $('close').addEventListener('click',(event) => { if (event.isTrusted) void reque
 document.addEventListener('keydown',(event) => { if (event.isTrusted && event.key === 'Escape') void request('inline_cancel').catch(() => {}); });
 const heartbeat = setInterval(() => {
   if (!tabId || invalid) return;
-  request('inline_ping').catch(() => {
+  request('inline_ping').then((response) => {
+    if (!response.resumed || busy) return;
+    metadata = null; $('list').replaceChildren(); $('choices').hidden = true;
+    $('retry').hidden = false; $('connect').hidden = false;
+    status('页面连接已恢复，请点击重试读取候选；如需验证，请点击「连接与验证」。');
+  }).catch(() => {
     invalid = true; setBusy(false); $('connect').hidden = true; $('retry').hidden = true;
     const message = '页面、输入框或连接已改变，请关闭面板后重新点击填充图标。';
     status(message,'error');
@@ -107,7 +119,7 @@ window.addEventListener('pagehide',() => { clearInterval(heartbeat); });
     if (!tabId || !/^[0-9a-f-]{36}$/.test(token)) throw new Error('请从网页输入框或右键菜单打开此面板');
     const info = await request('inline_ping');
     $('site').textContent = info.origin;
-    await perform('inline_load',{automatic:true});
+    await perform('inline_load',{automatic:!info.resumed});
   } catch (error) {
     invalid = true; setBusy(false); status(error.message,'error');
     void request('inline_feedback',{message:error.message}).catch(() => {});

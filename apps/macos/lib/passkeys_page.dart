@@ -23,6 +23,7 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
   String? _filterGroupId;
   Map<String, dynamic>? _selected;
   String _query = '';
+  final _search = TextEditingController();
   String _error = '';
   bool _busy = false;
   int _generation = 0;
@@ -42,6 +43,7 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
   @override
   void dispose() {
     AgentBridge.vaultChanges.removeListener(_changed);
+    _search.dispose();
     super.dispose();
   }
 
@@ -154,11 +156,14 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
           const SizedBox(height: 12),
         ],
         TextField(
+            controller: _search,
             onChanged: (value) => setState(() => _query = value),
             decoration: InputDecoration(
                 isDense: defaultTargetPlatform == TargetPlatform.android,
                 hintText: tr('passkey.build.text.item3'),
-                prefixIcon: const Icon(Icons.search_rounded))),
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _query.isEmpty ? null : IconButton(tooltip: tr('credentials.list.clearSearch'),
+                  icon: const Icon(Icons.clear), onPressed: () { _search.clear(); setState(() => _query = ''); }))),
         if (_error.isNotEmpty) AppNotice(_error),
         buildGroupFilterBar(
           groups: _groups,

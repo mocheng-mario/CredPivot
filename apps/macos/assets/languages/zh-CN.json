@@ -5,6 +5,290 @@
   "name": "简体中文",
   "source_locale": "zh-CN",
   "messages": {
+    "credentials.list.search": {
+      "source": "搜索当前列表",
+      "translation": "搜索当前列表",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.list.clearSearch": {
+      "source": "清空搜索",
+      "translation": "清空搜索",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.list.updated": {
+      "source": "最近修改",
+      "translation": "最近修改",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.list.used": {
+      "source": "最近使用",
+      "translation": "最近使用",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.list.name": {
+      "source": "名称排序",
+      "translation": "名称排序",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.restore": {
+      "source": "批量恢复",
+      "translation": "批量恢复",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "credentials.batch.restoreHelp": {
+      "source": "恢复所选 {count} 条记录。已解除的 MFA 关联仍需在恢复后重新确认。",
+      "translation": "恢复所选 {count} 条记录。已解除的 MFA 关联仍需在恢复后重新确认。",
+      "description": "凭据整理与使用体验",
+      "placeholders": {
+        "count": {
+          "description": "count"
+        }
+      },
+      "locations": [
+        "credential_group_ui.dart"
+      ]
+    },
+    "components.title": {
+      "source": "组件版本与更新",
+      "translation": "组件版本与更新",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "component_versions.dart"
+      ]
+    },
+    "components.build": {
+      "source": "构建标识",
+      "translation": "构建标识",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "component_versions.dart"
+      ]
+    },
+    "components.protocol": {
+      "source": "协议与数据结构",
+      "translation": "协议与数据结构",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "component_versions.dart"
+      ]
+    },
+    "components.extension": {
+      "source": "App 配套插件",
+      "translation": "App 配套插件",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "component_versions.dart"
+      ]
+    },
+    "components.hostCurrent": {
+      "source": "已安装的组件与 App 一致",
+      "translation": "已安装的组件与 App 一致",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "component_versions.dart"
+      ]
+    },
+    "components.hostUpdate": {
+      "source": "未安装或与 App 不一致，请更新",
+      "translation": "未安装或与 App 不一致，请更新",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "component_versions.dart"
+      ]
+    },
+    "components.updateHelp": {
+      "source": "更新后先启动 App，在浏览器设置中更新 Native Host，再在扩展管理页重新加载配套插件。浏览器实际加载的插件版本请在插件弹窗查看；不同组件的版本号可以不同。",
+      "translation": "更新后先启动 App，在浏览器设置中更新 Native Host，再在扩展管理页重新加载配套插件。浏览器实际加载的插件版本请在插件弹窗查看；不同组件的版本号可以不同。",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "component_versions.dart"
+      ]
+    },
+    "duplicates.title": {
+      "source": "整理重复账密",
+      "translation": "整理重复账密",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.help": {
+      "source": "仅检查当前分区中域名、端口和账号相同的网站账密。选择要保留的主记录，再对比其他记录；不会自动合并。",
+      "translation": "仅检查当前分区中域名、端口和账号相同的网站账密。选择要保留的主记录，再对比其他记录；不会自动合并。",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.empty": {
+      "source": "没有发现可整理的重复网站账密。",
+      "translation": "没有发现可整理的重复网站账密。",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.compare": {
+      "source": "对比并选择合并",
+      "translation": "对比并选择合并",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.confirm": {
+      "source": "确认合并账密",
+      "translation": "确认合并账密",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.keeper": {
+      "source": "保留为主记录",
+      "translation": "保留为主记录",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.keptPassword": {
+      "source": "保留此记录的当前密码",
+      "translation": "保留此记录的当前密码",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.samePassword": {
+      "source": "与主记录相同",
+      "translation": "与主记录相同",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.differentPassword": {
+      "source": "不同，将保留到密码历史",
+      "translation": "不同，将保留到密码历史",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.notesLength": {
+      "source": "备注字数",
+      "translation": "备注字数",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.customFields": {
+      "source": "自定义字段数",
+      "translation": "自定义字段数",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.servers": {
+      "source": "服务器引用数",
+      "translation": "服务器引用数",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.summary": {
+      "source": "将合并 {count} 条记录。已有历史共 {history} 条，候选共 {candidates} 条；不同的当前密码会另存为历史。",
+      "translation": "将合并 {count} 条记录。已有历史共 {history} 条，候选共 {candidates} 条；不同的当前密码会另存为历史。",
+      "description": "凭据整理与使用体验",
+      "placeholders": {
+        "count": {
+          "description": "count"
+        },
+        "history": {
+          "description": "history"
+        },
+        "candidates": {
+          "description": "candidates"
+        }
+      },
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.mergeHelp": {
+      "source": "主记录保留名称、分组、分类、当前密码和默认 MFA。网站规则、备注、标签、自定义字段及 MFA、通行密钥关联会汇总到主记录；历史与候选会复制保留，过期候选仍不能直接启用。合并前会创建恢复点。若合并会改变服务器使用的密码或 MFA，将停止并提示。",
+      "translation": "主记录保留名称、分组、分类、当前密码和默认 MFA。网站规则、备注、标签、自定义字段及 MFA、通行密钥关联会汇总到主记录；历史与候选会复制保留，过期候选仍不能直接启用。合并前会创建恢复点。若合并会改变服务器使用的密码或 MFA，将停止并提示。",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.restoreHelp": {
+      "source": "其他原记录将进入回收站。单独恢复原记录不会撤销合并，也不会自动改回服务器引用；需要完整撤销时请使用合并前的恢复点。",
+      "translation": "其他原记录将进入回收站。单独恢复原记录不会撤销合并，也不会自动改回服务器引用；需要完整撤销时请使用合并前的恢复点。",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
+    "duplicates.done": {
+      "source": "账密已合并，原记录已移入回收站。",
+      "translation": "账密已合并，原记录已移入回收站。",
+      "description": "凭据整理与使用体验",
+      "placeholders": {},
+      "locations": [
+        "duplicate_logins.dart"
+      ]
+    },
     "navigation.collapsePartitions": {
       "source": "折叠分区",
       "translation": "折叠分区",

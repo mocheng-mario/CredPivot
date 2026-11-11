@@ -307,14 +307,22 @@ function inlineError(message, code) { return Object.assign(new Error(message),{c
 function inlineSafeError(response) {
   const reason = response?.error || response?.message || response?.code;
   const messages = {target_changed:'输入框已改变，请重新点击填充图标',document_mismatch:'页面已跳转，请重新填充',
-    no_login_fields:'未找到可填写的登录框',no_otp_field:'未找到完整、可填写的验证码输入框'};
-  return inlineError(messages[reason] || (typeof reason === 'string' ? reason : '填充未完成，请重试'),response?.code);
+    no_login_fields:'未找到可填写的登录框',no_otp_field:'未找到完整、可填写的验证码输入框',
+    locked:'保险库已锁定，请点击「连接与验证」解锁。',
+    extension_gate_required:'需要身份验证，请点击「连接与验证」。',
+    extension_gate_cancelled:'验证已取消，需要继续时请点击「连接与验证」。',
+    extension_gate_paused:'自动验证已暂停，请点击「连接与验证」手动继续。',
+    host_outdated:'本机组件已更新，请关闭面板后重新打开；若仍失败，请在 App 更新 Native Host。',
+    agent_timeout:'App 响应超时，请检查 App 后重试；刚才的填充不会自动重复。',
+    agent_unavailable:'App 连接已中断，请点击「连接与验证」重试。',
+    app_unreachable:'无法连接 App，请先打开 CredPivot，再点击「连接与验证」。'};
+  return inlineError(messages[response?.code] || messages[reason] || (typeof reason === 'string' ? reason : '填充未完成，请重试'),response?.code);
 }
 function inlineRecord(token) {
   const record = inlineSessions.get(token);
   if (!record || record.cancelled || Date.now() > record.expires) {
     if (record) cancelInline(record);
-    throw inlineError('本次操作已过期，请重新点击输入框旁的图标');
+    throw inlineError('本次操作已过期，请重新点击输入框旁的图标','inline_session_expired');
   }
   return record;
 }
@@ -488,6 +496,34 @@ async function handleInlineMessage(message, sender) {
   if (sender.id !== chrome.runtime.id) throw inlineError('来源未授权');
   const fromPopup = !sender.tab && sender.url?.split('#')[0] === chrome.runtime.getURL('popup.html');
   const fromPage = sender.frameId === 0 && sender.tab?.id && sender.documentId && /^https?:\/\//.test(sender.url || '');
+  if (message.type === 'inline_resume') {
+    // 后台休眠或重启后只恢复面板与当前文档的绑定，不恢复授权，也不重放填充。
+    const token = message.token;
+    const tabId = sender.tab?.id ?? message.tab_id;
+    if (typeof token !== 'string' || !/^[0-9a-f-]{36}$/.test(token) || !sender.documentId ||
+        sender.url !== `${inlineUIUrl()}#${token}` || !Number.isInteger(tabId)) throw inlineError('请重新点击网页填充图标');
+    if (inlineSessions.has(token)) {
+      const record = inlineRecord(token);
+      if (record.panelDocumentId !== sender.documentId || record.tabId !== tabId) throw inlineError('候选面板已失效，请重新打开');
+      await checkInline(record,true); return {ok:true,origin:record.origin};
+    }
+    const tab = await chrome.tabs.get(tabId);
+    const page = await requestPageContext(tabId);
+    if (!tab.active || page?.url !== tab.url || page.panelToken !== token || !page.targetId || !page.targetValid) {
+      throw inlineError('网页或输入框已变化，请重新点击填充图标','target_changed');
+    }
+    const [top] = await chrome.scripting.executeScript({target:{tabId,frameIds:[0]},world:'ISOLATED',func:()=>null});
+    if (!top?.documentId || (await chrome.tabs.get(tabId)).url !== tab.url) throw inlineError('网页已跳转，请重新点击填充图标','document_mismatch');
+    const current = await requestPageContext(tabId,page.targetId);
+    if (current.documentId !== page.documentId || current.panelToken !== token) throw inlineError('页面已变化，请重新点击填充图标','document_mismatch');
+    if (inlineSessions.size >= 8) throw inlineError('已有填充操作正在处理，请先关闭其他面板');
+    const record = {token,tabId,windowId:tab.windowId,url:tab.url,origin:page.origin,
+      chromeDocumentId:top.documentId,documentId:page.documentId,targetId:page.targetId,panelDocumentId:sender.documentId,
+      mode:page.targetKind === 'otp' ? 'otp' : 'login',expires:Date.now()+INLINE_TTL_MS,
+      busy:false,cancelled:false,completed:false,autoUsed:true,panelReady:true,accountId:'',accounts:[],candidates:[]};
+    inlineSessions.set(token,record);
+    return {ok:true,origin:record.origin,resumed:true};
+  }
   if (['inline_site_state','inline_site_set'].includes(message.type)) {
     if (!fromPopup && (!fromPage || message.type === 'inline_site_set')) throw inlineError('请从插件设置操作');
     const origin = fromPopup ? await originFromSender(sender,message) : new URL(sender.url).origin;

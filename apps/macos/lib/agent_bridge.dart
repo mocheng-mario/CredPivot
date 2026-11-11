@@ -255,6 +255,12 @@ class AgentBridge {
     return {};
   }
 
+  static Future<Map<String, dynamic>> componentVersions() async {
+    final native = await _channel.invokeMapMethod<String,dynamic>('componentVersions') ?? {};
+    final status = payloadOf(await request({'type':'status'}));
+    return {...native, ...status};
+  }
+
   static Future<Map<String, dynamic>> installChromeHost(String extensionId) async {
     final raw = await _channel.invokeMethod<dynamic>('installChromeHost', extensionId);
     if (raw is Map) {

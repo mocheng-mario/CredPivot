@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import 'agent_bridge.dart';
 import 'app_ui.dart';
 import 'linked_refs.dart';
 import 'credential_confirm.dart';
 import 'touch_id_gate.dart';
+import 'credential_partitions.dart';
 
 /// shared 在同一分区内跨子模块复用；其余 scope 仍属于指定类型。
 Future<List<Map<String, dynamic>>> loadCredentialGroups(String scope, {String? partitionId}) async {
@@ -228,11 +230,11 @@ Widget buildGroupedList({
 
 class CredentialBatchList extends StatefulWidget {
   const CredentialBatchList({super.key, required this.scope, required this.groups, required this.items,
-    required this.tileBuilder, this.groupIdKey = 'group_id', this.grouped = true});
+    required this.tileBuilder, this.groupIdKey = 'group_id', this.grouped = true, this.trashed = false});
   final String scope, groupIdKey;
   final List<Map<String, dynamic>> groups, items;
   final Widget Function(Map<String, dynamic>) tileBuilder;
-  final bool grouped;
+  final bool grouped, trashed;
 
   @override
   State<CredentialBatchList> createState() => _CredentialBatchListState();
@@ -243,7 +245,74 @@ class _CredentialBatchListState extends State<CredentialBatchList> {
   final revisions = <String, String>{};
   bool batch = false, busy = false;
   final String partition = AgentBridge.activePartitionId;
+  String order = 'updated', query = '';
+  bool savingOrder = false, orderChanged = false;
+  String? rangeAnchor;
+  final search = TextEditingController();
+  bool get searchable => const {'totp','ssh','server'}.contains(widget.scope);
   String itemId(Map row) => (row['item_id'] ?? row['id']).toString();
+  String titleOf(Map row) => [row['display_name'],row['title'],row['rp_id'],row['issuer'],row['label']]
+    .whereType<String>().where((v) => v.isNotEmpty).firstOrNull ?? '';
+
+  List<Map<String, dynamic>> get visibleItems {
+    final text = query.trim().toLowerCase();
+    final groupNames = {for(final group in widget.groups) group['id'].toString():credentialGroupLabel(group)};
+    final rows = widget.items.where((r) => text.isEmpty || [titleOf(r),r['account'],r['username'],r['manual_username'],r['host'],r['origin'],r['public_openssh']]
+      .whereType<String>().any((v) => v.toLowerCase().contains(text))).toList();
+    rows.sort((a,b) {
+      // 连选使用同一排列顺序，不能按全局排序跨过屏幕上相邻的分组记录。
+      final left = a[widget.groupIdKey]?.toString();
+      final right = b[widget.groupIdKey]?.toString();
+      if (widget.grouped && (left?.isEmpty == false ? left : null) != (right?.isEmpty == false ? right : null)) {
+        if (left == null || left.isEmpty) return 1;
+        if (right == null || right.isEmpty) return -1;
+        final byGroup = (groupNames[left] ?? '').compareTo(groupNames[right] ?? '');
+        return byGroup != 0 ? byGroup : left.compareTo(right);
+      }
+      final comparison = order == 'name' ? titleOf(a).toLowerCase().compareTo(titleOf(b).toLowerCase())
+        : ((b[order == 'used' ? 'last_used_at_ms' : 'updated_at_ms'] as num?) ?? 0)
+          .compareTo((a[order == 'used' ? 'last_used_at_ms' : 'updated_at_ms'] as num?) ?? 0);
+      return comparison != 0 ? comparison : itemId(a).compareTo(itemId(b));
+    });
+    return rows;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOrder();
+  }
+
+  Future<void> _loadOrder() async {
+    try {
+      final result = await AgentBridge.manage({'action':'list_sort','partition_id':partition,'scope':widget.scope});
+      if (mounted && !orderChanged && const {'updated','used','name'}.contains(result['order'])) setState(() => order = result['order'] as String);
+    } catch (_) { /* 排序偏好读取失败时仍显示列表。 */ }
+  }
+
+  Future<void> changeOrder(String value) async {
+    if (savingOrder) return;
+    setState(() { order = value; rangeAnchor = null; orderChanged = true; savingOrder = true; });
+    try {
+      await AgentBridge.manage({'action':'list_sort','partition_id':partition,'scope':widget.scope,'order':value});
+    } catch (e) { if (mounted) await _groupFailure(context,e); }
+    finally { if (mounted) setState(() => savingOrder = false); }
+  }
+
+  @override
+  void dispose() { search.dispose(); super.dispose(); }
+
+  void toggle(String id) {
+    final ids = visibleItems.map(itemId).toList();
+    final start = ids.indexOf(rangeAnchor ?? ''), end = ids.indexOf(id);
+    setState(() {
+      if (HardwareKeyboard.instance.isShiftPressed && start >= 0 && end >= 0) {
+        final range = ids.sublist(start < end ? start : end, (start > end ? start : end)+1);
+        if (selected.contains(id)) { selected.removeAll(range); } else { selected.addAll(range.where(revisions.containsKey)); }
+      } else if (!selected.add(id)) { selected.remove(id); }
+      rangeAnchor = id;
+    });
+  }
 
   @override
   void didUpdateWidget(covariant CredentialBatchList oldWidget) {
@@ -256,7 +325,7 @@ class _CredentialBatchListState extends State<CredentialBatchList> {
     setState(() => busy = true);
     try {
       // 通行密钥列表不含修订号；统一读取非秘密元数据，整批操作绑定到这次选择时的修订。
-      final result = await AgentBridge.manage({'action': 'item_search', 'query': ''}, partitionId: partition);
+      final result = await AgentBridge.manage(widget.trashed ? {'action':'trash_list'} : {'action': 'item_search', 'query': ''}, partitionId: partition);
       if (!mounted || partition != AgentBridge.activePartitionId) return;
       revisions.clear();
       for (final row in result['items'] as List) {
@@ -267,7 +336,7 @@ class _CredentialBatchListState extends State<CredentialBatchList> {
           revisions[itemId(row)] = row['current_revision'] as String;
         }
       }
-      setState(() { selected.clear(); batch = true; });
+      setState(() { selected.clear(); rangeAnchor = null; batch = true; });
     } catch (e) { if (mounted) await _groupFailure(context, e); }
     finally { if (mounted) setState(() => busy = false); }
   }
@@ -277,6 +346,10 @@ class _CredentialBatchListState extends State<CredentialBatchList> {
     final ids = selected.toSet();
     setState(() => busy = true);
     try {
+      if (operation == 'migrate') {
+        await showPartitionMigration(context, partition, initialSelection: ids);
+        return;
+      }
       String? group;
       if (operation == 'group') {
         group = await showDialog<String>(context: context, builder: (ctx) => SimpleDialog(
@@ -294,10 +367,10 @@ class _CredentialBatchListState extends State<CredentialBatchList> {
           .toString().replaceAll(RegExp(r'\s+'), ' ');
         return name.length > 64 ? '${name.substring(0, 64)}…' : name;
       }).join('\n');
-      final title = tr(operation == 'trash' ? 'credentials.batch.deleteTitle' : operation == 'ungroup'
+      final title = tr(operation == 'restore' ? 'credentials.batch.restore' : operation == 'trash' ? 'credentials.batch.deleteTitle' : operation == 'ungroup'
         ? 'credentials.batch.ungroupTitle' : 'credentials.batch.moveTitle');
       final destination = group == null ? '' : credentialGroupLabel(widget.groups.firstWhere((g) => g['id'] == group));
-      final message = '${tr(operation == 'trash' ? 'credentials.batch.deleteHelp' : operation == 'ungroup'
+      final message = '${tr(operation == 'restore' ? 'credentials.batch.restoreHelp' : operation == 'trash' ? 'credentials.batch.deleteHelp' : operation == 'ungroup'
         ? 'credentials.batch.ungroupHelp' : 'credentials.batch.moveHelp', args: {'count': ids.length, 'group': destination})}\n\n$names';
       final confirmed = operation == 'trash'
         ? await confirmCredentialDanger(context, title: title, message: message)
@@ -308,7 +381,7 @@ class _CredentialBatchListState extends State<CredentialBatchList> {
       if (!confirmed || !mounted || partition != AgentBridge.activePartitionId ||
           !await requireTouchId(context, reason: title, confirmed: true)) return;
       if (!mounted || partition != AgentBridge.activePartitionId) return;
-      await AgentBridge.manage({'action': 'items_batch', 'operation': operation == 'trash' ? 'trash' : 'group',
+      await AgentBridge.manage({'action': 'items_batch', 'operation': const {'trash','restore'}.contains(operation) ? operation : 'group',
         'partition_id': partition, 'expected': {for (final id in ids) id: revisions[id]!}, 'group_id': group}, partitionId: partition);
       if (!mounted) return;
       setState(() { selected.clear(); batch = false; });
@@ -328,10 +401,9 @@ class _CredentialBatchListState extends State<CredentialBatchList> {
     if (!batch) return child;
     final id = itemId(row);
     final checked = selected.contains(id);
-    void toggle() => setState(() { if (!selected.add(id)) selected.remove(id); });
-    return InkWell(onTap: busy || !revisions.containsKey(id) ? null : toggle,
+    return InkWell(onTap: busy || !revisions.containsKey(id) ? null : () => toggle(id),
       child: Row(children: [
-        Checkbox(value: checked, onChanged: busy || !revisions.containsKey(id) ? null : (_) => toggle()),
+        Checkbox(value: checked, onChanged: busy || !revisions.containsKey(id) ? null : (_) => toggle(id)),
         Expanded(child: ExcludeFocus(child: IgnorePointer(child: child))),
       ]));
   }
@@ -340,12 +412,23 @@ class _CredentialBatchListState extends State<CredentialBatchList> {
   Widget build(BuildContext context) {
     final scope = widget.scope;
     final groups = widget.groups;
-    final items = widget.items;
+    final items = visibleItems;
     final groupIdKey = widget.groupIdKey;
     final available = items.map(itemId).where(revisions.containsKey).toSet();
     final allSelected = available.isNotEmpty && selected.containsAll(available);
     final toolbar = <Widget>[
+      if (searchable) TextField(controller: search, decoration: InputDecoration(
+        hintText: tr('credentials.list.search'), prefixIcon: const Icon(Icons.search),
+        suffixIcon: query.isEmpty ? null : IconButton(tooltip: tr('credentials.list.clearSearch'), icon: const Icon(Icons.clear),
+          onPressed: () { search.clear(); setState(() { query = ''; selected.clear(); rangeAnchor = null; }); })),
+        onChanged: (value) => setState(() { query = value; selected.clear(); rangeAnchor = null; })),
       Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        DropdownButton<String>(value: order, underline: const SizedBox.shrink(),
+          onChanged: busy || savingOrder ? null : (value) { if (value != null) changeOrder(value); }, items: const [
+            DropdownMenuItem(value:'updated', child:LText('credentials.list.updated')),
+            DropdownMenuItem(value:'used', child:LText('credentials.list.used')),
+            DropdownMenuItem(value:'name', child:LText('credentials.list.name')),
+          ]),
         TextButton.icon(onPressed: busy ? null : () {
           if (batch) { setState(() { batch = false; selected.clear(); }); } else { enter(); }
         }, icon: Icon(batch ? Icons.close : Icons.checklist), label: LText(batch ? 'credentials.batch.exit' : 'credentials.batch.enter')),
@@ -355,10 +438,14 @@ class _CredentialBatchListState extends State<CredentialBatchList> {
           }), child: LText(allSelected ? 'credentials.batch.deselectAll' : 'credentials.batch.selectAll')),
           LText('credentials.batch.selected', args: {'count': selected.length}),
           PopupMenuButton<String>(enabled: !busy && selected.isNotEmpty, tooltip: tr('credentials.batch.enter'),
-            onSelected: apply, itemBuilder: (_) => const [
-              PopupMenuItem(value: 'group', child: LText('credentials.batch.moveGroup')),
-              PopupMenuItem(value: 'ungroup', child: LText('credentials.batch.ungroup')),
-              PopupMenuItem(value: 'trash', child: LText('credentials.batch.trash')),
+            onSelected: apply, itemBuilder: (_) => [
+              if (widget.trashed) const PopupMenuItem(value: 'restore', child: LText('credentials.batch.restore')),
+              if (!widget.trashed) ...const [
+                PopupMenuItem(value: 'group', child: LText('credentials.batch.moveGroup')),
+                PopupMenuItem(value: 'ungroup', child: LText('credentials.batch.ungroup')),
+                PopupMenuItem(value: 'trash', child: LText('credentials.batch.trash')),
+              ],
+              const PopupMenuItem(value:'migrate', child:LText('partitions.move')),
             ], child: const Padding(padding: EdgeInsets.all(12), child: Row(mainAxisSize: MainAxisSize.min, children: [
               LText('credentials.batch.actions'), Icon(Icons.arrow_drop_down, size: 18)]))),
         ],
@@ -376,12 +463,7 @@ class _CredentialBatchListState extends State<CredentialBatchList> {
       final key = (gid == null || gid.isEmpty) ? null : gid;
       buckets.putIfAbsent(key, () => []).add(row);
     }
-    final keys = buckets.keys.toList()
-      ..sort((a, b) {
-        if (a == null) return 1;
-        if (b == null) return -1;
-        return (groupName[a] ?? '').compareTo(groupName[b] ?? '');
-      });
+    final keys = buckets.keys.toList();
     if (!widget.grouped) {
       tiles.addAll(items.map(tile));
     } else for (final key in keys) {
@@ -400,12 +482,22 @@ class _CredentialBatchListState extends State<CredentialBatchList> {
       ));
     }
     // 操作栏留在滚动区域外，列表滚动时仍可全选、执行操作或退出批量模式。
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    return Focus(onKeyEvent: (_,event) {
+      if (!batch || busy || event is! KeyDownEvent) return KeyEventResult.ignored;
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
+        setState(() { batch = false; selected.clear(); rangeAnchor = null; }); return KeyEventResult.handled;
+      }
+      if (FocusManager.instance.primaryFocus?.context?.findAncestorWidgetOfExactType<EditableText>() != null) return KeyEventResult.ignored;
+      if (event.logicalKey == LogicalKeyboardKey.keyA && (HardwareKeyboard.instance.isMetaPressed || HardwareKeyboard.instance.isControlPressed)) {
+        setState(() => selected.addAll(available)); return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       DecoratedBox(
         decoration: BoxDecoration(color: AppColors.surface,
           border: Border(bottom: BorderSide(color: AppColors.border))),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: toolbar)),
       Expanded(child: ListView(children: tiles)),
-    ]);
+    ]));
   }
 }

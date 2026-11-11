@@ -22,6 +22,10 @@ pub enum VaultAction {
         expected: std::collections::BTreeMap<String, String>,
         #[serde(default)] group_id: Option<String>,
     },
+    ListSort { partition_id: String, scope: String, #[serde(default)] order: Option<String> },
+    DuplicateLogins { partition_id: String },
+    LoginMergePreview { keeper: String, sources: Vec<String> },
+    LoginMergeApply { keeper: String, sources: Vec<String>, fingerprint: String },
     PartitionMovePreview { item_ids: Vec<String>, target_partition_id: String, #[serde(default)] target_group_name: Option<String> },
     PartitionMoveApply { item_ids: Vec<String>, target_partition_id: String, fingerprint: String, #[serde(default)] target_group_name: Option<String> },
     GroupRename { id: String, name: String, expected_updated_at_ms: i64, #[serde(default)] scope: Option<String> },
@@ -166,6 +170,8 @@ impl VaultAction {
             self,
             Self::GeneratePassword { .. }
                 | Self::PartitionList | Self::PartitionMovePreview { .. }
+                | Self::ListSort { .. }
+                | Self::DuplicateLogins { .. }
                 | Self::PartitionCreate { .. } | Self::PartitionRename { .. } | Self::PartitionReorder { .. }
                 | Self::GroupRename { .. }
                 | Self::SshGitRulesTest { .. } | Self::SshGitBindings
@@ -537,7 +543,7 @@ fn security_report(conn: &Connection) -> Result<Value> {
 
 fn items_batch(conn: &Connection, operation: &str, partition: &str,
     expected: &std::collections::BTreeMap<String, String>, group: Option<&str>) -> Result<Value> {
-    if !matches!(operation, "trash" | "group") || expected.is_empty() || expected.len() > 10000 {
+    if !matches!(operation, "trash" | "group" | "restore") || expected.is_empty() || expected.len() > 10000 {
         return Err(CoreError::format("批量操作或所选记录无效"));
     }
     let tx = conn.unchecked_transaction()?;
@@ -545,7 +551,7 @@ fn items_batch(conn: &Connection, operation: &str, partition: &str,
     let mut items = Vec::new();
     for (id, revision) in expected {
         let (current, item_partition, kind): (String, String, String) = tx.query_row(
-            "SELECT current_revision,partition_id,kind FROM items WHERE id=?1 AND trashed=0", [id],
+            "SELECT current_revision,partition_id,kind FROM items WHERE id=?1 AND trashed=?2", params![id, operation == "restore"],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
             .optional()?.ok_or(CoreError::Conflict)?;
         if current != *revision || item_partition != partition { return Err(CoreError::Conflict); }
@@ -555,8 +561,10 @@ fn items_batch(conn: &Connection, operation: &str, partition: &str,
     items.sort_by_key(|(_, kind)| kind == "ssh_key");
     for (id, _) in items {
         if operation == "trash" { crate::repo_m2::trash_item_in_tx(&tx, id)?; }
+        else if operation == "restore" { trash_change(&tx,id,&expected[id],false)?; }
         else { crate::credential_groups::set_item_group_in_tx(&tx, id, group)?; }
     }
+    crate::mark_restore_dirty(&tx)?;
     tx.commit()?;
     Ok(json!({"count":expected.len()}))
 }
@@ -571,6 +579,24 @@ pub fn manage_credentials(conn: &Connection, action: VaultAction) -> Result<Valu
         PartitionDelete {id,expected_revision} => crate::partitions::delete(conn,&id,&expected_revision),
         PartitionReorder {ids,expected} => crate::partitions::reorder(conn,&ids,&expected),
         ItemsBatch {operation,partition_id,expected,group_id} => items_batch(conn,&operation,&partition_id,&expected,group_id.as_deref()),
+        DuplicateLogins {partition_id} => crate::login_duplicates::list(conn,&partition_id),
+        LoginMergePreview {keeper,sources} => crate::login_duplicates::preview(conn,&keeper,&sources),
+        LoginMergeApply {keeper,sources,fingerprint} => crate::login_duplicates::apply(conn,&keeper,&sources,&fingerprint),
+        ListSort {partition_id,scope,order} => {
+            crate::partitions::require(conn,&partition_id)?;
+            if !matches!(scope.as_str(),"login"|"totp"|"ssh"|"server"|"passkey"|"shared"|"trash") {
+                return Err(CoreError::format("列表类型无效"));
+            }
+            let key=format!("ui-sort:{partition_id}:{scope}");
+            if let Some(order)=order {
+                if !matches!(order.as_str(),"updated"|"used"|"name") { return Err(CoreError::format("排序方式无效")); }
+                conn.execute("INSERT OR REPLACE INTO sync_state(key,value) VALUES (?1,?2)",params![key,order])?;
+                Ok(json!({"order":order}))
+            } else {
+                let order:Option<String>=conn.query_row("SELECT value FROM sync_state WHERE key=?1",[key],|r|r.get(0)).optional()?;
+                Ok(json!({"order":order.unwrap_or_else(||"updated".into())}))
+            }
+        }
         PartitionMovePreview {item_ids,target_partition_id,target_group_name} => crate::partitions::preview_with_group(conn,&item_ids,&target_partition_id,target_group_name.as_deref()),
         PartitionMoveApply {item_ids,target_partition_id,fingerprint,target_group_name} => crate::partitions::migrate_with_group(conn,&item_ids,&target_partition_id,&fingerprint,target_group_name.as_deref()),
         GroupRename {id,name,expected_updated_at_ms,scope} => {

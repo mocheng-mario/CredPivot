@@ -579,6 +579,8 @@ class VaultToolsPanel extends StatefulWidget {
 
 class _VaultToolsPanelState extends State<VaultToolsPanel> {
   String mode = 'items', query = '', message = '';
+  final _queryController = TextEditingController();
+  Timer? _searchDebounce;
   int _loadGeneration = 0;
   bool busy = false, favorites = false, _changingTrash = false;
   bool get _working => busy || _changingTrash;
@@ -592,6 +594,8 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
   @override
   void dispose() {
     AgentBridge.vaultChanges.removeListener(_onVaultChanged);
+    _queryController.dispose();
+    _searchDebounce?.cancel();
     super.dispose();
   }
 
@@ -606,6 +610,7 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
   }
 
   Future<void> load() async {
+    _searchDebounce?.cancel();
     final generation = ++_loadGeneration;
     setState(() => busy = true);
     try {
@@ -692,13 +697,20 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
   Widget build(BuildContext context) {
     final mobile = defaultTargetPlatform == TargetPlatform.android;
     final search = TextField(
+      controller: _queryController,
       decoration: InputDecoration(
         isDense: mobile,
         hintText: mobile ? tr('vaultTools.build.text.item35') : null,
         prefixIcon: mobile ? const Icon(Icons.search_rounded) : null,
+        suffixIcon: query.isEmpty ? null : IconButton(tooltip: tr('credentials.list.clearSearch'), icon: const Icon(Icons.clear),
+          onPressed: () { _searchDebounce?.cancel(); _queryController.clear(); query = ''; load(); }),
       ),
-      onChanged: (v) => query = v,
-      onSubmitted: (_) => load(),
+      onChanged: (v) {
+        _searchDebounce?.cancel(); ++_loadGeneration;
+        setState(() => query = v);
+        _searchDebounce = Timer(const Duration(milliseconds:250), load);
+      },
+      onSubmitted: (_) { _searchDebounce?.cancel(); load(); },
     );
     return CredentialPanel(
       desktopPadding: const EdgeInsets.all(24),
@@ -761,10 +773,10 @@ class _VaultToolsPanelState extends State<VaultToolsPanel> {
           onManage: () async { await showManageGroupsDialog(context, 'shared'); if (mounted) await load(); }),
         if (_working) const LinearProgressIndicator(),
       ],
-      body: mode == 'items' && visibleItems.isNotEmpty
+      body: mode != 'security' && visibleItems.isNotEmpty
         ? CredentialBatchList(
-            key: ValueKey('tools-batch:${AgentBridge.activePartitionId}'),
-            scope: 'shared', groups: groups, items: visibleItems, grouped: false,
+            key: ValueKey('tools-batch:${AgentBridge.activePartitionId}:$mode'),
+            scope: mode == 'trash' ? 'trash' : 'shared', groups: groups, items: visibleItems, grouped: false, trashed: mode == 'trash',
             tileBuilder: (row) => _itemTile(context, row, mobile))
         : ListView(children: [
           if (visibleItems.isEmpty && !_working)

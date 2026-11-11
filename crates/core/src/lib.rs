@@ -12,6 +12,7 @@ mod schema;
 mod bitwarden_import;
 mod google_import;
 mod credential_groups;
+mod login_duplicates;
 pub mod partitions;
 mod repo;
 mod repo_m2;

@@ -156,7 +156,7 @@ class _PartitionManagementPageState extends State<PartitionManagementPage> {
   ));
 }
 
-Future<void> showPartitionMigration(BuildContext context, String source) async {
+Future<void> showPartitionMigration(BuildContext context, String source, {Set<String>? initialSelection}) async {
   try {
     await CredentialPartitions.instance.refresh();
     final destinations = CredentialPartitions.instance.items.where((p) => p['id'] != source).toList();
@@ -173,7 +173,7 @@ Future<void> showPartitionMigration(BuildContext context, String source) async {
     if (items.isEmpty) throw AgentException('partition', 'partitions.errors.selection');
     var target = destinations.first['id'].toString(), query = '';
     var groupChoice = '', newGroupName = '';
-    final selected = <String>{};
+    final selected = (initialSelection ?? <String>{}).intersection(items.map((r) => r['id'].toString()).toSet());
     final proceed = await showDialog<bool>(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, update) {
       final visible = items.where((r) => '${r['title']} ${r['account'] ?? ''}'.toLowerCase().contains(query.toLowerCase())).toList();
       final visibleIds = visible.map((item) => item['id'].toString()).toSet();

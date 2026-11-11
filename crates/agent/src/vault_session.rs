@@ -197,6 +197,10 @@ impl VaultSession {
             .and_then(|db| db.login_count().ok())
             .unwrap_or(0);
         let mut out = serde_json::json!({
+            "agent_version": env!("CARGO_PKG_VERSION"),
+            "protocol_version": crate::PROTOCOL_VERSION,
+            "expected_extension_version": serde_json::from_str::<serde_json::Value>(include_str!("../../../apps/chrome-extension/manifest.json"))
+                .ok().and_then(|v|v["version"].as_str().map(String::from)),
             "format": "m2",
             "data_revision": self.data_revision,
             "schema_user_version": credpivot_core::SCHEMA_USER_VERSION,

@@ -288,6 +288,7 @@ pub async fn handle_request(
             | credpivot_core::VaultAction::TrashRestore { .. } | credpivot_core::VaultAction::TrashPurge { .. }
             | credpivot_core::VaultAction::NoteCreate { .. } | credpivot_core::VaultAction::BitwardenImport { .. }
             | credpivot_core::VaultAction::GoogleImport { .. } | credpivot_core::VaultAction::ItemsBatch { .. }
+            | credpivot_core::VaultAction::LoginMergeApply { .. }
             | credpivot_core::VaultAction::SshImport { .. } | credpivot_core::VaultAction::RecoveryEntryUse { .. }
             | credpivot_core::VaultAction::PartitionCreate {..} | credpivot_core::VaultAction::PartitionRename {..}
             | credpivot_core::VaultAction::PartitionDelete {..} | credpivot_core::VaultAction::PartitionReorder {..}
@@ -1260,7 +1261,7 @@ async fn handle_request_inner(
             let revoke_ssh=matches!(&action,credpivot_core::VaultAction::SshGitForget {..} | credpivot_core::VaultAction::SshGitRechoose {..});
             if !action.is_passive() { v.touch_activity(); }
             // 导入和永久删除前保留可恢复快照，且失败时不执行危险操作。
-            if matches!(&action, credpivot_core::VaultAction::BitwardenImport { .. } | credpivot_core::VaultAction::GoogleImport { .. } | credpivot_core::VaultAction::TrashPurge { .. } | credpivot_core::VaultAction::PartitionMoveApply {..}) {
+            if matches!(&action, credpivot_core::VaultAction::BitwardenImport { .. } | credpivot_core::VaultAction::GoogleImport { .. } | credpivot_core::VaultAction::TrashPurge { .. } | credpivot_core::VaultAction::PartitionMoveApply {..} | credpivot_core::VaultAction::LoginMergeApply {..}) {
                 let (Some(vmk), Some(db)) = (v.vmk.as_ref(), v.db.as_ref()) else { return AgentResponse::err("locked", "vault locked"); };
                 if credpivot_core::create_restore_point_for_risky_op(&v.vault_dir, &**vmk, db.conn()).is_err() {
                     return AgentResponse::err("backup", "操作前的恢复点创建失败");

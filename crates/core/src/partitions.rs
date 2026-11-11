@@ -145,12 +145,15 @@ pub fn annotate(conn: &Connection, payload: &mut Value, scope: Option<&str>) -> 
         let id=object.get("item_id").or_else(||object.get("id")).or_else(||object.get("credential_id"))
             .and_then(Value::as_str).unwrap_or("").to_string();
         if id.is_empty() { return Ok(()); }
-        let metadata: Option<(String,String)>=conn.query_row("SELECT i.partition_id,p.name FROM items i JOIN partitions p ON p.id=i.partition_id
+        let metadata: Option<(String,String,i64,Option<i64>)>=conn.query_row("SELECT i.partition_id,p.name,i.updated_at_ms,(SELECT last_used_at_ms FROM local_usage WHERE item_id=i.id) FROM items i JOIN partitions p ON p.id=i.partition_id
           WHERE i.id=?1 OR i.id IN (SELECT item_id FROM login_credentials WHERE id=?1 UNION SELECT item_id FROM totp_credentials WHERE id=?1
           UNION SELECT item_id FROM ssh_keys WHERE id=?1 UNION SELECT item_id FROM recovery_code_items WHERE id=?1
           UNION SELECT item_id FROM server_login_profiles WHERE id=?1 UNION SELECT item_id FROM passkey_credentials WHERE credential_id=?1)
-          UNION ALL SELECT g.partition_id,p.name FROM credential_groups g JOIN partitions p ON p.id=g.partition_id WHERE g.id=?1 LIMIT 1",[id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
-        if let Some((id,name))=metadata { object.insert("partition_id".into(),json!(id)); object.insert("partition_name".into(),json!(name)); }
+          UNION ALL SELECT g.partition_id,p.name,g.updated_at_ms,NULL FROM credential_groups g JOIN partitions p ON p.id=g.partition_id WHERE g.id=?1 LIMIT 1",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
+        if let Some((id,name,updated,used))=metadata {
+            object.insert("partition_id".into(),json!(id)); object.insert("partition_name".into(),json!(name));
+            object.insert("updated_at_ms".into(),json!(updated)); object.insert("last_used_at_ms".into(),json!(used));
+        }
         Ok(())
     }
     if let Some(requests)=payload.get_mut("requests").and_then(Value::as_array_mut) {

@@ -131,7 +131,11 @@ async fn forward_to_agent(envelope: Value) -> Result<Value, Box<dyn std::error::
     {
         notify_browser_verification();
     }
-    Ok(agent_to_extension(resp, request_id))
+    let mut response = agent_to_extension(resp, request_id);
+    if let Some(payload) = response.get_mut("payload").and_then(Value::as_object_mut) {
+        payload.insert("native_host_version".into(),json!(env!("CARGO_PKG_VERSION")));
+    }
+    Ok(response)
 }
 
 fn notify_browser_verification() {

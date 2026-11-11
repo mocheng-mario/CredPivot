@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'agent_bridge.dart';
 import 'app_ui.dart';
+import 'component_versions.dart';
 
 class DiagnosticsTab extends StatefulWidget {
   const DiagnosticsTab({super.key, this.onOpenSettings, this.active = true,
@@ -160,6 +161,8 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 6, 24, 24),
       children: [
+        const ComponentVersions(),
+        const SizedBox(height:16),
         Card(
           child: ExpansionTile(
             initiallyExpanded: true,

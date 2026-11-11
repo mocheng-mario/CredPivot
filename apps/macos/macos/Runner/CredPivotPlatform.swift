@@ -1774,6 +1774,14 @@ final class CredPivotPlatform: NSObject {
 
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
+    case "componentVersions":
+      DispatchQueue.global(qos: .userInitiated).async {
+        var info = ChromeHostInstaller.status()
+        info["app_version"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        info["app_build"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        let snapshot = info
+        DispatchQueue.main.async { result(snapshot) }
+      }
     case "isMainWindowForeground":
       result(isMainWindowForeground && !TouchIdGate.isAuthenticating && NSApp.modalWindow == nil)
     case "syncHostInfo":
@@ -2670,6 +2678,7 @@ enum ChromeHostInstaller {
     let bundledHost = resolveSourceHostBinary()
     var trustedHostConfigured = false
     var installedHostCurrent = false
+    var installedHostDigest = ""
     if let bundledHost {
       if let trusted = getenv("CREDPIVOT_TRUSTED_NATIVE_HOST") {
         trustedHostConfigured = URL(fileURLWithPath: String(cString: trusted)).resolvingSymlinksInPath()
@@ -2678,6 +2687,7 @@ enum ChromeHostInstaller {
       if let source = try? Data(contentsOf: URL(fileURLWithPath: bundledHost)),
          let installed = try? Data(contentsOf: installedHostPath) {
         installedHostCurrent = SHA256.hash(data: source) == SHA256.hash(data: installed)
+        installedHostDigest = SHA256.hash(data: installed).map { String(format: "%02x", $0) }.joined()
       }
     }
     var out: [String: Any] = [
@@ -2688,6 +2698,7 @@ enum ChromeHostInstaller {
       "installed_host_exists": FileManager.default.fileExists(atPath: installedHostPath.path),
       "trusted_host_configured": trustedHostConfigured,
       "installed_host_current": installedHostCurrent,
+      "installed_host_sha256": installedHostDigest,
       "manifest_host_matches_installed": false,
       "stored_extension_id": stored,
       "manifest_extension_id": manifestId ?? "",

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'agent_bridge.dart';
 import 'app_ui.dart';
 import 'touch_id_gate.dart';
+import 'component_versions.dart';
 
 class AndroidDiagnosticsPage extends StatefulWidget {
   const AndroidDiagnosticsPage({super.key, this.readOnly = false});
@@ -40,6 +41,8 @@ class _AndroidDiagnosticsPageState extends State<AndroidDiagnosticsPage> {
     return Scaffold(appBar: AppBar(title: const LText('android.diagnostics.title'), actions: [
       IconButton(tooltip: tr('android.autofill.refresh'), onPressed: busy ? null : load, icon: const Icon(Icons.refresh))]),
       body: ListView(padding: const EdgeInsets.all(20), children: [
+        const ComponentVersions(),
+        const SizedBox(height:16),
         if (busy) const LinearProgressIndicator(),
         if (error.isNotEmpty) AppNotice(error),
         AppPanel(title: tr('android.diagnostics.options'), icon: Icons.tune, child: appFieldRows([

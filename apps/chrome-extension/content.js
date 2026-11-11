@@ -292,10 +292,11 @@
     finally { clearTimeout(openTimer); if (generation === current) opening = false; }
   }
   function context(message) {
-    const target = message.target_id ? targets.get(message.target_id) : bind(lastInput);
+    const target = message.target_id ? targets.get(message.target_id) : (valid(anchor) ? anchor : bind(lastInput));
     return {documentId, origin:location.origin, url:location.href, frameId:0, content_version:version,
       // 仅报告入口状态，不包含输入值、账号信息或网页异常原文。
       inline_status:{hidden, error:inlineFailure, target_kind:valid(target) ? target.kind : null},
+      panelToken:panel?.isConnected ? token : null,
       targetId:valid(target) ? target.id : null, targetKind:valid(target) ? target.kind : null,
       targetValid:message.target_id ? Boolean(valid(target)) : true};
   }
