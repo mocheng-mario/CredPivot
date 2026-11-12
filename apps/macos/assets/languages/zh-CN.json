@@ -17940,6 +17940,13 @@
       "placeholders": {},
       "locations": ["settings_page.dart", "main_android.dart"]
     },
+    "localReset.integrationFailed": {
+      "source": "本机数据已删除，但系统里的 SSH、Git 或浏览器连接没能撤完。远端没有改动。请再执行一次重置 App。",
+      "translation": "本机数据已删除，但系统里的 SSH、Git 或浏览器连接没能撤完。远端没有改动。请再执行一次重置 App。",
+      "description": "重置后系统配置撤销失败，可以重试",
+      "placeholders": {},
+      "locations": ["CredPivotPlatform.swift"]
+    },
     "localReset.secretsFailed": {
       "source": "本机保险库已清除，但部分本机解锁材料没能删掉。远端数据没有改动。",
       "translation": "本机保险库已清除，但部分本机解锁材料没能删掉。远端数据没有改动。",

@@ -339,6 +339,11 @@ class _VaultHomePageState extends State<VaultHomePage> {
       _unlockMessage = '';
     }
     setState(() {
+      if (payload['vault_exists'] != true) {
+        _skippedSetup = false;
+        _creatingVault = false;
+        _pageIndex = 0;
+      }
       _status = payload;
       _log = const JsonEncoder.withIndent('  ').convert({
         'build_stamp': kCredPivotBuildStamp,

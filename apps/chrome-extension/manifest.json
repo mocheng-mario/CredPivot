@@ -10,7 +10,7 @@
     }
   },
   "description": "Connects to CredPivot Mac App with fingerprint or in-app master password verification.",
-  "permissions": ["nativeMessaging", "storage", "scripting", "tabs", "contextMenus"],
+  "permissions": ["nativeMessaging", "storage", "scripting", "tabs", "contextMenus", "alarms"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js",

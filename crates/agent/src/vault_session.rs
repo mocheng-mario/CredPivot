@@ -257,6 +257,7 @@ impl VaultSession {
         self.vmk = None;
         self.db = None;
         self.ssh_signing_key = None;
+        self.local_unlock_policy = LocalUnlockPolicy::default();
         crate::paths::bump_vault_lock_generation();
     }
 

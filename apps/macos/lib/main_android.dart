@@ -102,6 +102,7 @@ class _AndroidHomeState extends State<_AndroidHome> {
     partitions.setUnlocked(false);
     WebDavSync.instance.setUnlocked(false);
     if (mounted) setState(() { status = {...status, 'unlocked': false}; page = 0; });
+    refresh();
   }
 
   Future<void> refresh() {

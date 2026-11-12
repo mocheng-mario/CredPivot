@@ -169,6 +169,8 @@ function connectNativeIfNeeded() {
     const message = chrome.runtime.lastError?.message || "native host disconnected";
     closeNativePort(port, connectionError(message), false);
   });
+  // 已打开的浏览器不用重启：一连上本机就把待开启的站点开关应用掉。
+  void publishPasskeySites();
   return port;
 }
 
@@ -320,6 +322,10 @@ async function publishPasskeySites() {
   finally { publishingPasskeySites = false; }
 }
 onPasskeySitesChanged(publishPasskeySites);
+chrome.alarms.create("passkey-sites", {periodInMinutes: 1});
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "passkey-sites") void publishPasskeySites();
+});
 
 // 页面入口只建立短期操作；候选界面和选取操作必须来自扩展自己的 iframe。
 const inlineSessions = new Map();

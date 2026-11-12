@@ -1813,12 +1813,22 @@ final class CredPivotPlatform: NSObject {
       result(nil)
     case "webdavBootstrapRead", "webdavSettings", "webdavSave", "webdavTest", "webdavRead", "webdavPublish", "webdavProbe", "webdavRemove", "webdavCleanup":
       Task { @MainActor in CredPivotWebDAV.shared.handle(call, result: result) }
+    case "captureAppIntegrations":
+      do {
+        try CredPivotGitSsh.captureForReset()
+        result(nil)
+      } catch {
+        result(FlutterError(code: "reset_integration", message: NativePresentation.tr("localReset.failed"), details: nil))
+      }
+    case "discardAppIntegrationCapture":
+      CredPivotGitSsh.discardResetCapture()
+      result(nil)
     case "undoAppIntegrations":
       do {
         try AppIntegrationReset.undo()
         result(nil)
       } catch {
-        result(FlutterError(code: "reset_integration", message: NativePresentation.tr("localReset.failed"), details: nil))
+        result(FlutterError(code: "reset_integration", message: NativePresentation.tr("localReset.integrationFailed"), details: nil))
       }
     case "clearLocalSecrets":
       LocalVaultUnlock.clearMaterial()
@@ -2376,6 +2386,12 @@ enum LocalVaultUnlock {
     let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service, kSecUseDataProtectionKeychain as String: false]
     SecItemDelete(query as CFDictionary)
+    // dataRepresentation 只是引用。安全芯片里的密钥要按本应用能访问的 Secure Enclave 项删除。
+    let enclave: [String: Any] = [kSecClass as String: kSecClassKey,
+      kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+      kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave]
+    SecItemDelete(enclave as CFDictionary)
+    setupNotice = ""
   }
 
   static func enroll() {
@@ -2640,13 +2656,13 @@ final class TouchIdGate {
   }
 }
 
-/// 重置 App 前撤销本应用写到系统里的配置。Git 还原必须早于删除 ~/.credpivot，因为记录文件在那里。
+/// 在本机目录删除之后撤销系统配置。Git 的原值事先记在目录外，删除失败时不会动它。
 enum AppIntegrationReset {
   static func undo() throws {
+    try CredPivotGitSsh.applyResetCapture()
     if CredPivotGitSsh.status()["enabled"] as? Bool == true {
       _ = try CredPivotGitSsh.configure(enabled: false)
     }
-    // 只有确实存在本应用的标记块时才删除；写入失败要中止，否则会留下半完成的重置。
     if SshIdentityAgentHelper.status()["configured"] as? Bool == true {
       guard SshIdentityAgentHelper.removeSnippet()["ok"] as? Bool == true else {
         throw NSError(domain: "AppReset", code: 1)
@@ -3095,6 +3111,40 @@ enum CredPivotGitSsh {
   private static func saved() -> [String: Any]? {
     guard let data = try? Data(contentsOf: record) else { return nil }
     return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+  }
+  /// 放在 ~/.credpivot 外面。重置删掉运行目录后，仍能把 Git 还原成原来的命令。
+  private static var resetCaptureURL: URL {
+    FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/Application Support/CredPivot/pending-git-restore.json")
+  }
+  static func captureForReset() throws {
+    if FileManager.default.fileExists(atPath: resetCaptureURL.path) { return }
+    lock.lock(); defer { lock.unlock() }
+    let value = try current(), stored = saved()
+    guard value != nil, value == (stored?["current"] as? String), let current = value else { return }
+    let folder = resetCaptureURL.deletingLastPathComponent()
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    var object: [String: Any] = ["current": current]
+    if let previous = stored?["previous"] as? String { object["previous"] = previous }
+    try JSONSerialization.data(withJSONObject: object).write(to: resetCaptureURL, options: .atomic)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: resetCaptureURL.path)
+  }
+  static func discardResetCapture() {
+    try? FileManager.default.removeItem(at: resetCaptureURL)
+  }
+  static func applyResetCapture() throws {
+    let url = resetCaptureURL
+    guard let data = try? Data(contentsOf: url),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let expected = object["current"] as? String else { return }
+    lock.lock(); defer { lock.unlock() }
+    let actual = try current()
+    if actual == expected {
+      let previous = object["previous"] as? String
+      let result = try run(previous.map { ["--replace-all", "core.sshCommand", $0] } ?? ["--unset-all", "core.sshCommand"])
+      guard result.0 == 0 || (previous == nil && result.0 == 5) else { throw NSError(domain: "GitSSH", code: 4) }
+    }
+    try? FileManager.default.removeItem(at: url)
   }
   static func status() -> [String: Any] {
     lock.lock(); defer { lock.unlock() }

@@ -132,7 +132,14 @@ class MainActivity : FlutterActivity() {
                 work(result) { NativeAgent.call("lock"); null }
             }
             // Android 没有 SSH/Git/浏览器清单等系统配置需要撤销。
-            call.method == "undoAppIntegrations" -> result.success(null)
+            call.method == "captureAppIntegrations" || call.method == "discardAppIntegrationCapture" || call.method == "undoAppIntegrations" -> result.success(null)
+            call.method == "restartApp" -> {
+                val launch = packageManager.getLaunchIntentForPackage(packageName)
+                launch?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                if (launch != null) startActivity(launch)
+                result.success(null)
+                android.os.Process.killProcess(android.os.Process.myPid())
+            }
             call.method == "clearLocalSecrets" -> {
                 secure.clearAll()
                 if (call.arguments == "app") cacheDir.listFiles()?.forEach { it.deleteRecursively() }
