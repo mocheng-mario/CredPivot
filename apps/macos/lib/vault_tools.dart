@@ -272,15 +272,13 @@ Future<void> editItemDetails(
   try {
     final result = await vaultAction(context,
         {'action': 'item_details', 'item_id': row['item_id'] ?? row['id']});
-    final all =
-        await AgentBridge.manage({'action': 'item_search', 'query': ''}, partitionId: row['partition_id']?.toString());
     final groups = await loadCredentialGroups(credentialGroupScope(result['kind'] as String), partitionId: result['partition_id'] as String);
     if (!context.mounted) return;
     await showDialog<void>(
         context: context,
         barrierDismissible: false,
         builder: (_) => _ItemDetailsDialog(
-            row: {...row, 'kind': result['kind']}, data: result, all: (all['items'] as List).cast<Map>(), groups: groups));
+            row: {...row, 'kind': result['kind']}, data: result, groups: groups));
   } catch (e) {
     vaultMessage(context, e);
   }
@@ -288,9 +286,8 @@ Future<void> editItemDetails(
 
 class _ItemDetailsDialog extends StatefulWidget {
   const _ItemDetailsDialog(
-      {required this.row, required this.data, required this.all, required this.groups});
+      {required this.row, required this.data, required this.groups});
   final Map<String, dynamic> row, data;
-  final List<Map> all;
   final List<Map<String, dynamic>> groups;
   @override
   State<_ItemDetailsDialog> createState() => _ItemDetailsDialogState();
@@ -317,18 +314,13 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
   bool get isLogin => widget.row['kind'] == 'login' || widget.row.containsKey('origin');
-  bool generalRelation(Map item) => !(isLogin && item['kind'] == 'passkey')
-      && !(widget.row['kind'] == 'passkey' && item['kind'] == 'login');
   late String? groupId = widget.groups.any((group) => group['id'] == widget.data['group_id']) ? widget.data['group_id'] as String? : null;
   late int activeSince = (widget.data['password_active_since_ms'] as num?)?.toInt() ?? 0;
-  late final Set<String> related = (details['related_item_ids'] as List? ?? [])
-      .map((e) => e.toString())
-      .toSet();
   bool busy = false;
   String message = '';
   bool closing = false, confirmingDiscard = false;
   late final String initialSnapshot;
-  String snapshot() => jsonEncode([title.text,notes.text,tags.text,category.text,history.text,reminder.text,fields,related.toList()..sort(),activeSince,details['favorite'],details['mfa_state'],details['ssh_sign_policy'],groupId,gitRules.text]);
+  String snapshot() => jsonEncode([title.text,notes.text,tags.text,category.text,history.text,reminder.text,fields,activeSince,details['favorite'],details['mfa_state'],details['ssh_sign_policy'],groupId,gitRules.text]);
   @override
   void initState() { super.initState(); initialSnapshot = snapshot(); }
   Future<void> cancel() async {
@@ -382,7 +374,7 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
               'history_limit': h,
               'reminder_days': r,
               'custom_fields': fields,
-              'related_item_ids': related.toList(),
+              'related_item_ids': <String>[],
             }
           },
           confirmed: true);
@@ -512,54 +504,6 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                         ],
                         onChanged: busy ? null : (v) => setState(() => details['mfa_state'] = v))),
                     ],
-                    if (isLogin) ...[
-                      const Divider(),
-                      LText('credentials.passkey.title', style: Theme.of(context).textTheme.titleMedium),
-                      const LText('passkey.links.accountHelp'),
-                      if (!widget.all.any((item) => item['kind'] == 'passkey')) const LText('common.noRecords'),
-                      for (final item in widget.all.where((item) => item['kind'] == 'passkey')) CheckboxListTile(
-                        dense: true,
-                        title: Text(item['title']?.toString() ?? ''),
-                        value: related.contains(item['id']),
-                        onChanged: busy ? null : (value) => setState(() => value == true
-                            ? related.add(item['id'].toString()) : related.remove(item['id'])),
-                      ),
-                    ],
-                    const Divider(),
-                    LText('vaultTools.build.text.item26', style: Theme.of(context).textTheme.titleMedium),
-                    const LText('vaultTools.build.text.item27'),
-                    if (related.isNotEmpty) Wrap(spacing: 8, runSpacing: 8, children: [
-                      for (final item in widget.all.where((v) => generalRelation(v) && related.contains(v['id']))) ActionChip(
-                        avatar: const Icon(Icons.open_in_new, size: 16),
-                        label: Text(item['title']?.toString() ?? ''),
-                        onPressed: busy ? null : () => openCredentialActions(context, Map<String, dynamic>.from(item))),
-                    ]),
-                    if (widget.all.any((v) => generalRelation(v) && (v['related_item_ids'] as List? ?? []).contains(widget.row['item_id'] ?? widget.row['id']))) ...[
-                      const LText('vaultTools.build.text.item28'),
-                      Wrap(spacing: 8, runSpacing: 8, children: [
-                        for (final item in widget.all.where((v) => generalRelation(v) && (v['related_item_ids'] as List? ?? []).contains(widget.row['item_id'] ?? widget.row['id']))) ActionChip(
-                          label: Text(item['title']?.toString() ?? ''),
-                          onPressed: busy ? null : () => openCredentialActions(context, Map<String, dynamic>.from(item))),
-                      ]),
-                    ],
-                    const LText('vaultTools.build.text.item29'),
-                    for (final stale in related
-                        .where(
-                            (id) => !widget.all.any((item) => item['id'] == id))
-                        .toList())
-                      InputChip(
-                          label: const LText('vaultTools.build.text.item30'),
-                          onDeleted: () =>
-                              setState(() => related.remove(stale))),
-                    for (final item in widget.all.where((v) =>
-                        generalRelation(v) && v['id'] != (widget.row['item_id'] ?? widget.row['id'])))
-                      CheckboxListTile(
-                          dense: true,
-                          title: LText('${item['title']} · ${item['kind']}'),
-                          value: related.contains(item['id']),
-                          onChanged: (v) => setState(() => v == true
-                              ? related.add(item['id'].toString())
-                              : related.remove(item['id']))),
                     if (message.isNotEmpty) Text(message),
                   ]))))),
           actions: [

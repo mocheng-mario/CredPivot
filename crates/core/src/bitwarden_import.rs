@@ -395,7 +395,6 @@ pub fn import_with_choices(
             d.category = previous.category;
             d.history_limit = previous.history_limit;
             d.reminder_days = previous.reminder_days;
-            d.related_item_ids = previous.related_item_ids;
             d.linked_mfa_ids = previous.linked_mfa_ids;
             d.ssh_sign_policy = previous.ssh_sign_policy;
         }

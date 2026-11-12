@@ -166,6 +166,18 @@ CREATE TABLE passkey_credentials (
 );
 CREATE INDEX idx_passkey_rp_id ON passkey_credentials(rp_id);
 
+CREATE TABLE credential_links (
+  account_item_id TEXT NOT NULL,
+  target_item_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('mfa','ssh_key','passkey')),
+  created_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (account_item_id, target_item_id, kind)
+);
+CREATE UNIQUE INDEX idx_credential_links_one_owner
+  ON credential_links(target_item_id)
+  WHERE kind IN ('mfa','passkey');
+CREATE INDEX idx_credential_links_target ON credential_links(target_item_id, kind);
+
 CREATE TABLE sync_state (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
 CREATE TABLE sync_tombstones (record_key TEXT PRIMARY KEY NOT NULL, deleted_at_ms INTEGER NOT NULL);
 CREATE TRIGGER sync_item_deleted AFTER DELETE ON items

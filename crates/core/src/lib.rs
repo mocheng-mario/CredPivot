@@ -85,6 +85,7 @@ pub use vault_pipeline::{
     security_rebuild_in_dir, reset_recovery_key_in_dir, RecoveryUnlock,
 };
 
+mod associations;
 mod credential_management;
 mod website_rules;
 pub use website_rules::{browser_mfa_candidates, mfa_matches_origin, credential_matches_origin, credential_website_rules};

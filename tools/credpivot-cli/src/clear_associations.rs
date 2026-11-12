@@ -122,6 +122,37 @@ pub fn run(vault_dir: Option<PathBuf>, apply: bool) -> Result<()> {
         );",
     )
     .map_err(|_| "无法保存连接的旧引用，当前事务已撤销")?;
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS credential_links (
+            account_item_id TEXT NOT NULL,
+            target_item_id TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('mfa','ssh_key','passkey')),
+            created_at_ms INTEGER NOT NULL,
+            PRIMARY KEY (account_item_id, target_item_id, kind)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_credential_links_one_owner
+          ON credential_links(target_item_id)
+          WHERE kind IN ('mfa','passkey');
+        CREATE INDEX IF NOT EXISTS idx_credential_links_target ON credential_links(target_item_id, kind);",
+    )
+    .map_err(|_| "无法准备认证关联，当前事务已撤销")?;
+    if !trigger_exists(&tx, "credential_link_partition_insert")? {
+        tx.execute_batch(
+            "CREATE TRIGGER credential_link_partition_insert BEFORE INSERT ON credential_links
+            WHEN NOT EXISTS(SELECT 1 FROM sync_state WHERE key IN ('applying','partition_moving'))
+            BEGIN
+             SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM items a JOIN items b ON b.id=NEW.target_item_id
+              WHERE a.id=NEW.account_item_id AND a.partition_id=b.partition_id) THEN RAISE(ABORT,'partitions.errors.crossLink') END;
+            END;
+            CREATE TRIGGER credential_link_partition_update BEFORE UPDATE ON credential_links
+            WHEN NOT EXISTS(SELECT 1 FROM sync_state WHERE key IN ('applying','partition_moving'))
+            BEGIN
+             SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM items a JOIN items b ON b.id=NEW.target_item_id
+              WHERE a.id=NEW.account_item_id AND a.partition_id=b.partition_id) THEN RAISE(ABORT,'partitions.errors.crossLink') END;
+            END;",
+        )
+        .map_err(|_| "无法准备认证关联，当前事务已撤销")?;
+    }
     let profiles = profiles(&tx)?;
     for profile in &profiles {
         let revision = Uuid::new_v4().to_string();
@@ -337,6 +368,17 @@ fn array(details: &Value, field: &str) -> Result<Vec<String>> {
 fn count(conn: &Connection, sql: &str) -> Result<usize> {
     let value: i64 = conn.query_row(sql, [], |row| row.get(0)).map_err(|_| "无法统计关联")?;
     Ok(value as usize)
+}
+
+fn trigger_exists(conn: &Connection, name: &str) -> Result<bool> {
+    let value: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name=?1",
+            params![name],
+            |row| row.get(0),
+        )
+        .map_err(|_| "无法检查是否已经清空")?;
+    Ok(value != 0)
 }
 
 fn table_exists(conn: &Connection, name: &str) -> Result<bool> {

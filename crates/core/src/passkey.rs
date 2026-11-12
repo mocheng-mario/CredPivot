@@ -290,15 +290,10 @@ impl Request {
             tx.execute("INSERT INTO passkey_credentials(credential_id,item_id,rp_id,user_handle,username,display_name,private_key,created_at_ms)
                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",params![id,item,self.rp_id,self.user_handle,self.username,self.display_name,secret.as_slice(),ts])?;
             if let Some(login) = linked_login {
-                let mut details = crate::credential_management::details_for(&tx, &login.item_id)?;
-                if details.related_item_ids.len() >= 100 {
-                    return Err(CoreError::limit("账密关联记录数量已达上限"));
-                }
-                // 与 MFA 一样，由账密引用独立凭据；创建与关联在同一事务提交。
-                details.related_item_ids.push(item.clone());
+                crate::associations::link_passkey(&tx, &login.item_id, &item, ts)?;
                 let revision = new_revision();
-                tx.execute("UPDATE items SET details_json=?1,current_revision=?2,updated_at_ms=?3 WHERE id=?4",
-                    params![serde_json::to_string(&details).map_err(|_| invalid())?,revision,ts,login.item_id])?;
+                tx.execute("UPDATE items SET current_revision=?1,updated_at_ms=?2 WHERE id=?3",
+                    params![revision,ts,login.item_id])?;
                 tx.execute("UPDATE login_credentials SET current_revision=?1,updated_at_ms=?2 WHERE id=?3",
                     params![revision,ts,login.id])?;
             }
@@ -381,9 +376,14 @@ fn cbor_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
 }
 
 fn logins(conn: &Connection, passkey_item: &str) -> Result<Vec<Value>> {
+    if !crate::associations::table_ready(conn)? {
+        return Ok(Vec::new());
+    }
     crate::credential_management::rows(conn, "SELECT l.id,l.item_id,i.title,l.origin,l.username
-        FROM login_credentials l JOIN items i ON i.id=l.item_id WHERE i.trashed=0
-        AND EXISTS (SELECT 1 FROM json_each(i.details_json,'$.related_item_ids') related WHERE related.value=?1)
+        FROM credential_links k
+        JOIN login_credentials l ON l.item_id=k.account_item_id
+        JOIN items i ON i.id=l.item_id
+        WHERE k.kind='passkey' AND k.target_item_id=?1 AND i.trashed=0
         ORDER BY i.title,l.username,l.id", [passkey_item])
 }
 

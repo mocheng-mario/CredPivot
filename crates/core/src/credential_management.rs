@@ -434,6 +434,7 @@ fn trash_change(conn: &Connection, item: &str, expected: &str, purge: bool) -> R
         return Ok(());
     }
     crate::website_rules::detach_mfa_references(conn,item)?;
+    crate::associations::delete_links_for_item(conn, item)?;
     let revision = new_revision();
     let timestamp = now_ms();
     conn.execute("UPDATE items SET current_revision=?1,updated_at_ms=?2 WHERE id IN (SELECT item_id FROM login_credentials WHERE linked_totp_id IN (SELECT id FROM totp_credentials WHERE item_id=?3))", params![revision,timestamp,item])?;
@@ -850,13 +851,13 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             group_id,
         } => {
             check_revision(&active_item(&tx, &item_id)?, &expected_revision)?;
-            let kind: String = tx.query_row("SELECT kind FROM items WHERE id=?1", [&item_id], |r|r.get(0))?;
             crate::website_rules::validate_website_rules(&details.uris)?;
             crate::website_rules::validate_linked_mfas(&tx, &details.linked_mfa_ids)?;
-            // 填充范围与 MFA 关联只能在对应编辑器修改，资料保存不能绕过它们。
+            // 填充范围与 MFA 关联只能在对应编辑器修改。资料里不再保存任意记录关联。
             let stored = details_for(&tx, &item_id)?;
             details.uris = stored.uris;
             details.linked_mfa_ids = stored.linked_mfa_ids;
+            details.related_item_ids.clear();
             details.pending_mfa_uris = stored.pending_mfa_uris;
             details.ssh_git_rules = crate::ssh_git::normalize_rules(&details.ssh_git_rules)?;
             if !matches!(details.ssh_sign_policy.as_str(), "" | "session" | "confirm" | "biometric")
@@ -865,7 +866,6 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
                 || details.otp_extra_parameters.iter().any(|(k,v)| k.len()>100 || v.len()>4096 || matches!(k.to_ascii_lowercase().as_str(),"secret"|"issuer"|"algorithm"|"digits"|"period"|"counter"|"encoder"|"encoding") || (k.eq_ignore_ascii_case("t0") && v!="0"))
                 || details.tags.len() > 100
                 || details.custom_fields.len() > 100
-                || details.related_item_ids.len() > 100
                 || details.uris.len() > 100
                 || details.tags.iter().any(|s| s.len() > 200)
                 || details.category.len() > 200
@@ -881,16 +881,6 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
                 || details.reminder_days.is_some_and(|n| n > 3650)
             {
                 return Err(CoreError::limit("详情超出限制"));
-            }
-            for related in &details.related_item_ids {
-                if related == &item_id {
-                    return Err(CoreError::format("不能关联自身"));
-                }
-                active_item(&tx, related)?;
-                if kind == "passkey"
-                    && tx.query_row("SELECT kind='login' FROM items WHERE id=?1", [related], |r|r.get::<_,bool>(0))? {
-                    return Err(CoreError::format("请在账密记录中关联通行密钥"));
-                }
             }
             details
                 .tags
@@ -979,7 +969,6 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
                     row["tags"] = json!(d.tags);
                     row["favorite"] = json!(d.favorite);
                     row["category"] = json!(d.category);
-                    row["related_item_ids"] = json!(d.related_item_ids);
                     found.push(row);
                 }
             }

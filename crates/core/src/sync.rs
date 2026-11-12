@@ -104,6 +104,7 @@ const TABLES: &[&str] = &[
     "recovery_code_items",
     "server_login_profiles",
     "passkey_credentials",
+    "credential_links",
     "password_history",
     "password_candidates",
     "recovery_code_entries",
@@ -473,6 +474,7 @@ pub fn capture(conn: &Connection) -> Result<Document> {
                 "recovery_code_entries" => format!("SELECT * FROM {table} WHERE recovery_id IN (SELECT id FROM recovery_code_items WHERE item_id=?1) ORDER BY id"),
                 "import_mappings" => "SELECT * FROM import_mappings WHERE local_item_id=?1 ORDER BY source_namespace,source_item_id".into(),
                 "passkey_credentials" => format!("SELECT * FROM {table} WHERE item_id=?1 ORDER BY credential_id"),
+                "credential_links" => "SELECT * FROM credential_links WHERE account_item_id=?1 ORDER BY target_item_id, kind".into(),
                 _ => format!("SELECT * FROM {table} WHERE item_id=?1 ORDER BY id"),
             };
             let mut values = rows(&tx, &sql, [&id])?;
@@ -750,14 +752,6 @@ fn related_conflicts(
                     .as_str()
                     .and_then(|s| serde_json::from_str::<Value>(s).ok())
                 {
-                    for id in details["related_item_ids"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_str)
-                    {
-                        targets.push(format!("item:{id}"));
-                    }
                     for id in details["linked_mfa_ids"]
                         .as_array()
                         .into_iter()
@@ -1561,23 +1555,11 @@ fn validate_relations(conn: &Connection, doc: &Document) -> Result<()> {
         .into_iter()
         .filter_map(|v| v["id"].as_str().map(str::to_string))
         .collect();
-    let item_ids: BTreeSet<String> = rows(conn, "SELECT id FROM items", [])?
-        .into_iter()
-        .filter_map(|v| v["id"].as_str().map(str::to_string))
-        .collect();
     for row in rows(conn, "SELECT id,details_json FROM items", [])? {
         let key = format!("item:{}", row["id"].as_str().ok_or_else(invalid)?);
         let details: Value =
             serde_json::from_str(row["details_json"].as_str().ok_or_else(invalid)?)
                 .map_err(|_| invalid())?;
-        if details["related_item_ids"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|id| id.as_str().is_none_or(|id| !item_ids.contains(id)))
-        {
-            return Err(record_error(&key, doc.records.get(&key), CoreError::format("sync.errors.relatedCredential")));
-        }
         if let Some(links) = details.get("linked_mfa_ids").and_then(Value::as_array) {
             if links
                 .iter()
@@ -1644,6 +1626,9 @@ pub fn validate_document(doc: &Document) -> Result<()> {
                         return Err(invalid());
                     }
                     if table == "import_mappings" && row["local_item_id"].as_str() != Some(id) {
+                        return Err(invalid());
+                    }
+                    if table == "credential_links" && row["account_item_id"].as_str() != Some(id) {
                         return Err(invalid());
                     }
                     if [

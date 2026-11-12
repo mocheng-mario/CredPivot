@@ -105,10 +105,14 @@ fn edges(conn: &Connection) -> Result<Vec<(String,String)>> {
         let source = row["id"].as_str().ok_or_else(||error("invalid"))?;
         let details: ItemDetails = serde_json::from_str(row["details_json"].as_str().unwrap_or("{}"))
             .map_err(|_|error("invalid"))?;
-        for target in details.related_item_ids { result.push((source.into(),target)); }
         for totp in details.linked_mfa_ids {
             let target: Option<String> = conn.query_row("SELECT item_id FROM totp_credentials WHERE id=?1",[totp],|r|r.get(0)).optional()?;
             if let Some(target)=target { result.push((source.into(),target)); }
+        }
+    }
+    if crate::associations::table_ready(conn)? {
+        for row in rows(conn, "SELECT account_item_id, target_item_id FROM credential_links", [])? {
+            result.push((row["account_item_id"].as_str().unwrap_or("").into(), row["target_item_id"].as_str().unwrap_or("").into()));
         }
     }
     result.sort(); result.dedup();
@@ -315,6 +319,18 @@ BEGIN SELECT CASE WHEN EXISTS(SELECT 1 FROM items a JOIN {target} t ON t.id=NEW.
             }
         }
     }
+    conn.execute_batch("CREATE TRIGGER credential_link_partition_insert BEFORE INSERT ON credential_links
+WHEN NOT EXISTS(SELECT 1 FROM sync_state WHERE key IN ('applying','partition_moving'))
+BEGIN
+ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM items a JOIN items b ON b.id=NEW.target_item_id
+  WHERE a.id=NEW.account_item_id AND a.partition_id=b.partition_id) THEN RAISE(ABORT,'partitions.errors.crossLink') END;
+END;
+CREATE TRIGGER credential_link_partition_update BEFORE UPDATE ON credential_links
+WHEN NOT EXISTS(SELECT 1 FROM sync_state WHERE key IN ('applying','partition_moving'))
+BEGIN
+ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM items a JOIN items b ON b.id=NEW.target_item_id
+  WHERE a.id=NEW.account_item_id AND a.partition_id=b.partition_id) THEN RAISE(ABORT,'partitions.errors.crossLink') END;
+END;")?;
     conn.execute_batch(&format!("CREATE TRIGGER partition_item_move BEFORE UPDATE OF partition_id ON items WHEN {normal} AND NEW.partition_id<>OLD.partition_id
 BEGIN SELECT RAISE(ABORT,'partitions.errors.migrationRequired'); END;
 CREATE TRIGGER partition_group_move BEFORE UPDATE OF partition_id ON credential_groups WHEN {normal} AND NEW.partition_id<>OLD.partition_id

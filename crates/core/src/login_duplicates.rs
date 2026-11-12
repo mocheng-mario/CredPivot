@@ -38,13 +38,12 @@ fn union_strings(target: &mut Vec<String>, source: &[String]) {
     for value in source { if !target.contains(value) { target.push(value.clone()); } }
 }
 
-fn merge_details(mut target: ItemDetails, sources: &[(String,ItemDetails)], excluded: &BTreeSet<String>) -> Result<ItemDetails> {
+fn merge_details(mut target: ItemDetails, sources: &[(String,ItemDetails)]) -> Result<ItemDetails> {
     for (title,source) in sources {
         if !source.notes.is_empty() && source.notes != target.notes {
             target.notes.push_str(&format!("\n\n—— {title} ——\n{}",source.notes));
         }
         union_strings(&mut target.tags,&source.tags);
-        union_strings(&mut target.related_item_ids,&source.related_item_ids);
         union_strings(&mut target.linked_mfa_ids,&source.linked_mfa_ids);
         target.favorite |= source.favorite;
         for field in &source.custom_fields {
@@ -62,7 +61,7 @@ fn merge_details(mut target: ItemDetails, sources: &[(String,ItemDetails)], excl
             }
         }
     }
-    target.related_item_ids.retain(|id|!excluded.contains(id));
+    target.related_item_ids.clear();
     if !target.linked_mfa_ids.is_empty() { target.mfa_state="enabled".into(); }
     if target.notes.len()>1_000_000 || target.tags.len()>100 || target.custom_fields.len()>100
         || target.related_item_ids.len()>100 || target.uris.len()>100 || target.linked_mfa_ids.len()>100
@@ -102,12 +101,7 @@ fn plan(conn: &Connection, keeper: &str, sources: &[String]) -> Result<(Value, I
         if let Some(mfa)=login.linked_totp_id.as_ref() { union_strings(&mut extra.linked_mfa_ids,std::slice::from_ref(mfa)); }
         fingerprint_details.push(json!({"id":id,"details":extra}));
         item["mfa_count"]=json!(extra.linked_mfa_ids.len());
-        let mut passkeys=0;
-        for related in &extra.related_item_ids {
-            if conn.query_row("SELECT EXISTS(SELECT 1 FROM items WHERE id=?1 AND kind='passkey' AND trashed=0)",
-                [related],|r|r.get::<_,bool>(0))? { passkeys+=1; }
-        }
-        item["passkey_count"]=json!(passkeys);
+        item["passkey_count"]=json!(crate::associations::passkey_count(conn,&id)?);
         item["notes_length"]=json!(extra.notes.chars().count());
         item["custom_field_count"]=json!(extra.custom_fields.len());
         histories.extend(rows(conn,"SELECT * FROM password_history WHERE credential_id=?1 ORDER BY id",[&credential])?);
@@ -130,8 +124,7 @@ fn plan(conn: &Connection, keeper: &str, sources: &[String]) -> Result<(Value, I
             }
         }
     }
-    let mut excluded=ids.clone(); excluded.insert(keeper.into());
-    let merged=merge_details(details[0].1.clone(),&details[1..],&excluded)?;
+    let merged=merge_details(details[0].1.clone(),&details[1..])?;
     // 修订、候选、历史和资料共同绑定到预览，不能用旧预览覆盖另一端的修改。
     let fingerprint=hex::encode(Sha256::digest(serde_json::to_vec(&json!({
         "selected":selected,"details":fingerprint_details,"history":histories,"candidates":candidates,
@@ -193,17 +186,7 @@ pub(crate) fn apply(conn: &Connection, keeper: &str, sources: &[String], expecte
         tx.execute("UPDATE import_mappings SET local_item_id=?1 WHERE local_item_id=?2",params![keeper,item["id"].as_str()])?;
     }
     tx.execute("UPDATE items SET details_json=?1 WHERE id=?2",params![serde_json::to_string(&merged).map_err(|_|CoreError::format("无法保存合并资料"))?,keeper])?;
-    let source_ids:BTreeSet<_>=sources.iter().cloned().collect();
-    for row in rows(&tx,"SELECT id,details_json FROM items ORDER BY id",[])? {
-        let id=row["id"].as_str().ok_or(CoreError::Conflict)?;
-        if source_ids.contains(id) { continue; }
-        let mut details=details_for(&tx,id)?;
-        if !details.related_item_ids.iter().any(|id|source_ids.contains(id)) { continue; }
-        details.related_item_ids=details.related_item_ids.into_iter().map(|id|if source_ids.contains(&id) {keeper.to_string()} else {id})
-            .filter(|related|related!=id).collect::<BTreeSet<_>>().into_iter().collect();
-        tx.execute("UPDATE items SET details_json=?1 WHERE id=?2",params![serde_json::to_string(&details).map_err(|_|CoreError::format("无法更新关联资料"))?,id])?;
-        bump(&tx,id)?;
-    }
+    crate::associations::move_passkey_links(&tx, sources, keeper)?;
     for source in sources { crate::repo_m2::trash_item_in_tx(&tx,source)?; }
     bump(&tx,keeper)?;
     crate::partitions::validate(&tx)?;
