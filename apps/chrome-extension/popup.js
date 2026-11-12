@@ -51,6 +51,7 @@ function showError(result) {
     no_otp_field: "当前页面未找到验证码输入框，请进入 MFA 验证页面后重试。",
     document_mismatch: "页面已跳转，请在新页面重新填充。",
     origin_mismatch: "网站已发生变化，请重新打开插件面板。",
+    "partitions.errors.notFound": "所选分区不存在，请重新读取表单后再保存。",
   };
   const gated = result?.needs_gate || ['extension_gate_required','extension_gate_cancelled','extension_gate_not_started','extension_gate_paused','locked'].includes(code);
   if (gated || result?.lastNativeError) {
@@ -65,7 +66,7 @@ function showError(result) {
     $("connectionState").dataset.state = "warning";
     $("connect").textContent = "连接与验证";
   }
-  const message = messages[code] || messages[reason] || result?.message || result?.error || "操作未完成，请重试。";
+  const message = messages[code] || messages[result?.message] || messages[reason] || result?.message || result?.error || "操作未完成，请重试。";
   setStatus(message, "error");
   // 只提供排障字段，不展示包含凭据或验证码的原始响应。
   const details = [code, result?.detail, result?.lastNativeError].filter(Boolean).join("\n");
@@ -89,8 +90,17 @@ function updateControls() {
   $("passkeyToggle").disabled = busy || !targetOrigin?.startsWith("https://");
   $("otherMfas").hidden = !ready || !hasMoreMfas || allMfaMatches;
   $("capture").disabled = busy || !ready || !targetOrigin;
-  $("saveNew").disabled = busy || !ready || !captured;
+  const partitionReady = Boolean($("savePartition").value);
+  $("saveUsername").disabled = busy || !captured;
+  $("saveDisplayName").disabled = busy || !captured;
+  $("savePartition").disabled = busy || !captured || !$("savePartition").options.length;
+  $("saveNew").disabled = busy || !ready || !captured || !partitionReady;
   $("update").disabled = busy || !ready || !row || !captured;
+  if (captured) {
+    $("saveTarget").textContent = row
+      ? `更新将写入「${row.partition_name || "当前分区"}」的 ${row.display_name || row.username || "所选账号"}，不修改名称和分区。`
+      : "未选择已有账号，只能保存为新账号。";
+  }
   $("fillLoginHint").textContent = row ? `使用 ${row.username || "无用户名账号"}` : "先选择登录账号";
   const mfa = mfaCandidates.find((m) => m.id === selectedTotpId);
   $("fillOtpHint").textContent = mfa ? `${mfa.issuer || "MFA"} · ${mfa.account || "无账号标签"}` : "选择当前网站的 MFA";
@@ -109,7 +119,36 @@ function setBusy(value) {
 
 function clearCapturedForm() {
   captured = null;
+  $("saveForm").hidden = true;
   $("captureInfo").textContent = "";
+  $("saveOrigin").textContent = "";
+  $("saveUsername").value = "";
+  $("saveDisplayName").value = "";
+  $("savePartition").replaceChildren();
+  $("saveTarget").textContent = "";
+  updateControls();
+}
+
+function showCapturedForm(value, partitions) {
+  let host = value.origin;
+  try { host = new URL(value.origin).host; } catch { /* 保留 origin。 */ }
+  $("saveOrigin").textContent = value.origin;
+  $("saveOrigin").title = value.origin;
+  $("captureInfo").textContent = "密码已读取，不在面板中显示";
+  $("saveUsername").value = value.username || "";
+  $("saveDisplayName").value = host;
+  const select = $("savePartition");
+  select.replaceChildren();
+  for (const row of partitions?.partitions ?? []) {
+    if (!row?.id) continue;
+    const option = document.createElement("option");
+    option.value = row.id;
+    option.textContent = row.name || row.id;
+    select.append(option);
+  }
+  const preferred = partitions?.default_partition_id;
+  if ([...select.options].some((option) => option.value === preferred)) select.value = preferred;
+  $("saveForm").hidden = false;
   updateControls();
 }
 
@@ -373,8 +412,13 @@ $("capture").addEventListener("click", async () => {
     const value = await chrome.tabs.sendMessage(tab.id, { type: "capture_login" }, { frameId: 0 });
     if (!value?.password || value.documentId !== page.documentId || value.origin !== page.origin) throw new Error("未找到已填写的密码，或页面已改变。");
     captured = { ...value, tabId: tab.id };
-    $("captureInfo").textContent = `已读取：${value.username || "（无用户名）"} · 密码已隐藏`;
-    setStatus("表单已读取，请选择保存新账号或更新所选账号。");
+    const listed = await chrome.runtime.sendMessage({type: "list_partitions"});
+    if (!listed?.ok && (listed?.needs_gate || ["extension_gate_required", "locked"].includes(listed?.code))) {
+      showError(listed);
+      return;
+    }
+    showCapturedForm(value, listed?.ok ? listed.payload : null);
+    setStatus(listed?.ok ? "表单已读取。填写名称和分区后可保存为新账号，或更新当前所选账号。" : (listed?.message || "表单已读取，但分区列表加载失败，暂时不能保存为新账号。"), listed?.ok ? "idle" : "warning");
   } catch (e) { showError({ error: e.message }); }
   finally { setBusy(false); }
 });
@@ -383,18 +427,28 @@ async function saveCaptured(update) {
   if (busy || !ready || !captured) return;
   const account = selectedAccount();
   if (update && !account) return;
-  const confirmation = update ? `确认更新 ${account.username}？保存账号为 ${captured.username || account.username}，请确认新密码已在网站生效。` : `将 ${captured.username || "此账号"} 保存到 ${captured.origin}？`;
-  if (!confirm(confirmation)) return;
   const value = captured;
+  const typedName = $("saveUsername").value.trim();
+  // 改密页面可能没有用户名输入框，不能因此清空已选账号的名称。
+  const username = update ? typedName || account.username : typedName;
+  const displayName = update ? "" : $("saveDisplayName").value.trim();
+  const partitionId = update ? "" : $("savePartition").value;
+  if (!update && ([...displayName].length > 200 || [...displayName].some((ch) => ch.charCodeAt(0) < 32))) {
+    setStatus("名称过长或包含无法保存的字符。", "error");
+    return;
+  }
+  if (!update && !partitionId) { setStatus("请选择分区。", "error"); return; }
   setBusy(true);
   setStatus("正在保存…", "pending");
   try {
     await getTargetTab();
-    // 改密页面可能没有用户名输入框，不能因此清空已选账号的名称。
-    const username = update ? value.username || account.username : value.username;
-    const response = await chrome.runtime.sendMessage({ type: update ? "update_credential" : "save_credential", tab_id: value.tabId, document_id: value.documentId, username, password: value.password, credential_id: account?.id, expected_revision: account?.current_revision });
+    const response = await chrome.runtime.sendMessage({ type: update ? "update_credential" : "save_credential", tab_id: value.tabId, document_id: value.documentId, username, password: value.password, credential_id: account?.id, expected_revision: account?.current_revision, display_name: displayName, partition_id: partitionId });
     if (!response?.ok) { showError(response); return; }
-    if (await refreshAccounts()) setStatus(update ? "所选账号已更新。" : "新账号已保存。", "success");
+    const saved = response.payload?.credential;
+    const ignored = !update && (saved?.partition_id !== partitionId || (saved?.display_name ?? "") !== displayName);
+    if (await refreshAccounts()) {
+      setStatus(ignored ? "账号已保存，但当前本机组件没有按所选分区或名称写入。请更新 App 中的 Native Host 后重新连接。" : update ? "所选账号已更新。" : "新账号已保存。", ignored ? "warning" : "success");
+    }
   } catch (e) { showError({ error: e.message }); }
   finally { clearCapturedForm(); setBusy(false); }
 }
@@ -450,7 +504,26 @@ async function addMfaFile(file) {
   reader.readAsDataURL(file);
 }
 
-$("scanMfa").addEventListener("click", () => { void startPageScan(); });
+$("scanMfa").addEventListener("click", () => {
+  if (busy || !ready) return;
+  // 必须在点击当次调用，Firefox 才把这次操作视为用户手势。
+  const missing = typeof chrome.tabs.captureVisibleTab !== "function";
+  const asking = missing && chrome.permissions?.request
+    ? chrome.permissions.request({origins: ["<all_urls>"]}).catch(() => false)
+    : Promise.resolve(true);
+  void (async () => {
+    try {
+      const granted = await asking;
+      if (typeof chrome.tabs.captureVisibleTab !== "function") {
+        if (!granted) throw new Error("未授予网站访问权限，无法截取页面二维码。请在扩展管理中允许访问所有网站，然后重新加载扩展。");
+        setStatus("网站访问权限已生效。扩展即将重载，请再次点击「识别页面二维码」。", "pending");
+        chrome.runtime.reload();
+        return;
+      }
+      await startPageScan();
+    } catch (error) { showError({error: error.message}); }
+  })();
+});
 $("uploadMfa").addEventListener("click", () => $("mfaImage").click());
 $("mfaImage").addEventListener("change", (event) => {
   void addMfaFile(event.target.files?.[0]); event.target.value = "";
@@ -498,6 +571,11 @@ async function init() {
   await handshake('automatic');
   const mfaResult = await chrome.runtime.sendMessage({type:'mfa_result',tab_id:targetTab?.id});
   if (mfaResult?.result) setStatus(mfaResult.result.message,mfaResult.result.ok ? 'success' : 'error');
+  const prompt = await chrome.storage.session.get("mfaPermissionPrompt");
+  if (prompt.mfaPermissionPrompt) {
+    await chrome.storage.session.remove("mfaPermissionPrompt");
+    setStatus(String(prompt.mfaPermissionPrompt), "warning");
+  }
 }
 async function refreshInlinePreference() {
   const response = await chrome.runtime.sendMessage({type:'inline_site_state',tab_id:targetTab.id,origin:targetOrigin});

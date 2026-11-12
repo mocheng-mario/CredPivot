@@ -96,7 +96,11 @@ pub enum AgentRequest {
         website_rules: Option<Vec<credpivot_core::UriRule>>,
         #[serde(default)]
         linked_mfa_ids: Option<Vec<String>>,
+        /// 仅浏览器新建账号时使用。App 仍走 PartitionRequest，空值表示个人分区。
+        #[serde(default)]
+        partition_id: String,
     },
+    BrowserPartitions,
     BrowserCredentialUpdate { credential_id: String, expected_revision: String, origin: String, username: String, password: String },
     /// Android 系统保存界面明确确认后更新当前密码；保留历史和所有关联资料。
     AppCredentialPasswordUpdate { credential_id: String, expected_revision: String, username: String, password: String },
@@ -344,6 +348,7 @@ impl AgentRequest {
             Self::BrowserMfaResolve { .. } => "browser_mfa_resolve",
             Self::AppPasskey { .. } => "app_passkey",
             Self::CredentialSave { .. } => "credential_save",
+            Self::BrowserPartitions => "browser_partitions",
             Self::BrowserCredentialUpdate { .. } => "browser_credential_update",
             Self::AppCredentialPasswordUpdate { .. } => "app_credential_password_update",
             Self::BrowserMfaSuggest { .. } => "browser_mfa_suggest",

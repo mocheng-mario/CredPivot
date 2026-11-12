@@ -27,6 +27,12 @@ fn name(conn: &Connection, value: &str, except: Option<&str>) -> Result<String> 
     Ok(value.into())
 }
 
+/// 浏览器保存账号时只需要分区名称，不返回条目数量。
+pub fn names(conn: &Connection) -> Result<Value> {
+    Ok(json!({"partitions":rows(conn,"SELECT id,name FROM partitions ORDER BY sort_order,id",[])?,
+        "default_partition_id":PERSONAL}))
+}
+
 pub fn list(conn: &Connection) -> Result<Value> {
     Ok(json!({"partitions":rows(conn,"SELECT p.*,
         (SELECT count(*) FROM items i WHERE i.partition_id=p.id AND i.trashed=0) AS item_count,

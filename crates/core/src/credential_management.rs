@@ -111,6 +111,9 @@ pub enum VaultAction {
         issuer: String,
         account: String,
         secret: String,
+        /// 缺省保留原分组；空字符串表示移出分组。
+        #[serde(default)]
+        group_id: Option<String>,
     },
     TotpStatus {
         id: String,
@@ -178,6 +181,7 @@ impl VaultAction {
                 | Self::LoginWebsiteRules { .. }
                 | Self::WebsiteRulesTest { .. }
                 | Self::TotpParse { .. }
+                | Self::TotpStatus { .. }
                 | Self::ItemSearch { .. }
                 | Self::SecurityReport
                 | Self::TrashList
@@ -993,6 +997,7 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             secret,
             website_rules,
             resolve_pending_rules,
+            group_id,
         } => {
             let (item,rev):(String,String)=tx.query_row("SELECT t.item_id,t.current_revision FROM totp_credentials t JOIN items i ON i.id=t.item_id WHERE t.id=?1 AND i.trashed=0",[&id],|r|Ok((r.get(0)?,r.get(1)?)))?;
             check_revision(&rev, &expected_revision)?;
@@ -1014,6 +1019,10 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
                 "UPDATE items SET title=?1,current_revision=?2,updated_at_ms=?3 WHERE id=?4",
                 params![format!("{issuer} ({account})"), rev, now_ms(), item],
             )?;
+            if let Some(group) = group_id {
+                let group = group.trim();
+                tx.execute("UPDATE items SET group_id=?1 WHERE id=?2", params![if group.is_empty() { None } else { Some(group) }, item])?;
+            }
             json!({"updated":true})
         }
         TotpStatus {

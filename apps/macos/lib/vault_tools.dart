@@ -21,6 +21,7 @@ Future<Map<String, dynamic>> vaultAction(
     'login_website_rules',
     'website_rules_test',
     'totp_parse',
+    'totp_status',
     'item_search',
     'security_report',
     'trash_list',

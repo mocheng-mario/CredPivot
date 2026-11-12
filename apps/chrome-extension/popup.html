@@ -11,19 +11,14 @@
       <div class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.5 3.1 7.4 7.5 9.5 4.4-2.1 7.5-5 7.5-9.5V6L12 3Z"/><path d="m8.5 12 2.3 2.3 4.7-4.8"/></svg>
       </div>
-      <div><h1>CredPivot</h1><p>你的本机凭据助手</p></div>
-      <span class="local-badge">本机保险库</span>
-    </header>
-    <main>
-      <details class="account-panel"><summary>组件版本与更新</summary>
-        <p id="componentVersions" class="muted">连接后显示 App 侧组件、协议和 Schema 版本。</p>
-        <p id="componentUpdate" class="muted"></p>
-      </details>
-      <section class="connection-panel" aria-label="保险库连接">
+      <div class="brand-copy"><h1>CredPivot</h1><p>你的本机凭据助手</p></div>
+      <div class="header-connect">
         <span id="connectionState" data-state="pending">正在连接…</span>
         <button id="connect" class="text-button" disabled>连接与验证</button>
-      </section>
-      <section class="account-panel" aria-labelledby="accountTitle">
+      </div>
+    </header>
+    <main>
+      <section class="display-panel" aria-label="当前网站">
         <div class="section-heading"><h2 id="accountTitle">当前网站</h2><span id="accountCount">加载中</span></div>
         <div id="site" class="site-name">读取网页…</div>
         <div id="searchField" hidden>
@@ -33,20 +28,50 @@
         <label class="account-label" for="account">登录账号 <span id="mfa" hidden></span></label>
         <select id="account" aria-describedby="selectionNote" disabled><option>连接后加载账号</option></select>
         <p id="selectionNote" class="muted">账号和 MFA 可分别选择；没有登录记录也可以填充 MFA。</p>
+        <div class="mfa-picker">
+          <div class="section-heading"><h2 id="otpTitle">MFA</h2><span id="otpCount">未加载</span></div>
+          <label class="sr-only" for="otp">选择当前网站的 MFA</label>
+          <select id="otp" disabled><option>连接后加载 MFA</option></select>
+          <button id="otherMfas" class="text-button" hidden>查找其他匹配的 MFA</button>
+          <p id="otpNote" class="muted">精确来源优先，其次通配符和正则；多个匹配项可自行选择。</p>
+        </div>
+        <div id="status" role="status" aria-live="polite" data-state="pending">正在连接本机保险库…</div>
+        <button id="stopWaiting" class="text-button" hidden>取消本次验证</button>
+        <details id="errorDetails" class="error-details" hidden><summary>技术信息</summary><pre id="errorDetail"></pre></details>
       </section>
-      <section class="account-panel" aria-labelledby="inlineTitle">
-        <div class="section-heading"><h2 id="inlineTitle">网页内填充</h2></div>
-        <button id="inlineToggle" class="secondary-button" disabled>读取网站设置…</button>
-        <p id="inlineStatus" class="muted" role="status"></p>
-        <p class="muted">在登录或验证码输入框旁显示填充入口。隐藏后，仍可通过输入框右键菜单或此面板填充。</p>
-      </section>
-      <section class="account-panel" aria-labelledby="otpTitle">
-        <div class="section-heading"><h2 id="otpTitle">MFA 验证码</h2><span id="otpCount">未加载</span></div>
-        <label class="sr-only" for="otp">选择当前网站的 MFA</label>
-        <select id="otp" disabled><option>连接后加载 MFA</option></select>
-        <button id="otherMfas" class="text-button" hidden>查找其他匹配的 MFA</button>
-        <p id="otpNote" class="muted">精确来源优先，其次通配符和正则；多个匹配项可自行选择。</p>
-        <div class="save-actions">
+      <section class="function-panel" aria-label="操作">
+        <h2 class="section-label">操作</h2>
+        <div class="fill-actions">
+          <button id="fillLogin" class="action-button" disabled>
+            <span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="8" cy="9" r="4"/><path d="m11 12 9 9m-5-5 3-3m0 6 3-3"/></svg></span>
+            <span class="action-copy"><strong>填充账号与密码</strong><small id="fillLoginHint">先选择登录账号</small></span>
+            <span class="chevron" aria-hidden="true">›</span>
+          </button>
+          <button id="fillOtp" class="action-button" disabled>
+            <span class="action-icon mfa-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 8h6M9 12h2m2 0h2m-6 4h6"/></svg></span>
+            <span class="action-copy"><strong>填充 MFA 验证码</strong><small id="fillOtpHint">先选择登录账号</small></span>
+            <span class="chevron" aria-hidden="true">›</span>
+          </button>
+          <button id="capture" class="action-button" disabled>
+            <span class="action-icon save-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 4h9l3 3v13H6z"/><path d="M14 4v4h4M8 13h8M8 17h5"/></svg></span>
+            <span class="action-copy"><strong>保存当前网页</strong><small>读取已填写的登录表单</small></span>
+            <span class="chevron" aria-hidden="true">›</span>
+          </button>
+        </div>
+        <div id="saveForm" class="save-form" hidden>
+          <p class="muted">更新前请确认新密码已在网站生效。名称和分区只在保存为新账号时写入。</p>
+          <p class="save-origin"><span>网站</span><strong id="saveOrigin"></strong></p>
+          <p id="captureInfo" class="capture-info"></p>
+          <label>用户名<input id="saveUsername" type="text" autocomplete="off" maxlength="500" /></label>
+          <label>名称<input id="saveDisplayName" type="text" autocomplete="off" maxlength="200" placeholder="可留空" /></label>
+          <label>分区<select id="savePartition"></select></label>
+          <p id="saveTarget" class="muted"></p>
+          <div class="save-actions">
+            <button id="saveNew" class="secondary-button" disabled>保存为新账号</button>
+            <button id="update" class="secondary-button" disabled>更新所选账号</button>
+          </div>
+        </div>
+        <div class="save-actions mfa-add-actions">
           <button id="scanMfa" class="secondary-button" disabled>识别页面二维码</button>
           <button id="uploadMfa" class="secondary-button" disabled>选择二维码图片</button>
         </div>
@@ -54,37 +79,23 @@
         <button id="cancelMfa" class="text-button">取消待处理的 MFA 添加</button>
         <p class="muted">也可在此面板按 Ctrl+V / ⌘V 粘贴图片，或在网页右键识别。识别和账密关联将在 App 中确认。</p>
       </section>
-      <section class="account-panel" aria-labelledby="passkeyTitle">
-        <div class="section-heading"><h2 id="passkeyTitle">通行密钥 · 预览</h2><span id="passkeyState">未启用</span></div>
-        <button id="passkeyToggle" class="secondary-button" disabled>在此网站启用</button>
-        <p id="passkeyNote" class="muted">启用并刷新网页后，在网站安全设置中新建通行密钥，选择保存到 CredPivot。每次操作需在 App 确认并验证身份；密钥随加密备份保存。</p>
-      </section>
-      <div class="fill-actions">
-        <button id="fillLogin" class="action-button" disabled>
-          <span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="8" cy="9" r="4"/><path d="m11 12 9 9m-5-5 3-3m0 6 3-3"/></svg></span>
-          <span class="action-copy"><strong>填充账号与密码</strong><small id="fillLoginHint">先选择登录账号</small></span>
-          <span class="chevron" aria-hidden="true">›</span>
-        </button>
-        <button id="fillOtp" class="action-button" disabled>
-          <span class="action-icon mfa-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 8h6M9 12h2m2 0h2m-6 4h6"/></svg></span>
-          <span class="action-copy"><strong>填充 MFA 验证码</strong><small id="fillOtpHint">先选择登录账号</small></span>
-          <span class="chevron" aria-hidden="true">›</span>
-        </button>
-      </div>
-      <div id="status" role="status" aria-live="polite" data-state="pending">正在连接本机保险库…</div>
-      <button id="stopWaiting" class="text-button" hidden>取消本次验证</button>
-      <details id="errorDetails" class="error-details" hidden><summary>技术信息</summary><pre id="errorDetail"></pre></details>
-      <details class="save-panel">
-        <summary>保存当前网页 <span class="muted">添加 / 更新账号</span></summary>
-        <div class="save-content">
-          <p class="muted">读取已填写的登录表单。更新前，请确认新密码已在网站生效。</p>
-          <button id="capture" class="secondary-button" disabled>读取当前登录表单</button>
-          <p id="captureInfo" class="capture-info"></p>
-          <div class="save-actions">
-            <button id="saveNew" class="secondary-button" disabled>保存为新账号</button>
-            <button id="update" class="secondary-button" disabled>更新所选账号</button>
-          </div>
-        </div>
+      <details class="more-panel">
+        <summary>更多</summary>
+        <section class="account-panel" aria-labelledby="inlineTitle">
+          <div class="section-heading"><h2 id="inlineTitle">网页内填充</h2></div>
+          <button id="inlineToggle" class="secondary-button" disabled>读取网站设置…</button>
+          <p id="inlineStatus" class="muted" role="status"></p>
+          <p class="muted">在登录或验证码输入框旁显示填充入口。隐藏后，仍可通过输入框右键菜单或此面板填充。</p>
+        </section>
+        <section class="account-panel" aria-labelledby="passkeyTitle">
+          <div class="section-heading"><h2 id="passkeyTitle">通行密钥 · 预览</h2><span id="passkeyState">未启用</span></div>
+          <button id="passkeyToggle" class="secondary-button" disabled>在此网站启用</button>
+          <p id="passkeyNote" class="muted">启用并刷新网页后，在网站安全设置中新建通行密钥，选择保存到 CredPivot。每次操作需在 App 确认并验证身份；密钥随加密备份保存。</p>
+        </section>
+        <details class="account-panel"><summary>组件版本与更新</summary>
+          <p id="componentVersions" class="muted">连接后显示 App 侧组件、协议和 Schema 版本。</p>
+          <p id="componentUpdate" class="muted"></p>
+        </details>
       </details>
     </main>
     <footer><span>仅填充，不会自动提交表单</span><span id="ver"></span></footer>

@@ -430,6 +430,11 @@
       else { const target = bind(lastInput); if (target) showBadge(target); }
       respond({ok:true}); return;
     }
+    if (msg.type === 'page_notice' && msg.message) {
+      ensureHost();
+      showFailure(String(msg.message));
+      respond({ok:true}); return;
+    }
     if (msg.type === 'capture_login') {
       const {user,pass} = loginFields(true,bind(lastInput));
       respond({documentId,origin:location.origin,username:user?.value ?? '',password:pass?.value ?? ''}); return;

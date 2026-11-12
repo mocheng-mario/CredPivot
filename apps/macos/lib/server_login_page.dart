@@ -296,7 +296,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     }
     try {
       final session = await AgentBridge.clipboardSession();
-      if (!mounted || !await requireTouchId(context, reason: tr('server.copyMfa.reason'))) return;
+      if (!mounted) return;
       final code = await AgentBridge.totpCode(totpId);
       await AgentBridge.copyConcealed(code, session: session);
       if (mounted) {

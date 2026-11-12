@@ -210,13 +210,23 @@ fn map_extension_to_agent(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            display_name: String::new(),
+            display_name: envelope
+                .get("display_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            partition_id: envelope
+                .get("partition_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             connection_host: String::new(),
             linked_totp_id: None,
             group_id: None,
             website_rules: None,
             linked_mfa_ids: None,
         }),
+        "partitions.list" => Ok(AgentRequest::BrowserPartitions),
         "credential.suggest_for_origin" => Ok(AgentRequest::CredentialSuggest {
             origin: envelope
                 .get("origin")

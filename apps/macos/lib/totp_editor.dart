@@ -54,10 +54,19 @@ class _TotpEditorState extends State<_TotpEditor> {
   Timer? requestWatch;
   bool checkingRequest = false;
   int generation = 0;
+  late final List<Map<String, dynamic>> loginCandidates;
 
   @override
   void initState() {
     super.initState();
+    final currentGroup = widget.existing?['group_id']?.toString();
+    if (currentGroup != null && widget.groups.any((group) => group['id'] == currentGroup)) groupId = currentGroup;
+    loginCandidates = (widget.browserRequest?['login_candidates'] as List? ?? [])
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList();
+    loginCandidates.sort((a, b) => ((b['created_at_ms'] as num?) ?? 0).compareTo((a['created_at_ms'] as num?) ?? 0));
+    if (loginCandidates.isNotEmpty) linkedLoginId = loginCandidates.first['id'].toString();
     initialSnapshot = snapshot();
     if (input.text.isNotEmpty) scheduleMicrotask(() => parseInput(fillMetadata: false));
     if (widget.browserRequest != null) scheduleMicrotask(() {
@@ -165,7 +174,8 @@ class _TotpEditorState extends State<_TotpEditor> {
         await AgentBridge.manage({'action': 'totp_update', 'id': widget.existing!['id'],
           'expected_revision': widget.reveal!['current_revision'], 'issuer': issuer.text.trim(),
           'account': account.text.trim(), 'secret': input.text.trim(), 'website_rules': rules,
-          'resolve_pending_rules': pendingRules.isNotEmpty});
+          'resolve_pending_rules': pendingRules.isNotEmpty,
+          if (widget.groups.isNotEmpty) 'group_id': groupId ?? ''});
       } else if (widget.browserRequest != null) {
         if (!await requireTouchId(context, reason: tr('mfa.browser.title')) || !mounted) return;
         await AgentBridge.request({'type': 'browser_mfa_resolve', 'request_id': widget.browserRequest!['id'],
@@ -192,7 +202,7 @@ class _TotpEditorState extends State<_TotpEditor> {
           ConstrainedBox(constraints: const BoxConstraints(maxHeight: 220), child: SingleChildScrollView(child: Column(children: [
             RadioListTile<String>(value: '', groupValue: linkedLoginId, contentPadding: EdgeInsets.zero,
               title: const LText('passkey.links.none'), onChanged: busy ? null : (id) => setState(() => linkedLoginId = id ?? '')),
-            for (final login in (widget.browserRequest!['login_candidates'] as List? ?? []).cast<Map>())
+            for (final login in loginCandidates)
               RadioListTile<String>(value: login['id'].toString(), groupValue: linkedLoginId, contentPadding: EdgeInsets.zero,
                 title: Text('${login['partition_name'] ?? ''} · ${login['display_name'] ?? ''} · ${login['username'] ?? ''}'),
                 subtitle: Text(login['origin']?.toString() ?? ''), onChanged: busy ? null : (id) => setState(() => linkedLoginId = id ?? '')),
@@ -210,7 +220,7 @@ class _TotpEditorState extends State<_TotpEditor> {
         if (parsed != null) for (final warning in parsed!['warnings'] as List) Text(warning.toString(), style: TextStyle(color: Theme.of(context).colorScheme.error)),
         AppFieldRow(label: tr('mfa.fields.issuerLabel'), child: TextField(controller: issuer, enabled: !busy && !scanning, decoration: InputDecoration())),
         AppFieldRow(label: tr('mfa.fields.accountLabel'), child: TextField(controller: account, enabled: !busy && !scanning, decoration: InputDecoration())),
-        if (widget.existing == null && widget.groups.isNotEmpty) AppFieldRow(label: tr('common.group'), child: DropdownButtonFormField<String>(
+        if (widget.groups.isNotEmpty) AppFieldRow(label: tr('common.group'), child: DropdownButtonFormField<String>(
           isExpanded: true, value: groupId, decoration: InputDecoration(),
           items: [const DropdownMenuItem<String>(value: null, child: LText('common.ungroupedOption')), for (final g in widget.groups) DropdownMenuItem(value: g['id'] as String, child: Text(credentialGroupLabel(g), overflow: TextOverflow.ellipsis))],
           onChanged: busy ? null : (v) => setState(() => groupId = v))),

@@ -363,7 +363,7 @@ dependencies = [
 
 [[package]]
 name = "credpivot-agent"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.4"
 dependencies = [
  "base64",
  "chrono",
@@ -386,7 +386,7 @@ dependencies = [
 
 [[package]]
 name = "credpivot-askpass"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.4"
 dependencies = [
  "credpivot-agent",
  "tokio",
@@ -394,7 +394,7 @@ dependencies = [
 
 [[package]]
 name = "credpivot-cli"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.4"
 dependencies = [
  "clap",
  "credpivot-core",
@@ -409,7 +409,7 @@ dependencies = [
 
 [[package]]
 name = "credpivot-core"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.4"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -443,7 +443,7 @@ dependencies = [
 
 [[package]]
 name = "credpivot-ffi"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.4"
 dependencies = [
  "credpivot-agent",
  "serde_json",
@@ -452,7 +452,7 @@ dependencies = [
 
 [[package]]
 name = "credpivot-native-host"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.4"
 dependencies = [
  "credpivot-agent",
  "libc",
@@ -1132,7 +1132,7 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "ovb1-structure"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.4"
 
 [[package]]
 name = "p256"

@@ -625,13 +625,37 @@ async function recordMfaResult(tabId, response) {
   await chrome.action.setTitle({tabId, title: `CredPivot · ${message}`});
 }
 
+function requestPageCapturePermission() {
+  if (typeof chrome.tabs.captureVisibleTab === "function") return Promise.resolve(true);
+  if (!chrome.permissions?.request) return Promise.resolve(false);
+  // 必须在右键回调里立刻调用，浏览器才把它当成用户手势并弹出授权。
+  return chrome.permissions.request({origins: ["<all_urls>"]}).catch(() => false);
+}
+
+async function explainCapturePermission(tabId, granted) {
+  const message = granted
+    ? "网站访问权限已生效。请重新加载扩展后，再从右键菜单识别二维码。"
+    : "未授予网站访问权限，无法截取页面二维码。请在插件面板点击「识别页面二维码」完成授权。";
+  await recordMfaResult(tabId, {ok: false, message});
+  try { await chrome.tabs.sendMessage(tabId, {type: "page_notice", message}, {frameId: 0}); } catch (_) {}
+  await chrome.storage.session.set({mfaPermissionPrompt: message});
+  try { await chrome.action.openPopup(); } catch (_) {}
+}
+
 chrome.contextMenus?.onClicked.addListener((info,tab) => {
   if (info.menuItemId === 'credpivot-add-mfa-qr' && tab?.id) {
+    const tabId = tab.id;
+    const asking = requestPageCapturePermission();
     void (async () => {
-      await chrome.action.setBadgeText({tabId:tab.id,text:'MFA'});
-      const response = await addMfa(tab.id,null,sendNative,requestBrowserVerification,clearMetadataCache);
+      const granted = await asking;
+      if (typeof chrome.tabs.captureVisibleTab !== "function") {
+        await explainCapturePermission(tabId, granted === true);
+        return;
+      }
+      await chrome.action.setBadgeText({tabId, text: 'MFA'});
+      const response = await addMfa(tabId, null, sendNative, requestBrowserVerification, clearMetadataCache);
       if (response?.code === 'mfa_pending') return;
-      await recordMfaResult(tab.id, response);
+      await recordMfaResult(tabId, response);
     })().catch(() => {});
     return;
   }
@@ -805,6 +829,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse(resp);
         return;
       }
+      if (msg.type === "list_partitions") {
+        sendResponse(await sendNative({action: "partitions.list"}));
+        return;
+      }
       if (msg.type === "save_credential" || msg.type === "update_credential") {
         const origin = await originFromSender(sender, msg);
         if (!origin) {
@@ -819,6 +847,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           action: msg.type === "update_credential" ? "credential.update" : "credential.save",
           credential_id: msg.credential_id, expected_revision: msg.expected_revision,
           origin, username: msg.username, password: msg.password,
+          display_name: msg.display_name ?? "", partition_id: msg.partition_id ?? "",
         });
         if (resp?.ok) await clearMetadataCache();
         sendResponse(resp);

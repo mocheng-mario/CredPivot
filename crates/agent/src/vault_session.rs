@@ -79,6 +79,7 @@ pub struct FakeCredential {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FillGrant {
     pub request_id: String,
+    pub browser_session: Option<uuid::Uuid>,
     pub credential_id: String,
     pub origin: String,
     pub tab_id: u64,

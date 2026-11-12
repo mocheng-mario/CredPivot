@@ -63,9 +63,7 @@ impl AgentRuntime {
             pending_fills: std::collections::HashMap::new(),
             pending_ssh_sessions: std::collections::HashMap::new(),
             peer_auth: PeerAuthConfig::default(),
-            extension_gate_expires_ms: 0,
-            extension_gate_last_native_ms: 0,
-            extension_gate_session: None,
+            extension_gates: std::collections::HashMap::new(),
             extension_gate_pending_session: None,
             shutting_down: false,
         };

@@ -85,6 +85,9 @@ async function cropCapturedImage(image, selection) {
 }
 
 async function captureSelected(windowId, selection) {
+  if (typeof chrome.tabs.captureVisibleTab !== "function") {
+    throw new Error("需要允许扩展访问所有网站后才能截取页面。请在扩展详情中开启，并重新加载扩展。");
+  }
   let full = await chrome.tabs.captureVisibleTab(windowId, {format: "jpeg", quality: 80});
   try {
     return await cropCapturedImage(full, selection);

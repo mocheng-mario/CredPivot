@@ -16,9 +16,7 @@ fn test_state() -> (IpcState, tempfile::TempDir) {
         pending_fills: HashMap::new(),
         pending_ssh_sessions: HashMap::new(),
         peer_auth: PeerAuthConfig::default(),
-        extension_gate_expires_ms: 0,
-        extension_gate_last_native_ms: 0,
-        extension_gate_session: None,
+        extension_gates: HashMap::new(),
         extension_gate_pending_session: None,
         shutting_down: false,
     };
@@ -50,6 +48,7 @@ async fn locked_vault_rejects_sensitive_agent_ops() {
                 group_id: None,
                 website_rules: None,
                 linked_mfa_ids: None,
+                partition_id: String::new(),
             },
             RequestPeerContext { from_app: true, ..Default::default() },
         )
@@ -84,6 +83,7 @@ async fn unlock_then_save_then_lock_blocks_again() {
             group_id: None,
             website_rules: None,
             linked_mfa_ids: None,
+                partition_id: String::new(),
         },
         RequestPeerContext { from_app: true, ..Default::default() },
     )
@@ -113,6 +113,7 @@ async fn unlock_then_save_then_lock_blocks_again() {
                 group_id: None,
                 website_rules: None,
                 linked_mfa_ids: None,
+                partition_id: String::new(),
             },
             RequestPeerContext { from_app: true, ..Default::default() },
         )
