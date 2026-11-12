@@ -1813,6 +1813,13 @@ final class CredPivotPlatform: NSObject {
       result(nil)
     case "webdavBootstrapRead", "webdavSettings", "webdavSave", "webdavTest", "webdavRead", "webdavPublish", "webdavProbe", "webdavRemove", "webdavCleanup":
       Task { @MainActor in CredPivotWebDAV.shared.handle(call, result: result) }
+    case "undoAppIntegrations":
+      do {
+        try AppIntegrationReset.undo()
+        result(nil)
+      } catch {
+        result(FlutterError(code: "reset_integration", message: NativePresentation.tr("localReset.failed"), details: nil))
+      }
     case "clearLocalSecrets":
       LocalVaultUnlock.clearMaterial()
       let webdav: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
@@ -2633,6 +2640,22 @@ final class TouchIdGate {
   }
 }
 
+/// 重置 App 前撤销本应用写到系统里的配置。Git 还原必须早于删除 ~/.credpivot，因为记录文件在那里。
+enum AppIntegrationReset {
+  static func undo() throws {
+    if CredPivotGitSsh.status()["enabled"] as? Bool == true {
+      _ = try CredPivotGitSsh.configure(enabled: false)
+    }
+    // 只有确实存在本应用的标记块时才删除；写入失败要中止，否则会留下半完成的重置。
+    if SshIdentityAgentHelper.status()["configured"] as? Bool == true {
+      guard SshIdentityAgentHelper.removeSnippet()["ok"] as? Bool == true else {
+        throw NSError(domain: "AppReset", code: 1)
+      }
+    }
+    ChromeHostInstaller.removeManifests()
+  }
+}
+
 enum LoginItemRegistrar {
   static func status() -> [String: Any] {
     if #available(macOS 13.0, *) {
@@ -2699,6 +2722,13 @@ enum ChromeHostInstaller {
         isDirectory: false
       )
   }()
+
+  /// 重置 App 时删除浏览器读取的清单。插件本身由浏览器管理，这里不卸载。
+  static func removeManifests() {
+    for url in [manifestURL, firefoxManifestURL] {
+      try? FileManager.default.removeItem(at: url)
+    }
+  }
 
   static func status() -> [String: Any] {
     let stored = storedExtensionId() ?? ""

@@ -17906,8 +17906,8 @@
       "locations": ["settings_page.dart", "main_android.dart", "agent_bridge.dart"]
     },
     "localReset.app.body": {
-      "source": "删除本机 CredPivot 的配置、保险库、日志和已保存的密码与解锁材料，回到刚安装时的状态。远端 WebDAV 上已有的备份不会删除，也不会被修改。已经装进浏览器的插件不会自动卸载。此操作不能撤销。",
-      "translation": "删除本机 CredPivot 的配置、保险库、日志和已保存的密码与解锁材料，回到刚安装时的状态。远端 WebDAV 上已有的备份不会删除，也不会被修改。已经装进浏览器的插件不会自动卸载。此操作不能撤销。",
+      "source": "删除本机 CredPivot 的配置、保险库、日志和已保存的密码与解锁材料，撤销本应用写入的 SSH 配置块和 Git 的 core.sshCommand，并删除浏览器的本机连接清单，回到刚安装时的状态。远端 WebDAV 上已有的备份不会删除，也不会被修改。已经装进浏览器的插件不会自动卸载，需要你自己在浏览器里移除。此操作不能撤销。",
+      "translation": "删除本机 CredPivot 的配置、保险库、日志和已保存的密码与解锁材料，撤销本应用写入的 SSH 配置块和 Git 的 core.sshCommand，并删除浏览器的本机连接清单，回到刚安装时的状态。远端 WebDAV 上已有的备份不会删除，也不会被修改。已经装进浏览器的插件不会自动卸载，需要你自己在浏览器里移除。此操作不能撤销。",
       "description": "重置 App 确认",
       "placeholders": {},
       "locations": ["agent_bridge.dart"]

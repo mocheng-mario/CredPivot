@@ -50,6 +50,8 @@ class AgentBridge {
     ));
     if (accepted != true || !context.mounted) return null;
     if (!await requireTouchId(context, reason: tr(vault ? 'localReset.vault.title' : 'localReset.app.title')) || !context.mounted) return null;
+    // 先撤销系统里的配置（Git 还原需要 ~/.credpivot 里的记录），失败则不动保险库。
+    if (!vault) await _channel.invokeMethod<void>('undoAppIntegrations');
     final wasUnlocked = WebDavSync.instance.unlocked;
     if (wasUnlocked) WebDavSync.instance.setUnlocked(false);
     try {

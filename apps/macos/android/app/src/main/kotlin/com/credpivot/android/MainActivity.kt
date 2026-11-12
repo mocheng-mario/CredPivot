@@ -131,6 +131,8 @@ class MainActivity : FlutterActivity() {
                 verification.cancelAuthentication()
                 work(result) { NativeAgent.call("lock"); null }
             }
+            // Android 没有 SSH/Git/浏览器清单等系统配置需要撤销。
+            call.method == "undoAppIntegrations" -> result.success(null)
             call.method == "clearLocalSecrets" -> {
                 secure.clearAll()
                 if (call.arguments == "app") cacheDir.listFiles()?.forEach { it.deleteRecursively() }
