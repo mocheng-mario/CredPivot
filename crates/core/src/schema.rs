@@ -114,12 +114,23 @@ CREATE TABLE server_login_profiles (
   linked_login_id TEXT,
   linked_totp_id TEXT,
   linked_ssh_key_id TEXT,
+  manual_secret TEXT NOT NULL DEFAULT '',
   current_revision TEXT NOT NULL,
   created_at_ms INTEGER NOT NULL,
   updated_at_ms INTEGER NOT NULL,
   FOREIGN KEY (item_id) REFERENCES items(id)
 );
 CREATE INDEX idx_server_login_profiles_host ON server_login_profiles(host);
+
+CREATE TABLE server_stale_auth (
+  profile_id TEXT PRIMARY KEY NOT NULL,
+  linked_login_id TEXT,
+  linked_totp_id TEXT,
+  linked_ssh_key_id TEXT,
+  auth_mode TEXT NOT NULL,
+  unavailable INTEGER NOT NULL,
+  unavailable_reason TEXT NOT NULL
+);
 
 CREATE TABLE credential_groups (
   id TEXT PRIMARY KEY NOT NULL,

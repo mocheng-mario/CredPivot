@@ -287,6 +287,7 @@ impl VaultDatabase {
             linked_totp_id,
             linked_ssh_key_id,
             group_id,
+            None,
         )?;
         mark_restore_dirty(&self.conn)?;
         Ok(row)
@@ -304,6 +305,7 @@ impl VaultDatabase {
         linked_totp_id: Option<&str>,
         linked_ssh_key_id: Option<&str>,
         group_id: Option<&str>,
+        manual_secret: Option<&str>,
     ) -> Result<ServerProfileRow> {
         let row = update_server_profile(
             &self.conn,
@@ -317,6 +319,7 @@ impl VaultDatabase {
             linked_totp_id,
             linked_ssh_key_id,
             group_id,
+            manual_secret,
         )?;
         mark_restore_dirty(&self.conn)?;
         Ok(row)

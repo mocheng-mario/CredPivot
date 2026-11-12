@@ -32,6 +32,14 @@ export async function syncPasskeyScripts(sites) {
   }
 }
 
+export async function enablePasskeySiteIfUnset(origin) {
+  const stored = await chrome.storage.local.get(ENABLED_SITES);
+  const sites = stored[ENABLED_SITES] || {};
+  if (Object.prototype.hasOwnProperty.call(sites, origin)) return sites[origin] === true;
+  await setPasskeySiteState(origin, true);
+  return true;
+}
+
 export async function passkeySiteState(origin) {
   const stored = await chrome.storage.local.get(ENABLED_SITES);
   return stored[ENABLED_SITES]?.[origin] === true;
@@ -40,8 +48,7 @@ export async function passkeySiteState(origin) {
 export async function setPasskeySiteState(origin, enabled) {
   const stored = await chrome.storage.local.get(ENABLED_SITES);
   const sites = stored[ENABLED_SITES] || {};
-  if (enabled) sites[origin] = true;
-  else delete sites[origin];
+  sites[origin] = enabled === true;
   await syncPasskeyScripts(sites);
   await chrome.storage.local.set({[ENABLED_SITES]: sites});
   for (const request of active.values()) {
@@ -137,7 +144,10 @@ export async function handlePasskey(message, sender, sendNative, gateGeneration 
       }
       const result = response.payload;
       if (result?.state === "fallback") return {fallback:true};
-      if (result?.state === "done") return result.error ? {error:result.error} : {credential:result.credential};
+      if (result?.state === "done") {
+        if (!result.error && message.kind === "create") await enablePasskeySiteIfUnset(origin);
+        return result.error ? {error:result.error} : {credential:result.credential};
+      }
       if (result?.state !== "pending") throw new Error("无效的通行密钥响应");
       started = true;
       await new Promise((resolve) => setTimeout(resolve,350));

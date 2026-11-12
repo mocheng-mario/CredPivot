@@ -8,6 +8,15 @@ pub const SSH_SESSION_TTL_MS: u128 = 5 * 60 * 1000;
 const MAX_PASSWORD_PROMPTS: u8 = 6;
 const MAX_OTP_PROMPTS: u8 = 8;
 
+#[derive(Clone, Default)]
+struct HiddenSecret(String);
+
+impl std::fmt::Debug for HiddenSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_empty() { "empty" } else { "[redacted]" })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SshSessionGrant {
     pub session_id: String,
@@ -19,6 +28,8 @@ pub struct SshSessionGrant {
     pub expires_at_ms: u128,
     pub password_uses_left: u8,
     pub otp_uses_left: u8,
+    #[serde(skip)]
+    manual_secret: HiddenSecret,
 }
 
 pub fn now_ms() -> u128 {
@@ -112,6 +123,7 @@ pub fn prepare_session(
     user: &str,
     login_credential_id: &str,
     totp_id: Option<String>,
+    manual_secret: &str,
 ) -> String {
     purge_expired_sessions(map);
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -126,6 +138,7 @@ pub fn prepare_session(
         expires_at_ms: now + SSH_SESSION_TTL_MS,
         password_uses_left: MAX_PASSWORD_PROMPTS,
         otp_uses_left: MAX_OTP_PROMPTS,
+        manual_secret: HiddenSecret(manual_secret.to_string()),
     };
     map.insert(session_id.clone(), grant);
     session_id
@@ -165,12 +178,11 @@ pub fn consume_askpass_secret(
                 return Err(AgentError::Protocol("password prompt budget exhausted".into()));
             }
             grant.password_uses_left -= 1;
-            let cred = vault.get_credential(&login_id)?;
-            let pw = cred.password;
-            if pw.is_empty() {
-                return Err(AgentError::Protocol("linked login password is empty".into()));
+            if grant.login_credential_id.is_empty() {
+                return Ok(grant.manual_secret.0.clone());
             }
-            Ok(pw)
+            let cred = vault.get_credential(&login_id)?;
+            Ok(cred.password)
         }
         AskpassKind::Otp => {
             if grant.otp_uses_left == 0 {

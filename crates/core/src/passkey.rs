@@ -261,10 +261,6 @@ impl Request {
                 return Err(CoreError::format("此网站已存在被排除的通行密钥"));
             }
             let linked_login = if linked_login_id.is_empty() { None } else {
-                // 确认期间网站规则可能被修改，保存时仍须满足候选范围。
-                if !crate::website_rules::credential_matches_origin(&tx, linked_login_id, &self.website_origin())? {
-                    return Err(CoreError::format("关联账号与当前网站不匹配"));
-                }
                 let login = crate::repo_m2::get_login_row(&tx, linked_login_id)?;
                 if crate::partitions::item_partition(&tx, &login.item_id)? != partition {
                     return Err(CoreError::format("关联账号必须与通行密钥位于同一分区"));

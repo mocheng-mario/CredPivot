@@ -459,6 +459,7 @@ class AgentBridge {
     required String user,
     required String loginCredentialId,
     String? totpId,
+    String? serverProfileId,
   }) async {
     final resp = await request({
       'type': 'ssh_session_prepare',
@@ -467,6 +468,7 @@ class AgentBridge {
       'user': user,
       'login_credential_id': loginCredentialId,
       if (totpId != null && totpId.isNotEmpty) 'totp_id': totpId,
+      if (serverProfileId != null && serverProfileId.isNotEmpty) 'server_profile_id': serverProfileId,
     });
     final payload = payloadOf(resp);
     final id = payload['session_id'] as String?;
@@ -501,6 +503,7 @@ class AgentBridge {
     String? linkedTotpId,
     List<Map<String, dynamic>>? websiteRules,
     List<String>? linkedMfaIds,
+    List<String>? linkedSshKeyIds,
     int? passwordActiveSinceMs,
   }) async {
     final resp = await request({
@@ -516,6 +519,7 @@ class AgentBridge {
       if (linkedTotpId != null && linkedTotpId.isNotEmpty) 'linked_totp_id': linkedTotpId,
       if (websiteRules != null) 'website_rules': websiteRules,
       if (linkedMfaIds != null) 'linked_mfa_ids': linkedMfaIds,
+      if (linkedSshKeyIds != null) 'linked_ssh_key_ids': linkedSshKeyIds,
     }, partitionId: partitionId);
     return Map<String, dynamic>.from(payloadOf(resp)['credential'] as Map? ?? {});
   }
@@ -532,6 +536,7 @@ class AgentBridge {
     String? password,
     List<Map<String, dynamic>>? websiteRules,
     List<String>? linkedMfaIds,
+    List<String>? linkedSshKeyIds,
   }) async {
     final resp = await request({
       'type': 'credential_update',
@@ -546,6 +551,7 @@ class AgentBridge {
       if (password != null && password.isNotEmpty) 'password': password,
       if (websiteRules != null) 'website_rules': websiteRules,
       if (linkedMfaIds != null) 'linked_mfa_ids': linkedMfaIds,
+      if (linkedSshKeyIds != null) 'linked_ssh_key_ids': linkedSshKeyIds,
     });
     return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
   }
@@ -597,6 +603,7 @@ class AgentBridge {
     required String host,
     int port = 22,
     String manualUsername = '',
+    String? manualSecret,
     String? linkedLoginId,
     String? linkedTotpId,
     String? linkedSshKeyId,
@@ -608,6 +615,7 @@ class AgentBridge {
       'host': host,
       'port': port,
       'manual_username': manualUsername,
+      if (manualSecret != null) 'manual_secret': manualSecret,
       if (linkedLoginId != null && linkedLoginId.isNotEmpty) 'linked_login_id': linkedLoginId,
       if (linkedTotpId != null && linkedTotpId.isNotEmpty) 'linked_totp_id': linkedTotpId,
       if (linkedSshKeyId != null && linkedSshKeyId.isNotEmpty) 'linked_ssh_key_id': linkedSshKeyId,
@@ -623,6 +631,7 @@ class AgentBridge {
     required String host,
     int port = 22,
     String manualUsername = '',
+    String? manualSecret,
     String? linkedLoginId,
     String? linkedTotpId,
     String? linkedSshKeyId,
@@ -636,6 +645,7 @@ class AgentBridge {
       'host': host,
       'port': port,
       'manual_username': manualUsername,
+      if (manualSecret != null) 'manual_secret': manualSecret,
       'linked_login_id': linkedLoginId ?? '',
       'linked_totp_id': linkedTotpId ?? '',
       'linked_ssh_key_id': linkedSshKeyId ?? '',

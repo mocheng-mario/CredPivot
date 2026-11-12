@@ -488,21 +488,8 @@ class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
                               keyboardType: TextInputType.number,
                               decoration: InputDecoration())))
                     ]),
-                    AppFieldRow(label: tr('vaultTools.build.text.item24'), help: tr('vaultTools.build.text.item25'), child: DropdownButtonFormField<String>(isExpanded: true,
-                        value: ['enabled', 'disabled', 'unknown']
-                                .contains(details['mfa_state'])
-                            ? details['mfa_state'] as String
-                            : 'unknown',
-                        decoration: InputDecoration(),
-                        items: const [
-                          DropdownMenuItem(
-                              value: 'unknown', child: LText('common.unknown')),
-                          DropdownMenuItem(
-                              value: 'enabled', child: LText('common.enabled')),
-                          DropdownMenuItem(
-                              value: 'disabled', child: LText('common.disabled.variant1'))
-                        ],
-                        onChanged: busy ? null : (v) => setState(() => details['mfa_state'] = v))),
+                    AppFieldRow(label: tr('vaultTools.build.text.item24'), help: tr('vaultTools.build.text.item25'), child: Align(alignment: Alignment.centerLeft,
+                        child: LText(details['mfa_state'] == 'enabled' ? 'common.enabled' : 'common.disabled.variant1'))),
                     ],
                     if (message.isNotEmpty) Text(message),
                   ]))))),
@@ -1527,7 +1514,6 @@ Future<void> showNewCredentialMenu(BuildContext context) async {
     SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'ssh_generate'),child:const LText('vaultTools.showNewCredentialMenu.text')),
     SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'ssh'),child:const LText('vaultTools.showNewCredentialMenu.text.item2')),
     SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'server'),child:const LText('vaultTools.showNewCredentialMenu.text.item3')),
-    SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'recovery'),child:const LText('credentials.recovery.websiteCodes')),
     SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'note'),child:const LText('credentials.notes.title')),
   ]);
   });
@@ -1538,7 +1524,6 @@ Future<void> showNewCredentialMenu(BuildContext context) async {
   if(choice=='ssh'){await transferSshKey(context);AgentBridge.notifyVaultChanged();}
   if(choice=='ssh_generate'){if(await showSshKeyGenerator(context))AgentBridge.notifyVaultChanged();}
   if(choice=='server'){if(await showServerProfileEditor(context))AgentBridge.notifyVaultChanged();}
-  if(choice=='recovery'){if(await showRecoveryCodesEditor(context))AgentBridge.notifyVaultChanged();}
   if(choice=='note'){if(await showNoteEditor(context))AgentBridge.notifyVaultChanged();}
 }
 

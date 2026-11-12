@@ -4,7 +4,7 @@ use crate::{CoreError, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const PERSONAL: &str = "00000000-0000-4000-8000-000000000001";
 pub const WORK: &str = "00000000-0000-4000-8000-000000000002";
@@ -238,18 +238,23 @@ pub fn preview_with_group(conn: &Connection, selected: &[String], target: &str, 
     for (a,b) in &relations { adjacency.entry(a.clone()).or_default().insert(b.clone()); adjacency.entry(b.clone()).or_default().insert(a.clone()); }
     let known: BTreeSet<_> = items.iter().filter_map(|r|r["id"].as_str()).collect();
     if selected.iter().any(|id|!known.contains(id.as_str())) { return Err(error("notFound")); }
-    let mut queue: VecDeque<String> = selected.iter().cloned().collect();
-    let mut component = BTreeSet::new();
-    while let Some(item)=queue.pop_front() {
-        if !component.insert(item.clone()) { continue; }
-        if let Some(links)=adjacency.get(&item) { queue.extend(links.iter().cloned()); }
+    let selected_set: BTreeSet<_> = selected.iter().cloned().collect();
+    let moved: Vec<_> = items.iter().filter(|r| selected_set.contains(r["id"].as_str().unwrap_or("")) && r["partition_id"]!=target).cloned().collect();
+    let moved_ids: BTreeSet<String> = moved.iter().filter_map(|r| r["id"].as_str().map(str::to_string)).collect();
+    let mut dependency_ids = BTreeSet::new();
+    for id in &moved_ids {
+        if let Some(links) = adjacency.get(id) {
+            for linked in links {
+                if !moved_ids.contains(linked) { dependency_ids.insert(linked.clone()); }
+            }
+        }
     }
-    let moved: Vec<_> = items.iter().filter(|r|component.contains(r["id"].as_str().unwrap_or("")) && r["partition_id"]!=target).cloned().collect();
+    let dependencies: Vec<_> = items.iter().filter(|r| dependency_ids.contains(r["id"].as_str().unwrap_or(""))).cloned().collect();
     // 整体图的修订也参与预览指纹，防止确认后新增的反向引用被悄悄带入迁移。
     let fingerprint = hex::encode(Sha256::digest(serde_json::to_vec(&json!({"items":items,"edges":relations,"target":target,"selected":selected.iter().collect::<BTreeSet<_>>(),"target_group_name":target_group_name,"target_group_id":target_group_id,
         "partitions":rows(conn,"SELECT * FROM partitions ORDER BY id",[])?,"groups":rows(conn,"SELECT * FROM credential_groups ORDER BY id",[]) ?}))
         .map_err(|_|error("invalid"))?));
-    Ok(json!({"items":moved,"count":moved.len(),"selected_count":selected.len(),"fingerprint":fingerprint,"target_partition_id":target,"target_group_name":target_group_name,"target_group_id":target_group_id}))
+    Ok(json!({"items":moved,"dependencies":dependencies,"count":moved.len(),"selected_count":selected.len(),"fingerprint":fingerprint,"target_partition_id":target,"target_group_name":target_group_name,"target_group_id":target_group_id}))
 }
 
 pub fn migrate(conn: &Connection, selected: &[String], target: &str, expected: &str) -> Result<Value> {
@@ -290,6 +295,7 @@ pub fn migrate_with_group(conn: &Connection, selected: &[String], target: &str, 
             tx.execute(&format!("UPDATE {table} SET current_revision=?1,updated_at_ms=?2 WHERE item_id=?3"),params![revision,ts,id])?;
         }
     }
+    crate::associations::break_cross_partition(&tx)?;
     validate(&tx)?;
     tx.execute("DELETE FROM sync_state WHERE key='partition_moving'",[])?;
     crate::mark_restore_dirty(&tx)?; tx.commit()?;

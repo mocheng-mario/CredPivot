@@ -95,30 +95,8 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     return tr('server.linkLabel.text');
   }
 
-  String? _loginLinkedTotpId(String? loginId) {
-    final id = dropdownValueIfPresent(loginId, _logins);
-    if (id == null) return null;
-    for (final row in _logins) {
-      if (row['id'] == id) {
-        return dropdownValueIfPresent(row['linked_totp_id'] as String?, _totps);
-      }
-    }
-    return null;
-  }
-
-  /// 一键连接 / 复制 MFA：服务器单独关联优先，否则继承关联登录上的 MFA。
   String? _resolveTotpIdForServer(Map<String, dynamic> row) {
-    final onServer = dropdownValueIfPresent(row['linked_totp_id'] as String?, _totps);
-    if (onServer != null && onServer.isNotEmpty) return onServer;
-    final loginId = dropdownValueIfPresent(row['linked_login_id'] as String?, _logins);
-    return _loginLinkedTotpId(loginId);
-  }
-
-  bool _totpInheritedFromLogin(Map<String, dynamic> row) {
-    final onServer = dropdownValueIfPresent(row['linked_totp_id'] as String?, _totps);
-    if (onServer != null && onServer.isNotEmpty) return false;
-    return _loginLinkedTotpId(dropdownValueIfPresent(row['linked_login_id'] as String?, _logins)) !=
-        null;
+    return dropdownValueIfPresent(row['linked_totp_id'] as String?, _totps);
   }
 
   Future<void> _addOrEdit({Map<String, dynamic>? existing}) async {
@@ -178,13 +156,19 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
   Future<void> _openSshAuto() async {
     final row = _selected;
     if (row == null) return;
+    if (row['unavailable'] == true) {
+      final reason = row['unavailable_reason']?.toString() ?? '';
+      setState(() => _status = reason.isEmpty ? '这条连接已停用，需要重新确认后才能使用' : reason);
+      return;
+    }
     final host = row['host']?.toString().trim() ?? '';
     if (host.isEmpty) {
       setState(() => _status = tr('server.openSshAuto.text'));
       return;
     }
     final loginId = dropdownValueIfPresent(row['linked_login_id'] as String?, _logins);
-    if (loginId == null || loginId.isEmpty) {
+    final manualUser = row['manual_username']?.toString().trim() ?? '';
+    if ((loginId == null || loginId.isEmpty) && manualUser.isEmpty) {
       setState(() => _status = tr('server.openSshAuto.text.item2'));
       return;
     }
@@ -206,8 +190,9 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
         host: host,
         port: port,
         user: username,
-        loginCredentialId: loginId,
+        loginCredentialId: loginId ?? '',
         totpId: totpId,
+        serverProfileId: row['id']?.toString(),
       );
       await AgentBridge.materializeSshAskpass();
     } on AgentException catch (e) {
@@ -266,6 +251,12 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
   }
 
   Future<void> _copyPassword() async {
+    if (_selected?['unavailable'] == true) {
+      setState(() => _status = _selected?['unavailable_reason']?.toString().isNotEmpty == true
+          ? _selected!['unavailable_reason'].toString()
+          : '这条连接已停用，需要重新确认后才能使用');
+      return;
+    }
     final loginId = dropdownValueIfPresent(_selected?['linked_login_id'] as String?, _logins);
     if (loginId == null || loginId.isEmpty) {
       setState(() => _status = tr('server.copyPassword.text'));
@@ -289,6 +280,12 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
   Future<void> _copyMfa() async {
     final row = _selected;
     if (row == null) return;
+    if (row['unavailable'] == true) {
+      setState(() => _status = row['unavailable_reason']?.toString().isNotEmpty == true
+          ? row['unavailable_reason'].toString()
+          : '这条连接已停用，需要重新确认后才能使用');
+      return;
+    }
     final totpId = _resolveTotpIdForServer(row);
     if (totpId == null || totpId.isEmpty) {
       setState(() => _status = tr('server.copyMfa.text'));
@@ -377,16 +374,18 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                     final totpLbl = effectiveTotpId == null
                         ? null
                         : _linkLabel(effectiveTotpId, _totps, 'issuer');
-                    final inheritedTotp = _totpInheritedFromLogin(row);
                     final manualUser =
                         row['manual_username']?.toString().trim() ?? '';
+                    final unavailable = row['unavailable'] == true;
                     final sub = [
+                      if (unavailable) (row['unavailable_reason']?.toString().isNotEmpty == true
+                          ? row['unavailable_reason'].toString()
+                          : '已停用'),
                       '${row['host']}:${row['port']}',
                       if (loginLbl != null) tr('server.links.login', args: {'login': loginLbl}),
                       if (loginLbl == null && manualUser.isNotEmpty)
                         tr('server.links.user', args: {'username': manualUser}),
-                      if (totpLbl != null)
-                        inheritedTotp ? tr('server.links.inheritedMfa', args: {'mfa': totpLbl}) : 'MFA: $totpLbl',
+                      if (totpLbl != null) 'MFA: $totpLbl',
                     ].join(' · ');
                     return selectableCredentialTile(
                       context: context,
@@ -416,9 +415,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                         '',
                     'MFA': _resolveTotpIdForServer(_selected!) == null
                         ? tr('common.notLinked')
-                        : (_totpInheritedFromLogin(_selected!)
-                            ? tr('server.build.text.item6')
-                            : tr('server.build.text.item7')),
+                        : tr('server.build.text.item7'),
                   },
                   copyableFields: {tr('server.fields.host')},
                 ),
@@ -516,6 +513,7 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
     final hostCtl = TextEditingController(text: existing?['host']?.toString() ?? '');
     final portCtl = TextEditingController(text: '${existing?['port'] ?? 22}');
     final manualUserCtl = TextEditingController(text: existing?['manual_username']?.toString() ?? '');
+    final manualSecretCtl = TextEditingController();
     final rawLogin = existing?['linked_login_id'] as String?;
     final rawTotp = existing?['linked_totp_id'] as String?;
     final rawSsh = existing?['linked_ssh_key_id'] as String?;
@@ -528,7 +526,7 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
             staleLinkWasCleared(rawTotp, linkedTotp) ||
             staleLinkWasCleared(rawSsh, linkedSsh));
 
-    String snapshot() => jsonEncode([labelCtl.text,hostCtl.text,portCtl.text,manualUserCtl.text,linkedLogin,linkedTotp,linkedSsh,groupId]);
+    String snapshot() => jsonEncode([labelCtl.text,hostCtl.text,portCtl.text,manualUserCtl.text,manualSecretCtl.text,linkedLogin,linkedTotp,linkedSsh,groupId]);
     final initialSnapshot = snapshot();
     var closing = false, confirmingDiscard = false, saving = false;
     var formError = '';
@@ -546,10 +544,20 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
       final port = int.tryParse(portCtl.text.trim());
       final noLinkedLogin = linkedLogin == null || linkedLogin!.isEmpty;
       if (hostCtl.text.trim().isEmpty || port == null || port < 1 || port > 65535 ||
-          (noLinkedLogin && manualUserCtl.text.trim().isEmpty)) {
+          (noLinkedLogin && (manualUserCtl.text.trim().isEmpty ||
+            (manualSecretCtl.text.isEmpty && existing?['has_manual_secret'] != true)))) {
         setLocal(() => formError = tr('server.save.text'));
         return;
       }
+      bool belongs(String? id, String field) {
+        if (id == null || id.isEmpty) return true;
+        if (noLinkedLogin) return true;
+        final login = logins.where((row) => row['id'] == linkedLogin);
+        if (login.isEmpty) return false;
+        return ((login.first[field] as List?) ?? const []).map((item) => item.toString()).contains(id);
+      }
+      if (!belongs(linkedTotp, 'linked_mfa_ids')) linkedTotp = null;
+      if (!belongs(linkedSsh, 'linked_ssh_key_ids')) linkedSsh = null;
       setLocal(() { saving = true; formError = ''; });
       try {
         if (isEdit && !await requireTouchId(ctx, reason: tr('server.save.reason'))) return;
@@ -560,6 +568,7 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
             expectedRevision: existing['current_revision'] as String,
             label: labelCtl.text.trim(), host: hostCtl.text.trim(), port: port,
             manualUsername: noLinkedLogin ? manualUserCtl.text.trim() : '',
+            manualSecret: noLinkedLogin && manualSecretCtl.text.isNotEmpty ? manualSecretCtl.text : null,
             linkedLoginId: linkedLogin, linkedTotpId: linkedTotp, linkedSshKeyId: linkedSsh,
             groupId: groupId,
           );
@@ -569,6 +578,7 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
             label: labelCtl.text.trim().isEmpty ? hostCtl.text.trim() : labelCtl.text.trim(),
             host: hostCtl.text.trim(), port: port,
             manualUsername: noLinkedLogin ? manualUserCtl.text.trim() : '',
+            manualSecret: noLinkedLogin ? manualSecretCtl.text : null,
             linkedLoginId: linkedLogin, linkedTotpId: linkedTotp, linkedSshKeyId: linkedSsh,
             groupId: groupId,
           );
@@ -597,6 +607,10 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: appFormFields([
+                if (existing?['unavailable'] == true)
+                  Text(existing?['unavailable_reason']?.toString().isNotEmpty == true
+                      ? existing!['unavailable_reason'].toString()
+                      : '这条连接已停用，重新选择并保存后才能使用'),
                 AppFieldRow(label: tr('common.name'), child: TextField(controller: labelCtl, decoration: InputDecoration())),
                 AppFieldRow(label: tr('common.group'), child: DropdownButtonFormField<String?>(
                   isExpanded: true,
@@ -638,34 +652,41 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
                     ),
                   ],
                   onChanged: (v) => setLocal(() {
-                    linkedLogin = v;
-                    if ((linkedTotp == null || linkedTotp!.isEmpty) && v != null && v.isNotEmpty) {
-                      for (final row in logins) {
-                        if (row['id'] == v) {
-                          linkedTotp = dropdownValueIfPresent(
-                            row['linked_totp_id'] as String?,
-                            totps,
-                          );
-                          break;
-                        }
-                      }
+                    if (v != linkedLogin) {
+                      linkedTotp = null;
+                      linkedSsh = null;
                     }
+                    linkedLogin = v;
                   }),
                 )),
-                AppFieldRow(label: tr('server.save.text.item8'), child: TextField(
-                  controller: manualUserCtl,
-                  enabled: linkedLogin == null || (linkedLogin?.isEmpty ?? true),
-                  decoration: InputDecoration(hintText: linkedLogin == null || (linkedLogin?.isEmpty ?? true)
-                        ? tr('server.save.text.item9')
-                        : tr('server.save.text.item10')),
-                )),
+                if (linkedLogin == null || (linkedLogin?.isEmpty ?? true)) ...[
+                  AppFieldRow(label: tr('server.save.text.item8'), child: TextField(
+                    controller: manualUserCtl,
+                    decoration: InputDecoration(hintText: tr('server.save.text.item9')),
+                  )),
+                  AppFieldRow(label: tr('common.password'), child: TextField(
+                    controller: manualSecretCtl,
+                    obscureText: true,
+                    decoration: InputDecoration(hintText: existing?['has_manual_secret'] == true ? '留空则保持原密码' : '请填写连接自己的密码'),
+                  )),
+                ],
                 AppFieldRow(label: tr('server.save.text.item11'), help: tr('server.save.text.item12'), child: DropdownButtonFormField<String?>(
                   isExpanded: true,
-                  value: linkedTotp,
+                  value: totps.where((t) {
+                    if (linkedLogin == null || linkedLogin!.isEmpty) return t['id'] == linkedTotp;
+                    final login = logins.where((row) => row['id'] == linkedLogin);
+                    final ids = login.isEmpty ? const <String>[] : ((login.first['linked_mfa_ids'] as List?) ?? const []).map((e) => e.toString());
+                    return t['id'] == linkedTotp && ids.contains(t['id']);
+                  }).isEmpty ? null : linkedTotp,
                   decoration: InputDecoration(),
                   items: [
                     const DropdownMenuItem(value: null, child: LText('server.save.text.item13')),
-                    ...totps.map(
+                    ...totps.where((t) {
+                      if (linkedLogin == null || linkedLogin!.isEmpty) return true;
+                      final login = logins.where((row) => row['id'] == linkedLogin);
+                      final ids = login.isEmpty ? const <String>[] : ((login.first['linked_mfa_ids'] as List?) ?? const []).map((e) => e.toString());
+                      return ids.contains(t['id']);
+                    }).map(
                       (t) => DropdownMenuItem(
                         value: t['id'] as String,
                         child: LText(
@@ -680,11 +701,21 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
                 )),
                 AppFieldRow(label: tr('server.save.text.item14'), child: DropdownButtonFormField<String?>(
                   isExpanded: true,
-                  value: linkedSsh,
+                  value: sshKeys.where((s) {
+                    if (linkedLogin == null || linkedLogin!.isEmpty) return s['id'] == linkedSsh;
+                    final login = logins.where((row) => row['id'] == linkedLogin);
+                    final ids = login.isEmpty ? const <String>[] : ((login.first['linked_ssh_key_ids'] as List?) ?? const []).map((e) => e.toString());
+                    return s['id'] == linkedSsh && ids.contains(s['id']);
+                  }).isEmpty ? null : linkedSsh,
                   decoration: InputDecoration(),
                   items: [
                     const DropdownMenuItem(value: null, child: LText('server.save.text.item13')),
-                    ...sshKeys.map(
+                    ...sshKeys.where((s) {
+                      if (linkedLogin == null || linkedLogin!.isEmpty) return true;
+                      final login = logins.where((row) => row['id'] == linkedLogin);
+                      final ids = login.isEmpty ? const <String>[] : ((login.first['linked_ssh_key_ids'] as List?) ?? const []).map((e) => e.toString());
+                      return ids.contains(s['id']);
+                    }).map(
                       (s) => DropdownMenuItem(
                         value: s['id'] as String,
                         child: Text(
@@ -716,6 +747,7 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
       hostCtl.dispose();
       portCtl.dispose();
       manualUserCtl.dispose();
+      manualSecretCtl.dispose();
     }
 
   }

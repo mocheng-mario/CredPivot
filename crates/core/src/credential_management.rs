@@ -525,11 +525,8 @@ fn security_report(conn: &Connection) -> Result<Value> {
         } else if days > 0 && now_ms() - since >= i64::from(days) * 86_400_000 {
             reasons.push("reminder_due");
         }
-        if details.mfa_state == "disabled" {
+        if !crate::associations::mfa_enabled(conn, v["item_id"].as_str().unwrap_or_default())? {
             reasons.push("mfa_disabled");
-        } else if details.mfa_state != "enabled" && details.linked_mfa_ids.is_empty()
-            && v["linked_totp_id"].as_str().map_or(true, str::is_empty) {
-            reasons.push("mfa_unknown");
         }
         let last_use = v["last_used_at_ms"]
             .as_i64()
@@ -714,7 +711,7 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
     let value = match action {
         LoginWebsiteRules { credential_id } => {
             changed = false;
-            json!({"rules":crate::website_rules::credential_website_rules(&tx,&credential_id)?,"linked_mfa_ids":details_for(&tx,&crate::repo_m2::get_login_row(&tx,&credential_id)?.item_id)?.linked_mfa_ids})
+            json!({"rules":crate::website_rules::credential_website_rules(&tx,&credential_id)?,"linked_mfa_ids":crate::associations::mfa_credential_ids(&tx,&crate::repo_m2::get_login_row(&tx,&credential_id)?.item_id)?,"linked_ssh_key_ids":crate::associations::ssh_key_ids(&tx,&crate::repo_m2::get_login_row(&tx,&credential_id)?.item_id)?})
         }
         WebsiteRulesTest { rules, target } => {
             changed = false;
@@ -858,6 +855,10 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             details.uris = stored.uris;
             details.linked_mfa_ids = stored.linked_mfa_ids;
             details.related_item_ids.clear();
+            if tx.query_row("SELECT kind FROM items WHERE id=?1", [&item_id], |row| row.get::<_, String>(0))? == "login" {
+                details.mfa_state = if crate::associations::mfa_enabled(&tx, &item_id)? { "enabled" } else { "disabled" }.into();
+                details.linked_mfa_ids.clear();
+            }
             details.pending_mfa_uris = stored.pending_mfa_uris;
             details.ssh_git_rules = crate::ssh_git::normalize_rules(&details.ssh_git_rules)?;
             if !matches!(details.ssh_sign_policy.as_str(), "" | "session" | "confirm" | "biometric")

@@ -20,6 +20,10 @@ pub struct LoginListRow {
     pub current_revision: String,
     pub updated_at_ms: i64,
     pub password_active_since_ms: i64,
+    #[serde(default)]
+    pub linked_mfa_ids: Vec<String>,
+    #[serde(default)]
+    pub linked_ssh_key_ids: Vec<String>,
 }
 
 const LOGIN_LIST_SELECT: &str = "SELECT c.id, c.item_id, i.title, c.display_name, c.origin, c.username, c.connection_host,
@@ -86,12 +90,13 @@ pub fn list_logins_page_in_partition(conn: &Connection, query: Option<&str>, lim
             out.push(r.map_err(|e| CoreError::format(e.to_string()))?);
         }
     }
+    attach_login_links(conn, &mut out)?;
     Ok(out)
 }
 
 /// 按 ID 读取写入结果，避免受列表分页和相同更新时间的排序影响。
 pub(crate) fn get_login_row(conn: &Connection, credential_id: &str) -> Result<LoginListRow> {
-    conn.query_row(
+    let mut row = conn.query_row(
         &format!(
             "{LOGIN_LIST_SELECT}
              FROM login_credentials c
@@ -101,7 +106,9 @@ pub(crate) fn get_login_row(conn: &Connection, credential_id: &str) -> Result<Lo
         params![credential_id],
         map_login_row,
     )
-    .map_err(|e| CoreError::format(e.to_string()))
+    .map_err(|e| CoreError::format(e.to_string()))?;
+    attach_login_links(conn, std::slice::from_mut(&mut row))?;
+    Ok(row)
 }
 
 fn map_login_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LoginListRow> {
@@ -118,7 +125,17 @@ fn map_login_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LoginListRow> {
         current_revision: row.get(9)?,
         updated_at_ms: row.get(10)?,
         password_active_since_ms: row.get(11)?,
+        linked_mfa_ids: Vec::new(),
+        linked_ssh_key_ids: Vec::new(),
     })
+}
+
+fn attach_login_links(conn: &Connection, rows: &mut [LoginListRow]) -> Result<()> {
+    for row in rows {
+        row.linked_mfa_ids = crate::associations::mfa_credential_ids(conn, &row.item_id)?;
+        row.linked_ssh_key_ids = crate::associations::ssh_key_ids(conn, &row.item_id)?;
+    }
+    Ok(())
 }
 
 fn login_item_title(display_name: &str, origin: &str, username: &str) -> String {
@@ -190,7 +207,7 @@ pub fn insert_login_extended_in_partition(
             password,
             display_name.trim(),
             connection_host.trim(),
-            linked_totp_id,
+            None::<&str>,
             revision,
             ts,
             since
@@ -200,16 +217,8 @@ pub fn insert_login_extended_in_partition(
     if let Some(rules) = website_rules { crate::website_rules::save_login_website_rules(&tx, &item_id, rules)?; }
     if let Some(ids) = linked_mfa_ids {
         crate::website_rules::save_linked_mfas(&tx, &item_id, ids)?;
-        // 服务器仍使用单 MFA：保留仍被选择的旧关联，多条时不任意挑选。
-        let legacy = linked_totp_id.filter(|id| ids.iter().any(|v|v.as_str() == *id))
-            .or_else(|| if ids.len() == 1 { Some(ids[0].as_str()) } else { None });
-        tx.execute("UPDATE login_credentials SET linked_totp_id=?1 WHERE item_id=?2", params![legacy,item_id])?;
     } else if let Some(id) = linked_totp_id {
-        let mut details = crate::credential_management::details_for(&tx, &item_id)?;
-        if !details.linked_mfa_ids.iter().any(|v|v == id) {
-            details.linked_mfa_ids.push(id.into());
-            crate::website_rules::save_linked_mfas(&tx, &item_id, &details.linked_mfa_ids)?;
-        }
+        crate::website_rules::save_linked_mfas(&tx, &item_id, &[id.to_string()])?;
     }
 
     let row = get_login_row(&tx, &cred_id)?;
@@ -252,9 +261,9 @@ pub(crate) fn update_login_with_mfa(
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| CoreError::format(e.to_string()))?;
-    let (item_id, current_rev, old_secret, _active_since): (String, String, String, i64) = tx
+    let (item_id, current_rev, old_secret, old_username): (String, String, String, String) = tx
         .query_row(
-            "SELECT c.item_id, c.current_revision, c.secret, c.password_active_since_ms
+            "SELECT c.item_id, c.current_revision, c.secret, c.username
              FROM login_credentials c
              INNER JOIN items i ON i.id = c.item_id
              WHERE c.id = ?1 AND i.trashed = 0",
@@ -275,8 +284,8 @@ pub(crate) fn update_login_with_mfa(
     }
     tx.execute(
         "UPDATE login_credentials SET origin=?1, username=?2, display_name=?3, connection_host=?4,
-         linked_totp_id=?5, current_revision=?6, updated_at_ms=?7 WHERE id=?8",
-        params![origin,username,display_name.trim(),connection_host.trim(),linked_totp_id,revision,ts,credential_id],
+         linked_totp_id=NULL, current_revision=?5, updated_at_ms=?6 WHERE id=?7",
+        params![origin,username,display_name.trim(),connection_host.trim(),revision,ts,credential_id],
     )?;
     tx.execute(
         "UPDATE items SET title = ?1, group_id = ?2, current_revision = ?3, updated_at_ms = ?4 WHERE id = ?5",
@@ -286,17 +295,10 @@ pub(crate) fn update_login_with_mfa(
     if let Some(rules) = website_rules { crate::website_rules::save_login_website_rules(&tx, &item_id, rules)?; }
     if let Some(ids) = linked_mfa_ids {
         crate::website_rules::save_linked_mfas(&tx, &item_id, ids)?;
-        // 服务器仍使用单 MFA：保留仍被选择的旧关联，多条时不任意挑选。
-        let legacy = linked_totp_id.filter(|id| ids.iter().any(|v|v.as_str() == *id))
-            .or_else(|| if ids.len() == 1 { Some(ids[0].as_str()) } else { None });
-        tx.execute("UPDATE login_credentials SET linked_totp_id=?1 WHERE item_id=?2", params![legacy,item_id])?;
     } else if let Some(id) = linked_totp_id {
-        let mut details = crate::credential_management::details_for(&tx, &item_id)?;
-        if !details.linked_mfa_ids.iter().any(|v|v == id) {
-            details.linked_mfa_ids.push(id.into());
-            crate::website_rules::save_linked_mfas(&tx, &item_id, &details.linked_mfa_ids)?;
-        }
+        crate::website_rules::save_linked_mfas(&tx, &item_id, &[id.to_string()])?;
     }
+    crate::associations::note_username_cleared(&tx, credential_id, &old_username, username)?;
 
     let row = get_login_row(&tx, credential_id)?;
     tx.commit().map_err(|e| CoreError::format(e.to_string()))?;
@@ -319,15 +321,29 @@ pub(crate) fn trash_item_in_tx(conn: &Connection, item_id: &str) -> Result<()> {
         params![item_id],
         |row| Ok((row.get(0)?, row.get::<_, i64>(1)? != 0)),
     ).optional().map_err(|e| CoreError::format(e.to_string()))?;
-    if let Some((key_id, _)) = &ssh_key {
-        let references: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM server_login_profiles s INNER JOIN items i ON i.id = s.item_id
-             WHERE s.linked_ssh_key_id = ?1 AND i.trashed = 0",
-            params![key_id], |row| row.get(0),
-        ).map_err(|e| CoreError::format(e.to_string()))?;
-        if references > 0 {
-            return Err(CoreError::format("SSH 密钥仍被服务器配置引用，请先编辑服务器解除关联"));
+    let kind: String = conn.query_row("SELECT kind FROM items WHERE id=?1 AND trashed=0", [item_id], |row| row.get(0))
+        .map_err(|_| CoreError::format("item not found"))?;
+    match kind.as_str() {
+        "login" => {
+            if let Some(id) = conn.query_row("SELECT id FROM login_credentials WHERE item_id=?1", [item_id], |row| row.get::<_, String>(0)).optional()? {
+                crate::associations::disable_profiles_for_credential(conn, "linked_login_id", &id, "关联账户已删除")?;
+            }
+            crate::associations::delete_links_for_item(conn, item_id)?;
         }
+        "totp" => {
+            if let Some(id) = conn.query_row("SELECT id FROM totp_credentials WHERE item_id=?1", [item_id], |row| row.get::<_, String>(0)).optional()? {
+                crate::associations::disable_profiles_for_credential(conn, "linked_totp_id", &id, "所选 MFA 已删除")?;
+            }
+            crate::associations::delete_links_for_item(conn, item_id)?;
+        }
+        "ssh_key" => {
+            if let Some((key_id, _)) = &ssh_key {
+                crate::associations::disable_profiles_for_credential(conn, "linked_ssh_key_id", key_id, "所选 SSH 密钥已删除")?;
+            }
+            crate::associations::delete_links_for_item(conn, item_id)?;
+        }
+        "passkey" => crate::associations::delete_links_for_item(conn, item_id)?,
+        _ => {}
     }
     let n = conn
         .execute(

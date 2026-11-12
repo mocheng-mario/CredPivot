@@ -153,6 +153,17 @@ pub fn run(vault_dir: Option<PathBuf>, apply: bool) -> Result<()> {
         )
         .map_err(|_| "无法准备认证关联，当前事务已撤销")?;
     }
+    let has_manual_secret: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('server_login_profiles') WHERE name='manual_secret'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| "无法检查连接密码字段，当前事务已撤销")?;
+    if has_manual_secret == 0 {
+        tx.execute_batch("ALTER TABLE server_login_profiles ADD COLUMN manual_secret TEXT NOT NULL DEFAULT ''")
+            .map_err(|_| "无法添加连接自己的密码字段，当前事务已撤销")?;
+    }
     let profiles = profiles(&tx)?;
     for profile in &profiles {
         let revision = Uuid::new_v4().to_string();

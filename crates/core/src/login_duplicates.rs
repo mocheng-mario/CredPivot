@@ -179,14 +179,26 @@ pub(crate) fn apply(conn: &Connection, keeper: &str, sources: &[String], expecte
                 params![uuid::Uuid::new_v4().to_string(),kept,base,row["secret"].as_str(),row["created_at_ms"].as_i64()])?;
         }
         for server in rows(&tx,"SELECT id,item_id FROM server_login_profiles WHERE linked_login_id=?1",[source])? {
-            tx.execute("UPDATE server_login_profiles SET linked_login_id=?1,linked_totp_id=COALESCE(linked_totp_id,?2) WHERE id=?3",
-                params![kept,original.linked_totp_id,server["id"].as_str()])?;
+            tx.execute("UPDATE server_login_profiles SET linked_login_id=?1 WHERE id=?2",
+                params![kept,server["id"].as_str()])?;
             bump(&tx,server["item_id"].as_str().ok_or(CoreError::Conflict)?)?;
         }
         tx.execute("UPDATE import_mappings SET local_item_id=?1 WHERE local_item_id=?2",params![keeper,item["id"].as_str()])?;
     }
     tx.execute("UPDATE items SET details_json=?1 WHERE id=?2",params![serde_json::to_string(&merged).map_err(|_|CoreError::format("无法保存合并资料"))?,keeper])?;
     crate::associations::move_passkey_links(&tx, sources, keeper)?;
+    crate::associations::move_account_links(&tx, sources, keeper)?;
+    let allowed_mfa = crate::associations::mfa_credential_ids(&tx, keeper)?;
+    let allowed_keys = crate::associations::ssh_key_ids(&tx, keeper)?;
+    for server in rows(&tx, "SELECT id, item_id, linked_totp_id, linked_ssh_key_id FROM server_login_profiles WHERE linked_login_id=?1", [kept])? {
+        let totp = server["linked_totp_id"].as_str().filter(|id| allowed_mfa.iter().any(|item| item == id));
+        let key = server["linked_ssh_key_id"].as_str().filter(|id| allowed_keys.iter().any(|item| item == id));
+        if totp != server["linked_totp_id"].as_str() || key != server["linked_ssh_key_id"].as_str() {
+            tx.execute("UPDATE server_login_profiles SET linked_totp_id=?1, linked_ssh_key_id=?2 WHERE id=?3",
+                params![totp, key, server["id"].as_str()])?;
+            bump(&tx, server["item_id"].as_str().ok_or(CoreError::Conflict)?)?;
+        }
+    }
     for source in sources { crate::repo_m2::trash_item_in_tx(&tx,source)?; }
     bump(&tx,keeper)?;
     crate::partitions::validate(&tx)?;

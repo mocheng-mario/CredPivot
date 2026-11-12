@@ -67,9 +67,11 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
     final isEdit = existing != null;
     final partition = existing?['partition_id']?.toString() ?? AgentBridge.activePartitionId;
     List<Map<String, dynamic>> totps = [];
+    List<Map<String, dynamic>> sshKeys = [];
     List<Map<String, dynamic>> groups = [];
     try {
       totps = await AgentBridge.listTotp(partitionId: partition);
+      sshKeys = await AgentBridge.listSshKeys(partitionId: partition);
       groups = await loadCredentialGroups('login', partitionId: partition);
     } on AgentException catch (e) {
       if (context.mounted) vaultMessage(context, e);
@@ -77,12 +79,14 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
     }
     List<Map<String, dynamic>> websiteRules = [newWebsiteRule()];
     List<String> linkedMfaIds = [];
+    List<String> linkedSshKeyIds = [];
     var passwordActiveSince = DateTime.now().millisecondsSinceEpoch;
     if (isEdit) {
       try {
         final result = await AgentBridge.manage({'action': 'login_website_rules', 'credential_id': existing['id']});
         websiteRules = (result['rules'] as List).map((row) => Map<String, dynamic>.from(row as Map)).toList();
         linkedMfaIds = (result['linked_mfa_ids'] as List? ?? []).cast<String>();
+        linkedSshKeyIds = (result['linked_ssh_key_ids'] as List? ?? []).cast<String>();
       } on AgentException catch (e) {
         if (context.mounted) vaultMessage(context, e);
         return false;
@@ -100,7 +104,7 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
     var groupId = dropdownValueIfPresent(rawGroupId, groups);
     final rawTotp = existing?['linked_totp_id'] as String?;
     final linkedTotp = dropdownValueIfPresent(rawTotp, totps);
-    String snapshot() => jsonEncode([nameCtl.text,userCtl.text,passCtl.text,groupId,websiteRules,linkedMfaIds,passwordActiveSince]);
+    String snapshot() => jsonEncode([nameCtl.text,userCtl.text,passCtl.text,groupId,websiteRules,linkedMfaIds,linkedSshKeyIds,passwordActiveSince]);
     final initialSnapshot = snapshot();
     var confirmingDiscard = false;
     Future<void> cancel(BuildContext ctx) async {
@@ -160,6 +164,19 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
               if (!isEdit) PasswordActiveDateField(value: passwordActiveSince, enabled: !validating,
                 onChanged: (v) => setLocal(() => passwordActiveSince = v)),
               WebsiteRulesEditor(rules: websiteRules, enabled: !validating),
+              for (final key in sshKeys)
+                CheckboxListTile(
+                  value: linkedSshKeyIds.contains(key['id']),
+                  title: Text(key['label']?.toString() ?? 'SSH'),
+                  onChanged: validating ? null : (checked) => setLocal(() {
+                    final id = key['id'].toString();
+                    if (checked == true) {
+                      if (!linkedSshKeyIds.contains(id)) linkedSshKeyIds.add(id);
+                    } else {
+                      linkedSshKeyIds.remove(id);
+                    }
+                  }),
+                ),
               MfaBindingsEditor(linkedIds: linkedMfaIds, mfas: totps, enabled: !validating,
                 onEdit: (mfa) async {
                   if (validating || closing) return;
@@ -197,6 +214,7 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
                     origin: origin,
                     websiteRules: websiteRules,
                     linkedMfaIds: linkedMfaIds,
+                    linkedSshKeyIds: linkedSshKeyIds,
                     username: user,
                     displayName: displayName,
                     groupId: groupId,
@@ -210,6 +228,7 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
                     origin: origin,
                     websiteRules: websiteRules,
                     linkedMfaIds: linkedMfaIds,
+                    linkedSshKeyIds: linkedSshKeyIds,
                     username: user,
                     password: passCtl.text,
                     passwordActiveSinceMs: passwordActiveSince,
@@ -1230,11 +1249,8 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
   int _loadGeneration = 0;
   Map<String, dynamic> _backupStatus = {};
   List<Map<String, dynamic>> _restorePoints = [];
-  List<Map<String, dynamic>> _recoveryCodes = [];
   String _log = '';
   String _restoreError = '';
-  final _serviceName = TextEditingController();
-  final _codesText = TextEditingController();
   final _recoveryKey = TextEditingController();
   final _rebuildPassword = TextEditingController();
 
@@ -1252,8 +1268,6 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
   @override
   void dispose() {
     AgentBridge.vaultChanges.removeListener(_onVaultChanged);
-    _serviceName.dispose();
-    _codesText.dispose();
     _recoveryKey.dispose();
     _rebuildPassword.dispose();
     super.dispose();
@@ -1265,13 +1279,11 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
     try {
       final backupStatus = await AgentBridge.backupStatus();
       final restorePoints = await AgentBridge.listRestorePoints();
-      final recoveryCodes = await AgentBridge.listRecoveryCodes();
       // 页面保留在导航栈中，旧请求不能把锁定前的数据重新写回。
       if (!mounted || !widget.unlocked || generation != _loadGeneration) return;
       setState(() {
         _backupStatus = backupStatus;
         _restorePoints = restorePoints;
-        _recoveryCodes = recoveryCodes;
       });
     } on AgentException catch (e) {
       if (mounted && widget.unlocked && generation == _loadGeneration) {
@@ -1287,28 +1299,6 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
 
   Future<void> _importGoogle() async {
     if (await importGooglePasswords(context) && mounted) await _loadAll();
-  }
-
-  Future<void> _addRecoveryCodes() async {
-    final name = _serviceName.text.trim();
-    final codes = _codesText.text
-        .split(RegExp(r'[\s,;]+'))
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-    if (name.isEmpty || codes.isEmpty) {
-      setState(() => _log = tr('credentials.addRecoveryCodes.text'));
-      return;
-    }
-    try {
-      await AgentBridge.createRecoveryCodes(name, codes);
-      _serviceName.clear();
-      _codesText.clear();
-      await _loadAll();
-      setState(() => _log = tr('credentials.addRecoveryCodes.text.item2'));
-    } on AgentException catch (e) {
-      setState(() => _log = AgentBridge.diagnosticMessage(e));
-    }
   }
 
   Future<void> _recoverPoint(Map<String, dynamic> point) async {
@@ -1377,11 +1367,6 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
     }
   }
 
-  Future<void> _openRecoveryCode(Map<String, dynamic> row) async {
-    await manageRecoveryEntries(context, row);
-    if (mounted) await _loadAll();
-  }
-
   Future<void> _recoverOvbToEmptyDir() async {
     if (!mounted || !widget.unlocked) return;
     final password = _rebuildPassword.text;
@@ -1418,13 +1403,10 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
       _loadGeneration++;
       _backupStatus = {};
       _restorePoints = [];
-      _recoveryCodes = [];
       _log = '';
       _recoveryKey.clear();
       _rebuildPassword.clear();
       _restoreError = '';
-      _serviceName.clear();
-      _codesText.clear();
     } else if (widget.unlocked && !oldWidget.unlocked) {
       _loadAll();
     }
@@ -1462,43 +1444,6 @@ class _SecurityCenterTabState extends State<SecurityCenterTab> {
             _backupRow(tr('credentials.build.text.item35'), 'ovb_export_verified_ms'),
             _backupRow(tr('credentials.build.text.item36'), 'ovb_decrypt_verified_ms'),
             _backupRow(tr('credentials.build.text.item37'), 'recovery_key_verified_ms'),
-          ]),
-        ),
-        const SizedBox(height: 16),
-        AppPanel(
-          title: tr('credentials.recovery.websiteCodes'),
-          subtitle: tr('credentials.build.description.item5'),
-          icon: Icons.verified_user_outlined,
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            if (_recoveryCodes.isEmpty)
-              AppNotice(tr('credentials.build.text.item38')),
-            ..._recoveryCodes.map((r) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.verified_user_outlined,
-                      color: AppColors.primary),
-                  title: Text(r['service_name']?.toString() ?? ''),
-                  subtitle: LText('recovery.codes.remaining', args: {'remaining': r['remaining_count'] ?? 0, 'total': r['code_count'] ?? 0}),
-                  trailing: const Icon(Icons.chevron_right_rounded, size: 18),
-                  onTap: () => _openRecoveryCode(r),
-                )),
-            const SizedBox(height: 12),
-            AppFieldRow(label: tr('credentials.build.text.item40'), child: TextField(
-                controller: _serviceName,
-                decoration: InputDecoration(hintText: tr('credentials.build.text.item41')))),
-            const SizedBox(height: 12),
-            AppFieldRow(label: tr('credentials.recovery.title'), child: TextField(
-                controller: _codesText,
-                minLines: 2,
-                maxLines: 4,
-                decoration: InputDecoration(hintText: tr('credentials.build.text.item42')))),
-            const SizedBox(height: 14),
-            Align(
-                alignment: Alignment.centerLeft,
-                child: FilledButton.icon(
-                    onPressed: _addRecoveryCodes,
-                    icon: const Icon(Icons.add_rounded),
-                    label: const LText('credentials.build.text.item43'))),
           ]),
         ),
         const SizedBox(height: 16),

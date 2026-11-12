@@ -218,13 +218,9 @@ pub(crate) fn save_login_website_rules(
     Ok(())
 }
 
-/// 账号只保存关联的 MFA ID；适用网站由 MFA 自己维护。
+/// 账号只保存认证关联；适用网站由 MFA 自己维护。不再写入单值字段或资料 JSON。
 pub(crate) fn save_linked_mfas(conn: &Connection, item_id: &str, ids: &[String]) -> Result<()> {
-    validate_linked_mfas(conn, ids)?;
-    let mut details = details_for(conn, item_id)?;
-    details.linked_mfa_ids = ids.to_vec();
-    conn.execute("UPDATE items SET details_json=?1 WHERE id=?2", params![serde_json::to_string(&details).map_err(|_|CoreError::format("MFA 关联无法编码"))?,item_id])?;
-    Ok(())
+    crate::associations::replace_mfas(conn, item_id, ids)
 }
 
 pub(crate) fn validate_linked_mfas(conn: &Connection, ids: &[String]) -> Result<()> {
@@ -249,43 +245,48 @@ fn match_rank(rule: &UriRule) -> Option<u8> {
 
 /// 精确优先，命中后不再编译后续层级的表达式；元数据及规则由一次查询读取。
 /// 只有用户展开其他匹配时才评估其余层级和未关联的 MFA。
-pub fn browser_mfa_candidates(conn: &Connection, origin: &str, credential_id: Option<&str>, include_other_matches: bool) -> Result<Value> {
+pub fn browser_mfa_candidates(conn: &Connection, origin: &str, credential_id: Option<&str>, partition: Option<&str>) -> Result<Value> {
     let page = website_url(origin)?;
-    let linked = if let Some(credential) = credential_id {
-        if !credential_matches_origin(conn, credential, origin)? { return Err(CoreError::format("账号与网站不匹配")); }
+    let account = if let Some(credential) = credential_id {
         let login = crate::repo_m2::get_login_row(conn, credential)?;
-        details_for(conn, &login.item_id)?.linked_mfa_ids
+        let account_partition = crate::partitions::item_partition(conn, &login.item_id)?;
+        if partition.is_some_and(|partition| partition != account_partition) {
+            return Ok(json!({"candidates":[],"can_check_other_matches":false,"all_matches":false}));
+        }
+        Some((login.item_id, account_partition))
+    } else { None };
+    let scope = account.as_ref().map(|(_, partition)| partition.as_str()).or(partition);
+    let linked = if let Some((item, _)) = &account {
+        crate::associations::mfa_credential_ids(conn, item)?
     } else { Vec::new() };
-    let mut rows = crate::repo_m2::list_totp_credentials(conn)?;
-    if let Some(login)=credential_id {
-        let mut filtered=Vec::new();
-        for row in rows {
-            if crate::partitions::same_credentials(conn,login,&row.id)? { filtered.push(row); }
-        }
-        rows=filtered;
-    }
     let mut result = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    let mut last_rank = None;
-    for rank in 0..=2 {
-        for row in &rows {
-            let associated = linked.contains(&row.id);
-            if (!include_other_matches && credential_id.is_some() && !associated) || seen.contains(&row.id) { continue; }
-            if row.website_rules.len() <= 100 && row.website_rules.iter().any(|r|
-                match_rank(r) == Some(rank) && rule_matches(r, &page).unwrap_or(false)) {
-                seen.insert(row.id.clone());
-                result.push(json!({"id":row.id,"issuer":row.issuer,"account":row.account,
-                    "linked":associated,"match_rank":rank,
-                    "match_mode":match rank {0=>"exact_origin",1=>"wildcard",_=>"regex"}}));
-            }
+    for row in crate::repo_m2::list_totp_credentials(conn)? {
+        if scope.is_some_and(|partition| crate::partitions::item_partition(conn, &row.item_id).ok().as_deref() != Some(partition)) {
+            continue;
         }
-        if !result.is_empty() { last_rank = Some(rank); if !include_other_matches { break; } }
+        let rules: Vec<_> = row.website_rules.iter().filter(|rule| match_rank(rule).is_some()).collect();
+        let matched = rules.iter().any(|rule| rule_matches(rule, &page).unwrap_or(false));
+        let include = if account.is_some() {
+            linked.contains(&row.id) && (rules.is_empty() || matched)
+        } else {
+            !linked_to_any_account(conn, &row.item_id)? && !rules.is_empty() && matched
+        };
+        if include {
+            result.push(json!({"id":row.id,"issuer":row.issuer,"account":row.account,"linked":linked.contains(&row.id)}));
+        }
     }
-    // 这里只判断是否还有未评估规则，避免为了显示按钮提前执行正则匹配。
-    let has_more = !include_other_matches && rows.iter().any(|row|
-        !seen.contains(&row.id) && row.website_rules.iter().any(|r| match_rank(r).is_some_and(|rank|
-            (credential_id.is_some() && !linked.contains(&row.id)) || last_rank.is_some_and(|last|rank > last))));
-    Ok(json!({"candidates":result,"can_check_other_matches":has_more,"all_matches":include_other_matches}))
+    Ok(json!({"candidates":result,"can_check_other_matches":false,"all_matches":false}))
+}
+
+fn linked_to_any_account(conn: &Connection, totp_item: &str) -> Result<bool> {
+    if !crate::associations::table_ready(conn)? {
+        return Ok(false);
+    }
+    Ok(conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM credential_links WHERE target_item_id=?1 AND kind='mfa')",
+        [totp_item],
+        |row| row.get(0),
+    )?)
 }
 
 /// 发放验证码前单独重新检查所选 MFA 自己的规则，关联账号不能绕过网站限制。

@@ -14,29 +14,35 @@ fn login_with_mfa(conn: &Connection, name: &str, mfa: &str, group: Option<&str>)
         None, Some(&[mfa.to_string()]), None).unwrap()
 }
 
+fn login_only(conn: &Connection, name: &str, group: Option<&str>) -> credpivot_core::LoginListRow {
+    credpivot_core::insert_login_extended_in_partition(conn, partitions::PERSONAL,
+        "https://example.test", name, "release-test-password", name, "", None, group,
+        None, None, None).unwrap()
+}
+
 fn mfa(conn: &Connection) -> String {
     credpivot_core::insert_totp_with_rules_in_partition(conn, partitions::PERSONAL,
         "Example", "test-account", "JBSWY3DPEHPK3PXP", None, &[]).unwrap()
 }
 
 #[test]
-fn migration_moves_shared_links_and_trash_and_reuses_group() {
-    // 以一个账号为起点，验证共享 MFA 的反向账号、服务器和回收站记录必须作为同一批迁移。
+fn migration_moves_only_selected_items_and_reuses_group() {
+    // 只迁移勾选的账户。关联的 MFA 和连接留在原分区，连接因此停用。
     let conn = memory_db();
     let source = credpivot_core::create_credential_group_in_partition(&conn, partitions::PERSONAL, "login", "Accounts").unwrap();
     let target = credpivot_core::create_credential_group_in_partition(&conn, partitions::WORK, "login", "Accounts").unwrap();
     let otp = mfa(&conn);
     let first = login_with_mfa(&conn, "first", &otp, Some(&source.id));
-    let second = login_with_mfa(&conn, "second", &otp, Some(&source.id));
+    let second = login_only(&conn, "second", Some(&source.id));
     credpivot_core::trash_item(&conn, &second.item_id).unwrap();
     credpivot_core::insert_server_profile_in_partition(&conn, partitions::PERSONAL,
-        "Server", "example.test", 22, "", Some(&first.id), Some(&otp), None, None).unwrap();
+        "Server", "example.test", 22, "", Some(&first.id), Some(&otp), None, None, None).unwrap();
     let active: String = conn.query_row("SELECT active_password_revision FROM login_credentials WHERE id=?1", [&first.id], |r| r.get(0)).unwrap();
     let selected = vec![first.item_id.clone()];
     let preview = partitions::preview(&conn, &selected, partitions::WORK).unwrap();
-    assert_eq!(preview["count"], 4);
+    assert_eq!(preview["count"], 1);
     partitions::migrate(&conn, &selected, partitions::WORK, preview["fingerprint"].as_str().unwrap()).unwrap();
-    assert_eq!(conn.query_row("SELECT count(*) FROM items WHERE partition_id=?1", [partitions::WORK], |r| r.get::<_, i64>(0)).unwrap(), 4);
+    assert_eq!(conn.query_row("SELECT count(*) FROM items WHERE partition_id=?1", [partitions::WORK], |r| r.get::<_, i64>(0)).unwrap(), 1);
     assert_eq!(conn.query_row("SELECT group_id FROM items WHERE id=?1", [&first.item_id], |r| r.get::<_, String>(0)).unwrap(), target.id);
     assert_eq!(conn.query_row("SELECT trashed FROM items WHERE id=?1", [&second.item_id], |r| r.get::<_, i64>(0)).unwrap(), 1);
     assert_eq!(conn.query_row("SELECT active_password_revision FROM login_credentials WHERE id=?1", [&first.id], |r| r.get::<_, String>(0)).unwrap(), active);

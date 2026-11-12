@@ -781,6 +781,7 @@ impl VaultSession {
         linked_totp_id: Option<&str>,
         linked_ssh_key_id: Option<&str>,
         group_id: Option<&str>,
+        manual_secret: Option<&str>,
     ) -> Result<credpivot_core::ServerProfileRow> {
         let db = self.db.as_ref().ok_or_else(|| AgentError::Vault("database not attached".into()))?;
         db.update_server_profile(
@@ -794,6 +795,7 @@ impl VaultSession {
             linked_totp_id,
             linked_ssh_key_id,
             group_id,
+            manual_secret,
         )
         .map_err(|e| AgentError::Vault(e.to_string()))
     }

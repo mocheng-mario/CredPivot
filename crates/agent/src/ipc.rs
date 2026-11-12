@@ -1030,6 +1030,7 @@ async fn handle_request_inner(
             group_id,
             website_rules,
             linked_mfa_ids,
+            linked_ssh_key_ids,
             partition_id,
         } => {
             let display_name = if peer.from_native_host {
@@ -1070,6 +1071,11 @@ async fn handle_request_inner(
                 Ok(c) => c,
                 Err(e) => return AgentResponse::err("vault", e.to_string()),
             };
+            if let Some(ids) = &linked_ssh_key_ids {
+                if let Err(e) = credpivot_core::replace_account_ssh_keys(db.conn(), &cred.item_id, ids) {
+                    return AgentResponse::err("vault", e.to_string());
+                }
+            }
             AgentResponse::ok(json!({
                 "request_id": request_id,
                 "saved": true,
@@ -1109,11 +1115,11 @@ async fn handle_request_inner(
                 Err(_) => AgentResponse::err("vault", "分区读取失败"),
             }
         }
-        AgentRequest::BrowserMfaSuggest { origin, credential_id, include_other_matches } => {
+        AgentRequest::BrowserMfaSuggest { origin, credential_id, include_other_matches: _ } => {
             let v = st.vault.lock().await;
             if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
             let Some(db) = v.db.as_ref() else { return AgentResponse::err("locked", "vault locked"); };
-            match credpivot_core::browser_mfa_candidates(db.conn(), &origin, opt_nonempty(&credential_id), include_other_matches) {
+            match credpivot_core::browser_mfa_candidates(db.conn(), &origin, opt_nonempty(&credential_id), partition) {
                 Ok(payload) => AgentResponse::ok(payload),
                 Err(_) => AgentResponse::err("vault", "MFA 候选读取失败"),
             }
@@ -1289,6 +1295,7 @@ async fn handle_request_inner(
             password,
             website_rules,
             linked_mfa_ids,
+            linked_ssh_key_ids,
         } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
@@ -1308,7 +1315,15 @@ async fn handle_request_inner(
                 website_rules.as_deref(),
                 linked_mfa_ids.as_deref(),
             ) {
-                Ok(row) => AgentResponse::ok(json!({ "updated": true, "item": row })),
+                Ok(row) => {
+                    if let Some(ids) = &linked_ssh_key_ids {
+                        let Some(db) = v.db.as_ref() else { return AgentResponse::err("locked", "database not attached"); };
+                        if let Err(e) = credpivot_core::replace_account_ssh_keys(db.conn(), &row.item_id, ids) {
+                            return AgentResponse::err("vault", e.to_string());
+                        }
+                    }
+                    AgentResponse::ok(json!({ "updated": true, "item": row }))
+                }
                 Err(e) => {
                     let msg = e.to_string();
                     if msg.contains("revision conflict") {
@@ -1498,6 +1513,7 @@ async fn handle_request_inner(
             user,
             login_credential_id,
             totp_id,
+            server_profile_id,
         } => {
             if peer.from_native_host {
                 return AgentResponse::err("forbidden", "extension cannot prepare ssh session");
@@ -1507,11 +1523,21 @@ async fn handle_request_inner(
                 return AgentResponse::err("locked", "vault locked");
             }
             v.touch_activity();
-            if host.trim().is_empty() || user.trim().is_empty() || login_credential_id.trim().is_empty()
+            if host.trim().is_empty() || user.trim().is_empty()
+                || (login_credential_id.trim().is_empty() && server_profile_id.trim().is_empty())
             {
-                return AgentResponse::err("bad_args", "host, user and login_credential_id required");
+                return AgentResponse::err("bad_args", "host, user and a credential source are required");
             }
-            if v.get_credential(&login_credential_id).is_err() {
+            let mut manual_secret = String::new();
+            if !server_profile_id.trim().is_empty() {
+                let Some(db) = v.db.as_ref() else { return AgentResponse::err("locked", "vault locked"); };
+                match credpivot_core::connection_auth(db.conn(), server_profile_id.trim()) {
+                    Ok((true, _, _)) => return AgentResponse::err("vault", "这条连接已停用，需要重新确认后才能使用"),
+                    Ok((false, secret, _)) => manual_secret = secret,
+                    Err(e) => return AgentResponse::err("vault", e.to_string()),
+                }
+            }
+            if !login_credential_id.trim().is_empty() && v.get_credential(&login_credential_id).is_err() {
                 return AgentResponse::err("not_found", "login credential not found");
             }
             let totp = totp_id.filter(|s| !s.trim().is_empty());
@@ -1528,6 +1554,7 @@ async fn handle_request_inner(
                 &user,
                 &login_credential_id,
                 totp,
+                if login_credential_id.trim().is_empty() { &manual_secret } else { "" },
             );
             AgentResponse::ok(json!({
                 "session_id": session_id,
@@ -1814,6 +1841,7 @@ async fn handle_request_inner(
             linked_totp_id,
             linked_ssh_key_id,
             group_id,
+            manual_secret,
         } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
@@ -1830,6 +1858,7 @@ async fn handle_request_inner(
                 linked_totp_id.as_deref().and_then(|s| opt_nonempty(s)),
                 linked_ssh_key_id.as_deref().and_then(|s| opt_nonempty(s)),
                 group_id.as_deref().and_then(|s| opt_nonempty(s)),
+                manual_secret.as_deref(),
             ) {
                 Ok(item) => AgentResponse::ok(json!({ "item": item })),
                 Err(e) => AgentResponse::err("vault", e.to_string()),
@@ -1846,6 +1875,7 @@ async fn handle_request_inner(
             linked_totp_id,
             linked_ssh_key_id,
             group_id,
+            manual_secret,
         } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
@@ -1863,6 +1893,7 @@ async fn handle_request_inner(
                 opt_nonempty(&linked_totp_id),
                 opt_nonempty(&linked_ssh_key_id),
                 opt_nonempty(&group_id),
+                manual_secret.as_deref(),
             ) {
                 Ok(item) => AgentResponse::ok(json!({ "item": item })),
                 Err(e) => {

@@ -96,6 +96,8 @@ pub enum AgentRequest {
         website_rules: Option<Vec<credpivot_core::UriRule>>,
         #[serde(default)]
         linked_mfa_ids: Option<Vec<String>>,
+        #[serde(default)]
+        linked_ssh_key_ids: Option<Vec<String>>,
         /// 仅浏览器新建账号时使用。App 仍走 PartitionRequest，空值表示个人分区。
         #[serde(default)]
         partition_id: String,
@@ -150,6 +152,8 @@ pub enum AgentRequest {
         website_rules: Option<Vec<credpivot_core::UriRule>>,
         #[serde(default)]
         linked_mfa_ids: Option<Vec<String>>,
+        #[serde(default)]
+        linked_ssh_key_ids: Option<Vec<String>>,
     },
     CredentialTrash { item_id: String },
     VaultManage { action: credpivot_core::VaultAction },
@@ -187,6 +191,8 @@ pub enum AgentRequest {
         linked_ssh_key_id: Option<String>,
         #[serde(default)]
         group_id: Option<String>,
+        #[serde(default)]
+        manual_secret: Option<String>,
     },
     ServerProfileUpdate {
         id: String,
@@ -205,6 +211,8 @@ pub enum AgentRequest {
         linked_ssh_key_id: String,
         #[serde(default)]
         group_id: String,
+        #[serde(default)]
+        manual_secret: Option<String>,
     },
     SshKeyList,
     SshKeyGenerate {
@@ -230,6 +238,8 @@ pub enum AgentRequest {
         login_credential_id: String,
         #[serde(default)]
         totp_id: Option<String>,
+        #[serde(default)]
+        server_profile_id: String,
     },
     /// 仅 credpivot-askpass 经 Unix IPC 调用。
     SshAskpass {

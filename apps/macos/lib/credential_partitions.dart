@@ -244,6 +244,7 @@ Future<void> showPartitionMigration(BuildContext context, String source, {Set<St
       'target_group_name': targetGroupId == null ? targetGroupName : null, 'target_group_id': targetGroupId});
     if (!context.mounted) return;
     final affected = (preview['items'] as List).cast<Map>();
+    final dependencies = (preview['dependencies'] as List? ?? const []).cast<Map>();
     final confirmed = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
       title: const LText('partitions.confirmMove'),
       content: SizedBox(width: appEditDialogWidth(ctx), height: MediaQuery.sizeOf(ctx).height * .55,
@@ -257,8 +258,16 @@ Future<void> showPartitionMigration(BuildContext context, String source, {Set<St
             return ListTile(title: Text(item['title']?.toString() ?? ''),
               subtitle: Text([item['kind'], item['account'], item['partition_name'], item['group_name'],
                 if (item['trashed'] == 1) tr('partitions.trashed')].where((v) => v != null && v.toString().isNotEmpty).join(' · ')),
-              trailing: selected.contains(item['id']) ? null : const LText('partitions.linked'));
           })),
+          if (dependencies.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Text('以下关联不会一起迁移。迁走后，跨分区的认证关联会断开，相关连接会停用。'),
+            ...dependencies.map((item) => ListTile(
+              dense: true,
+              title: Text(item['title']?.toString() ?? ''),
+              subtitle: Text([item['kind'], item['partition_name']].where((v) => v != null && v.toString().isNotEmpty).join(' · ')),
+            )),
+          ],
         ])),
       actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('common.cancel')),
         FilledButton(onPressed: affected.isEmpty ? null : () => Navigator.pop(ctx, true), child: const LText('partitions.confirmMove'))],

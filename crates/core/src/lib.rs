@@ -71,7 +71,7 @@ pub use credential_groups::create_credential_group_in_partition;
 pub use repo_m2::{list_logins_page_in_partition, insert_login_extended_in_partition, insert_ssh_key_in_partition,
     insert_browser_totp,
     generate_ssh_key_in_partition, generate_ssh_key_with_options_in_partition, insert_totp_with_rules_in_partition, insert_recovery_codes_in_partition};
-pub use server_profiles::insert_server_profile_in_partition;
+pub use server_profiles::{connection_auth, insert_server_profile_in_partition};
 pub use server_profiles::{
     insert_server_profile, list_server_profiles, update_server_profile, ServerProfileRow,
 };
@@ -86,6 +86,7 @@ pub use vault_pipeline::{
 };
 
 mod associations;
+pub use associations::replace_account_ssh_keys;
 mod credential_management;
 mod website_rules;
 pub use website_rules::{browser_mfa_candidates, mfa_matches_origin, credential_matches_origin, credential_website_rules};
