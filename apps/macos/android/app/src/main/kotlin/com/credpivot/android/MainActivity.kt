@@ -131,6 +131,11 @@ class MainActivity : FlutterActivity() {
                 verification.cancelAuthentication()
                 work(result) { NativeAgent.call("lock"); null }
             }
+            call.method == "clearLocalSecrets" -> {
+                secure.clearAll()
+                if (call.arguments == "app") cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+                result.success(null)
+            }
             call.method == "androidPaths" -> result.success(mapOf("home" to filesDir.absolutePath,
                 "cache" to cacheDir.absolutePath,
                 "vault" to File(filesDir, ".credpivot/vault").absolutePath,

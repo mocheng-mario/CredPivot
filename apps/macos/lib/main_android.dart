@@ -467,6 +467,7 @@ class _AndroidSettingsState extends State<_AndroidSettings> with WidgetsBindingO
     'backup': 'android.settings.category.backup',
     'passwords': 'android.settings.category.passwords',
     'diagnostics': 'android.diagnostics.title',
+    'reset': 'localReset.section',
   };
   static const fieldSections = {
     'vault_idle_seconds': 'security', 'sensitive_auth_seconds': 'security',
@@ -628,6 +629,17 @@ class _AndroidSettingsState extends State<_AndroidSettings> with WidgetsBindingO
             helperText: field.key == 'vault_idle_seconds' ? tr('android.settings.minuteStep') : null))),
   ];
 
+  Future<void> resetLocal(String scope) async {
+    if (busy) return;
+    setState(() { busy = true; message = ''; });
+    try {
+      final notice = await AgentBridge.runLocalReset(context, scope);
+      if (mounted && notice != null) setState(() => message = notice);
+    } catch (error) {
+      if (mounted) setState(() => message = error is AgentException ? error.message : tr('localReset.failed'));
+    } finally { if (mounted) setState(() => busy = false); }
+  }
+
   Future<void> resetDefaults() async {
     if (busy || !await requireTouchId(context, reason: tr('android.settings.reset')) || !mounted) return;
     setState(() { busy = true; message = ''; });
@@ -741,6 +753,15 @@ class _AndroidSettingsState extends State<_AndroidSettings> with WidgetsBindingO
           OutlinedButton.icon(onPressed: busy ? null : () => Navigator.push(context,
             MaterialPageRoute<void>(builder: (_) => const AndroidDiagnosticsPage())), icon: const Icon(Icons.receipt_long), label: const LText('android.diagnostics.title')),
         ])),
+      if (matches('reset', ['localReset.vault.title', 'localReset.app.title', 'localReset.section']))
+        AppPanel(title: tr('localReset.section'), icon: Icons.restart_alt, child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            OutlinedButton(onPressed: busy ? null : () => resetLocal('vault'), child: const LText('localReset.vault.title')),
+            const SizedBox(height: 8),
+            OutlinedButton(onPressed: busy ? null : () => resetLocal('app'), child: const LText('localReset.app.title')),
+          ],
+        )),
     ];
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 0), child: TextField(controller: search,

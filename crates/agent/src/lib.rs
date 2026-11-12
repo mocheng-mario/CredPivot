@@ -3,6 +3,8 @@ pub mod diagnostics;
 mod extension_gate;
 mod error;
 mod ipc;
+mod local_reset;
+mod passkey_sites;
 mod paths;
 mod passkey;
 mod browser_mfa;

@@ -282,6 +282,16 @@ class _SettingsPageState extends State<SettingsPage> {
     super.dispose();
   }
 
+  Future<void> _resetLocal(String scope) async {
+    try {
+      final message = await AgentBridge.runLocalReset(context, scope);
+      if (!mounted || message == null) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      if (mounted) setState(() => _message = e is AgentException ? e.message : tr('localReset.failed'));
+    }
+  }
+
   void _populate(Map<String, dynamic> settings) {
     _draft = Map<String, dynamic>.from(settings);
     for (final key in _numericKeys) {
@@ -767,6 +777,17 @@ class _SettingsPageState extends State<SettingsPage> {
                                 label: const LText('settings.build.text.item39'),
                               ),
                             ),
+                            const SizedBox(height: 8),
+                            Wrap(spacing: 8, runSpacing: 8, children: [
+                              OutlinedButton(
+                                onPressed: _dirty || _saving ? null : () => _resetLocal('vault'),
+                                child: const LText('localReset.vault.title'),
+                              ),
+                              OutlinedButton(
+                                onPressed: _dirty || _saving ? null : () => _resetLocal('app'),
+                                child: const LText('localReset.app.title'),
+                              ),
+                            ]),
                           ],
                         ),
                       ),

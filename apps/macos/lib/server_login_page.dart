@@ -539,6 +539,44 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
         if (ctx.mounted) { closing = true; Navigator.pop(ctx, false); }
       } finally { confirmingDiscard = false; }
     }
+    Future<bool> confirmConnectionWarnings(BuildContext ctx) async {
+      final notes = <String>[];
+      final independent = linkedLogin == null || linkedLogin!.isEmpty;
+      if (!independent) {
+        final profiles = await AgentBridge.listServerProfiles(partitionId: partition);
+        final host = hostCtl.text.trim().toLowerCase();
+        final selfId = existing?['id'];
+        final duplicate = profiles.any((row) => row['id'] != selfId
+            && (row['host']?.toString().trim().toLowerCase() == host)
+            && row['linked_login_id'] == linkedLogin);
+        if (duplicate) notes.add(tr('server.warn.sameHost'));
+      } else {
+        final lines = <String>[];
+        void collect(String? id, String field, String kind) {
+          if (id == null || id.isEmpty) return;
+          final names = <String>[];
+          for (final login in logins) {
+            final ids = ((login[field] as List?) ?? const []).map((item) => item.toString());
+            if (!ids.contains(id)) continue;
+            names.add(_loginPickerLabel(login));
+          }
+          if (names.isNotEmpty) lines.add('$kind：${names.join('、')}');
+        }
+        collect(linkedTotp, 'linked_mfa_ids', tr('server.warn.mfa'));
+        collect(linkedSsh, 'linked_ssh_key_ids', tr('server.warn.ssh'));
+        if (lines.isNotEmpty) notes.add(tr('server.warn.linkedAccounts', args: {'accounts': lines.join('\n')}));
+      }
+      if (notes.isEmpty || !ctx.mounted) return notes.isEmpty;
+      final go = await showDialog<bool>(context: ctx, builder: (dialogContext) => AlertDialog(
+        title: const LText('server.warn.title'),
+        content: SingleChildScrollView(child: Text(notes.join('\n\n'))),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const LText('common.cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const LText('server.warn.continue')),
+        ],
+      ));
+      return go == true;
+    }
     Future<void> save(BuildContext ctx, StateSetter setLocal) async {
       if (saving || closing) return;
       final port = int.tryParse(portCtl.text.trim());
@@ -560,6 +598,7 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
       if (!belongs(linkedSsh, 'linked_ssh_key_ids')) linkedSsh = null;
       setLocal(() { saving = true; formError = ''; });
       try {
+        if (!await confirmConnectionWarnings(ctx)) return;
         if (isEdit && !await requireTouchId(ctx, reason: tr('server.save.reason'))) return;
         if (!ctx.mounted || closing) return;
         if (isEdit) {

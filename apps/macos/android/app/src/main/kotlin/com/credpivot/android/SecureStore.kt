@@ -106,6 +106,13 @@ internal class SecureStore(context: Context) {
         return cipher.doFinal(decode(record.getString("data")))
     }
 
+    fun clearAll() {
+        if (!prefs.edit().clear().commit()) throw AgentFailure("secure_store", "安全存储清理失败")
+        for (alias in listOf("credpivot.storage.v1", "credpivot.biometric.v1")) {
+            runCatching { if (store.containsAlias(alias)) store.deleteEntry(alias) }
+        }
+    }
+
     fun disableBiometric() {
         remove("biometric")
         if (store.containsAlias("credpivot.biometric.v1")) store.deleteEntry("credpivot.biometric.v1")

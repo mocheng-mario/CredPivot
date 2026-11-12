@@ -17876,6 +17876,153 @@
         "webdav_sync.dart",
         "sync.rs"
       ]
+    },
+    "localReset.section": {
+      "source": "本机重置",
+      "translation": "本机重置",
+      "description": "只影响本机的重置入口",
+      "placeholders": {},
+      "locations": ["main_android.dart"]
+    },
+    "localReset.vault.title": {
+      "source": "重置密码库",
+      "translation": "重置密码库",
+      "description": "清除本机保险库和本机 WebDAV 配置",
+      "placeholders": {},
+      "locations": ["settings_page.dart", "main_android.dart", "agent_bridge.dart"]
+    },
+    "localReset.vault.body": {
+      "source": "删除本机当前保险库的数据库、恢复点和本地备份，并清除本机保存的 WebDAV 地址、用户名和密码，以及本机生物识别解锁材料。主题、语言、超时和快捷键会保留。远端 WebDAV 上已有的备份不会删除，也不会被修改。此操作不能撤销。",
+      "translation": "删除本机当前保险库的数据库、恢复点和本地备份，并清除本机保存的 WebDAV 地址、用户名和密码，以及本机生物识别解锁材料。主题、语言、超时和快捷键会保留。远端 WebDAV 上已有的备份不会删除，也不会被修改。此操作不能撤销。",
+      "description": "重置密码库确认",
+      "placeholders": {},
+      "locations": ["agent_bridge.dart"]
+    },
+    "localReset.app.title": {
+      "source": "重置 App",
+      "translation": "重置 App",
+      "description": "把本机应用恢复到刚安装",
+      "placeholders": {},
+      "locations": ["settings_page.dart", "main_android.dart", "agent_bridge.dart"]
+    },
+    "localReset.app.body": {
+      "source": "删除本机 CredPivot 的配置、保险库、日志和已保存的密码与解锁材料，回到刚安装时的状态。远端 WebDAV 上已有的备份不会删除，也不会被修改。已经装进浏览器的插件不会自动卸载。此操作不能撤销。",
+      "translation": "删除本机 CredPivot 的配置、保险库、日志和已保存的密码与解锁材料，回到刚安装时的状态。远端 WebDAV 上已有的备份不会删除，也不会被修改。已经装进浏览器的插件不会自动卸载。此操作不能撤销。",
+      "description": "重置 App 确认",
+      "placeholders": {},
+      "locations": ["agent_bridge.dart"]
+    },
+    "localReset.confirm": {
+      "source": "确认重置",
+      "translation": "确认重置",
+      "description": "确认本机重置",
+      "placeholders": {},
+      "locations": ["agent_bridge.dart"]
+    },
+    "localReset.vault.done": {
+      "source": "本机密码库已重置，远端备份未改动",
+      "translation": "本机密码库已重置，远端备份未改动",
+      "description": "重置密码库完成",
+      "placeholders": {},
+      "locations": ["agent_bridge.dart"]
+    },
+    "localReset.app.done": {
+      "source": "本机应用已重置，远端备份未改动",
+      "translation": "本机应用已重置，远端备份未改动",
+      "description": "重置 App 完成",
+      "placeholders": {},
+      "locations": ["agent_bridge.dart"]
+    },
+    "localReset.failed": {
+      "source": "本机重置失败，远端数据没有改动",
+      "translation": "本机重置失败，远端数据没有改动",
+      "description": "重置失败",
+      "placeholders": {},
+      "locations": ["settings_page.dart", "main_android.dart"]
+    },
+    "localReset.secretsFailed": {
+      "source": "本机保险库已清除，但部分本机解锁材料没能删掉。远端数据没有改动。",
+      "translation": "本机保险库已清除，但部分本机解锁材料没能删掉。远端数据没有改动。",
+      "description": "钥匙串清理失败",
+      "placeholders": {},
+      "locations": ["agent_bridge.dart"]
+    },
+    "server.warn.title": {
+      "source": "保存前请确认",
+      "translation": "保存前请确认",
+      "description": "连接保存提醒",
+      "placeholders": {},
+      "locations": ["server_login_page.dart"]
+    },
+    "server.warn.sameHost": {
+      "source": "这个主机已经有一条关联同一账户的连接。仍然可以保存。",
+      "translation": "这个主机已经有一条关联同一账户的连接。仍然可以保存。",
+      "description": "同主机同账户提醒",
+      "placeholders": {},
+      "locations": ["server_login_page.dart"]
+    },
+    "server.warn.linkedAccounts": {
+      "source": "所选认证已经关联这些账户。可以改为关联它们，也可以继续按独立连接保存。\n{accounts}",
+      "translation": "所选认证已经关联这些账户。可以改为关联它们，也可以继续按独立连接保存。\n{accounts}",
+      "description": "独立连接选了已关联认证",
+      "placeholders": {"accounts": "账户列表"},
+      "locations": ["server_login_page.dart"]
+    },
+    "server.warn.mfa": {
+      "source": "MFA",
+      "translation": "MFA",
+      "description": "认证类型",
+      "placeholders": {},
+      "locations": ["server_login_page.dart"]
+    },
+    "server.warn.ssh": {
+      "source": "SSH 密钥",
+      "translation": "SSH 密钥",
+      "description": "认证类型",
+      "placeholders": {},
+      "locations": ["server_login_page.dart"]
+    },
+    "server.warn.continue": {
+      "source": "继续保存",
+      "translation": "继续保存",
+      "description": "提醒后仍保存",
+      "placeholders": {},
+      "locations": ["server_login_page.dart"]
+    },
+    "passkey.site.label": {
+      "source": "站点开关",
+      "translation": "站点开关",
+      "description": "浏览器通行密钥站点开关",
+      "placeholders": {},
+      "locations": ["passkeys_page.dart"]
+    },
+    "passkey.site.on": {
+      "source": "已启用",
+      "translation": "已启用",
+      "description": "站点开关开",
+      "placeholders": {},
+      "locations": ["agent_bridge.dart"]
+    },
+    "passkey.site.off": {
+      "source": "已手动关闭",
+      "translation": "已手动关闭",
+      "description": "站点开关关",
+      "placeholders": {},
+      "locations": ["agent_bridge.dart"]
+    },
+    "passkey.site.unset": {
+      "source": "未设置",
+      "translation": "未设置",
+      "description": "站点开关没有记录",
+      "placeholders": {},
+      "locations": ["agent_bridge.dart"]
+    },
+    "passkey.site.unknown": {
+      "source": "插件尚未同步",
+      "translation": "插件尚未同步",
+      "description": "还没有读到浏览器里的开关",
+      "placeholders": {},
+      "locations": ["agent_bridge.dart"]
     }
   }
 }

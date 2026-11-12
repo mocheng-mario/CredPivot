@@ -4,18 +4,22 @@ import {
   runOtpFillOnTab,
   requestPageContext,
 } from "./fill_flow.js";
-import {handlePasskey, cancelPasskey, passkeySiteState, setPasskeySiteState, syncPasskeyScripts} from "./passkey_background.js";
+import {handlePasskey, cancelPasskey, passkeySiteState, setPasskeySiteState, syncPasskeyScripts, enablePasskeySiteIfUnset, onPasskeySitesChanged} from "./passkey_background.js";
 import {addMfa, cancelMfa, cancelMfaIfOriginChanged} from "./mfa_background.js";
 
 chrome.runtime.onInstalled.addListener(() => {
   void syncPasskeyScripts().catch(() => {});
+  void publishPasskeySites();
   // 更新后旧标签页的脚本上下文可能失效，主动升级非敏感 UI，不重放填充或认证。
   void chrome.tabs.query({}).then((tabs) => Promise.allSettled(tabs
     .filter((tab) => tab.id && /^https?:\/\//.test(tab.url || ''))
     .map((tab) => chrome.scripting.executeScript({target:{tabId:tab.id,frameIds:[0]},files:['content.js'],world:'ISOLATED'}))))
     .catch(() => {});
 });
-chrome.runtime.onStartup.addListener(() => { void syncPasskeyScripts().catch(() => {}); });
+chrome.runtime.onStartup.addListener(() => {
+  void syncPasskeyScripts().catch(() => {});
+  void publishPasskeySites();
+});
 
 const HOST_NAME = "com.credpivot.chrome.m0";
 const NATIVE_IDLE_DISCONNECT_MS = 5 * 60 * 1000;
@@ -280,7 +284,7 @@ async function sendNative(message) {
   const request = {...message, browser_session_id: session,
     ...(verification ? {verification_started_ms:verificationStartedMs} : {})};
   // 验证握手会唤起系统弹窗，响应丢失后也不能自动重放。
-  const retryable = ["status", "agent.status",
+  const retryable = ["status", "agent.status", "passkey.sites_report",
     "credential.suggest_for_origin", "mfa.suggest_for_origin"].includes(message.action);
   for (let attempt = 0; ; attempt++) {
     try {
@@ -297,6 +301,25 @@ async function sendNative(message) {
     }
   }
 }
+
+let publishingPasskeySites = false;
+async function publishPasskeySites() {
+  if (publishingPasskeySites) return;
+  publishingPasskeySites = true;
+  try {
+    const stored = await chrome.storage.local.get("passkey_enabled_sites");
+    const response = await sendNative({action: "passkey.sites_report", sites: stored.passkey_enabled_sites || {}});
+    const pending = response?.payload?.pending;
+    if (!Array.isArray(pending) || pending.length === 0) return;
+    for (const origin of pending) {
+      if (typeof origin === "string") await enablePasskeySiteIfUnset(origin);
+    }
+    const again = await chrome.storage.local.get("passkey_enabled_sites");
+    await sendNative({action: "passkey.sites_report", sites: again.passkey_enabled_sites || {}});
+  } catch (_) { /* App 未运行时保留插件本地开关。 */ }
+  finally { publishingPasskeySites = false; }
+}
+onPasskeySitesChanged(publishPasskeySites);
 
 // 页面入口只建立短期操作；候选界面和选取操作必须来自扩展自己的 iframe。
 const inlineSessions = new Map();

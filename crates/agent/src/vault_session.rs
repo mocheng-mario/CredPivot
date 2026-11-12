@@ -243,6 +243,23 @@ impl VaultSession {
         self.unlocked && (self.last_activity.elapsed() > self.idle_timeout || self.master_password_required())
     }
 
+    /// 丢掉内存中的密钥，不写恢复点。重置前使用，避免把即将删除的库再备份一份。
+    pub fn discard_secrets(&mut self) {
+        self.bootstrap_plan = None;
+        self.sync_plan = None;
+        self.passkey_requests.clear();
+        self.browser_mfa_requests.clear();
+        self.unlocked = false;
+        self.ssh_authorization.clear();
+        self.ssh_signing_key_id = None;
+        self.ssh_signing_key_comment.clear();
+        self.sensitive_authenticated_at = None;
+        self.vmk = None;
+        self.db = None;
+        self.ssh_signing_key = None;
+        crate::paths::bump_vault_lock_generation();
+    }
+
     pub fn lock(&mut self) {
         self.bootstrap_plan = None;
         self.sync_plan = None;

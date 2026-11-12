@@ -1,4 +1,6 @@
 const ENABLED_SITES = "passkey_enabled_sites";
+let afterSiteChange = async () => {};
+export function onPasskeySitesChanged(listener) { afterSiteChange = listener; }
 const active = new Map();
 const PAGE_SCRIPT = "credpivot-passkey-page";
 
@@ -51,6 +53,7 @@ export async function setPasskeySiteState(origin, enabled) {
   sites[origin] = enabled === true;
   await syncPasskeyScripts(sites);
   await chrome.storage.local.set({[ENABLED_SITES]: sites});
+  try { await afterSiteChange(); } catch (_) { /* 本机 App 未连接时保留浏览器里的开关。 */ }
   for (const request of active.values()) {
     if (request.origin === origin && !enabled) request.cancelled = true;
   }

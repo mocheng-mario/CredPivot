@@ -350,6 +350,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
   List<Map<String, dynamic>> _items = [];
   List<Map<String, dynamic>> _groups = [];
   List<Map<String, dynamic>> _passkeys = [];
+  Map<String, dynamic>? _passkeySites;
   bool _passkeysUnavailable = false;
   String? _filterGroupId;
   Map<String, dynamic>? _selected;
@@ -391,11 +392,13 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
         final response = AgentBridge.payloadOf(await AgentBridge.request({'type': 'passkey_list'}, partitionId: partition));
         passkeys = (response['items'] as List? ?? []).map((row) => Map<String, dynamic>.from(row as Map)).toList();
       } catch (_) { passkeysUnavailable = true; }
+      final sites = await AgentBridge.passkeySites();
       if (!mounted || generation != _refreshGeneration) return;
       final selectedId = _selected?['id'];
       _items = items;
       _groups = groups;
       _passkeys = passkeys;
+      _passkeySites = sites;
       _passkeysUnavailable = passkeysUnavailable;
       // 刷新后使用当前版本，避免连续编辑仍携带上一次的 revision。
       _selected = null;
@@ -615,7 +618,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                     tr('common.password'): '••••••••',
                     tr('credentials.passkey.title'): _passkeysUnavailable ? tr('passkey.links.loadFailed')
                         : linkedPasskeys.isEmpty ? tr('common.notLinked')
-                        : linkedPasskeys.map((passkey) => '${passkey['rp_id']} · ${passkey['username']}').join('\n'),
+                        : linkedPasskeys.map((passkey) => '${passkey['rp_id']} · ${passkey['username']} · ${AgentBridge.passkeySiteLabel(_passkeySites, passkey['rp_id'])}').join('\n'),
                     tr('credentials.build.text.item4'): vaultDate(_selected!['password_active_since_ms'])
                   },
                   copyableFields: {tr('common.website')},

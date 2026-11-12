@@ -19,6 +19,7 @@ class PasskeysPanel extends StatefulWidget {
 
 class _PasskeysPanelState extends State<PasskeysPanel> {
   List<Map<String, dynamic>> _items = [];
+  Map<String, dynamic>? _sites;
   List<Map<String, dynamic>> _groups = [];
   String? _filterGroupId;
   Map<String, dynamic>? _selected;
@@ -58,12 +59,14 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
       final response = AgentBridge.payloadOf(
           await AgentBridge.request({'type': 'passkey_list'}, partitionId: partition));
       final groups = await loadCredentialGroups('passkey', partitionId: partition);
+      final sites = await AgentBridge.passkeySites();
       if (!mounted || generation != _generation) return;
       final items = (response['items'] as List? ?? [])
           .map((v) => Map<String, dynamic>.from(v as Map))
           .toList();
       final id = _selected?['credential_id'];
       _items = items;
+      _sites = sites;
       _groups = groups;
       _filterGroupId = dropdownValueIfPresent(_filterGroupId, groups);
       _selected = null;
@@ -204,6 +207,7 @@ class _PasskeysPanelState extends State<PasskeysPanel> {
                   icon: Icons.fingerprint_rounded,
                   fields: {
                       tr('passkey.build.text.item4'): selected['rp_id'].toString(),
+                      tr('passkey.site.label'): AgentBridge.passkeySiteLabel(_sites, selected['rp_id']),
                       tr('common.account'): selected['username'].toString(),
                       tr('passkey.links.accounts'): (selected['linked_logins'] as List? ?? []).isEmpty
                           ? tr('common.notLinked')

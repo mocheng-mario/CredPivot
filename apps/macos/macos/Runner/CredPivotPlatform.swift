@@ -1813,6 +1813,15 @@ final class CredPivotPlatform: NSObject {
       result(nil)
     case "webdavBootstrapRead", "webdavSettings", "webdavSave", "webdavTest", "webdavRead", "webdavPublish", "webdavProbe", "webdavRemove", "webdavCleanup":
       Task { @MainActor in CredPivotWebDAV.shared.handle(call, result: result) }
+    case "clearLocalSecrets":
+      LocalVaultUnlock.clearMaterial()
+      let webdav: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "io.credpivot.webdav", kSecUseDataProtectionKeychain as String: false]
+      SecItemDelete(webdav as CFDictionary)
+      if call.arguments as? String == "app", #available(macOS 13.0, *) {
+        try? SMAppService.mainApp.unregister()
+      }
+      result(nil)
     case "webdavCancel":
       Task { @MainActor in CredPivotWebDAV.shared.cancel(); result(nil) }
     case "webdavTestCancel":
@@ -2355,6 +2364,12 @@ enum LocalVaultUnlock {
   private static let materialAccount = "encrypted-vmk"
   private static let policyAccount = "verification-policy"
   private(set) static var setupNotice = ""
+
+  static func clearMaterial() {
+    let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: service, kSecUseDataProtectionKeychain as String: false]
+    SecItemDelete(query as CFDictionary)
+  }
 
   static func enroll() {
     if persist(enroll: true) {

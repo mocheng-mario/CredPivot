@@ -163,6 +163,9 @@ fn map_extension_to_agent(
             request_id: envelope["gate_request_id"].as_str().unwrap_or("").into(),
         }),
         "status" | "agent.status" => Ok(AgentRequest::Status),
+        "passkey.sites_report" => Ok(AgentRequest::PasskeySitesReport {
+            sites: envelope.get("sites").cloned().unwrap_or(Value::Null),
+        }),
         "mfa.begin" => Ok(AgentRequest::BrowserMfaBegin {
             request_id: envelope["mfa_request_id"].as_str().unwrap_or("").into(),
             origin: envelope["origin"].as_str().unwrap_or("").into(),
@@ -225,6 +228,7 @@ fn map_extension_to_agent(
             group_id: None,
             website_rules: None,
             linked_mfa_ids: None,
+            linked_ssh_key_ids: None,
         }),
         "partitions.list" => Ok(AgentRequest::BrowserPartitions),
         "credential.suggest_for_origin" => Ok(AgentRequest::CredentialSuggest {

@@ -1,7 +1,11 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'app_presentation.dart';
+import 'touch_id_gate.dart';
+import 'vault_lock_coordinator.dart';
+import 'webdav_sync.dart';
 
 /// 通过 Swift 平台通道调用进程内 Agent（Rust FFI 在 Runner 内链接）。
 class AgentBridge {
@@ -16,6 +20,53 @@ class AgentBridge {
   static void Function()? onAppForeground;
   static final vaultChanges = ValueNotifier<int>(0);
   static void notifyVaultChanged() => vaultChanges.value++;
+
+  static String passkeySiteLabel(Map<String, dynamic>? sites, Object? rpId) {
+    if (sites == null) return tr('passkey.site.unknown');
+    final key = 'https://${rpId ?? ''}';
+    if (key == 'https://' || !sites.containsKey(key)) return tr('passkey.site.unset');
+    return sites[key] == true ? tr('passkey.site.on') : tr('passkey.site.off');
+  }
+
+  static Future<Map<String, dynamic>?> passkeySites() async {
+    try {
+      final response = payloadOf(await request({'type': 'passkey_sites_get'}));
+      return Map<String, dynamic>.from(response['sites'] as Map? ?? {});
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 只清本机。先停下本地传输，再删本机文件；不调用会改远端的同步接口。
+  static Future<String?> runLocalReset(BuildContext context, String scope) async {
+    final vault = scope == 'vault';
+    final accepted = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: LText(vault ? 'localReset.vault.title' : 'localReset.app.title'),
+      content: SingleChildScrollView(child: LText(vault ? 'localReset.vault.body' : 'localReset.app.body')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('common.cancel')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('localReset.confirm')),
+      ],
+    ));
+    if (accepted != true || !context.mounted) return null;
+    if (!await requireTouchId(context, reason: tr(vault ? 'localReset.vault.title' : 'localReset.app.title')) || !context.mounted) return null;
+    final wasUnlocked = WebDavSync.instance.unlocked;
+    if (wasUnlocked) WebDavSync.instance.setUnlocked(false);
+    try {
+      await request({'type': 'local_reset', 'scope': scope});
+    } catch (e) {
+      if (wasUnlocked) WebDavSync.instance.setUnlocked(true);
+      rethrow;
+    }
+    var secretError = false;
+    try {
+      await _channel.invokeMethod<void>('clearLocalSecrets', scope);
+    } catch (_) {
+      secretError = true;
+    }
+    notifyVaultLocked();
+    return tr(secretError ? 'localReset.secretsFailed' : vault ? 'localReset.vault.done' : 'localReset.app.done');
+  }
 
   static void installVaultLockHandler(void Function() onLocked) {
     _onVaultLocked = onLocked;

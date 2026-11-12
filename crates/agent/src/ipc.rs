@@ -138,6 +138,7 @@ fn native_host_request_forbidden(req: &AgentRequest) -> bool {
         | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::BrowserTotpCode { .. } | AgentRequest::BrowserMfaSuggest { .. }
         | AgentRequest::CredentialFillPrepare { .. } | AgentRequest::CredentialFillConsume { .. }
         | AgentRequest::PasskeyBegin { .. } | AgentRequest::PasskeyPoll { .. } | AgentRequest::PasskeyCancel { .. }
+        | AgentRequest::PasskeySitesReport { .. }
         | AgentRequest::BrowserMfaBegin { .. } | AgentRequest::BrowserMfaPoll { .. } | AgentRequest::BrowserMfaCancel { .. }
         | AgentRequest::CancelRequest { .. })
 }
@@ -417,7 +418,8 @@ async fn handle_request_inner(
         | AgentRequest::BrowserMfaPending { .. } | AgentRequest::BrowserMfaResolve { .. }
         | AgentRequest::VaultResetRecoveryKey { .. } | AgentRequest::VaultExportJson { .. }
         | AgentRequest::VaultImportJson { .. } | AgentRequest::VaultVerifyRecoveryKey { .. } | AgentRequest::VaultOpenDir { .. }
-        | AgentRequest::UnlockPassword { .. } | AgentRequest::VaultCreate { .. }) && !peer.from_app {
+        | AgentRequest::UnlockPassword { .. } | AgentRequest::VaultCreate { .. }
+        | AgentRequest::LocalReset { .. } | AgentRequest::PasskeySitesGet) && !peer.from_app {
         return AgentResponse::err("forbidden", "authentication control is App-only");
     }
     // 连接、取消及周期状态查询必须保持轻量；恢复点已有独立定时任务，不能挡住验证弹窗。
@@ -428,7 +430,8 @@ async fn handle_request_inner(
         | AgentRequest::UnlockLocal { .. } | AgentRequest::UnlockPassword { .. }
         | AgentRequest::VerifyMasterPassword { .. }
         | AgentRequest::SshAuthorizationsPending | AgentRequest::PasskeyRequestsPending { .. }
-        | AgentRequest::BrowserMfaPending { .. } | AgentRequest::BrowserMfaPoll { .. } | AgentRequest::BrowserMfaCancel { .. }) {
+        | AgentRequest::BrowserMfaPending { .. } | AgentRequest::BrowserMfaPoll { .. } | AgentRequest::BrowserMfaCancel { .. }
+        | AgentRequest::LocalReset { .. } | AgentRequest::PasskeySitesReport { .. } | AgentRequest::PasskeySitesGet) {
         let mut v = st.vault.lock().await;
         if v.unlocked {
             let _ = v.try_restore_point_if_due();
@@ -544,7 +547,13 @@ async fn handle_request_inner(
                     })
                 };
                 match result {
-                    Ok(payload) => { v.touch_activity(); AgentResponse::ok(payload) },
+                    Ok(payload) => {
+                        if complete && request.create {
+                            crate::passkey_sites::queue_if_unset(&request.origin);
+                        }
+                        v.touch_activity();
+                        AgentResponse::ok(payload)
+                    },
                     Err(_) => AgentResponse::err("passkey_request", "通行密钥操作失败，请核对请求或记录"),
                 }
             }
@@ -757,6 +766,7 @@ async fn handle_request_inner(
             };
             if outcome.get("credential").is_some() {
                 if request.create {
+                    crate::passkey_sites::queue_if_unset(&request.origin);
                     v.data_revision = uuid::Uuid::new_v4().to_string();
                     v.ssh_authorization.clear();
                 }
@@ -814,6 +824,45 @@ async fn handle_request_inner(
             crate::diagnostics::info("settings", "application settings updated");
             AgentResponse::ok(json!({ "settings": settings }))
         }
+        AgentRequest::LocalReset { scope } => {
+            if scope != "vault" && scope != "app" {
+                return AgentResponse::err("bad_args", "重置范围无效");
+            }
+            let mut v = st.vault.lock().await;
+            let vault_dir = v.vault_dir.clone();
+            v.discard_secrets();
+            drop(v);
+            st.pending_fills.clear();
+            st.pending_ssh_sessions.clear();
+            revoke_extension_gate(st);
+            let result = if scope == "vault" {
+                crate::local_reset::reset_vault(&vault_dir)
+            } else {
+                crate::local_reset::reset_app()
+            };
+            let mut v = st.vault.lock().await;
+            match result {
+                Ok(()) => {
+                    if let Ok(settings) = credpivot_core::read_app_settings() {
+                        v.apply_settings(settings);
+                    }
+                    v.vault_dir = crate::paths::vault_data_dir();
+                    crate::diagnostics::info("vault", "local reset completed without contacting remote storage");
+                    AgentResponse::ok(json!({ "reset": scope, "remote": false }))
+                }
+                Err(_) => AgentResponse::err("reset_failed", "本机重置失败，远端数据没有改动"),
+            }
+        }
+        AgentRequest::PasskeySitesReport { sites } => {
+            if !peer.from_native_host {
+                return AgentResponse::err("forbidden", "browser only");
+            }
+            match crate::passkey_sites::report(&sites) {
+                Ok(pending) => AgentResponse::ok(json!({ "pending": pending })),
+                Err(_) => AgentResponse::err("bad_args", "站点开关无效"),
+            }
+        }
+        AgentRequest::PasskeySitesGet => AgentResponse::ok(crate::passkey_sites::snapshot()),
         AgentRequest::ExtensionConnect { request_id } => {
             let Ok(request) = uuid::Uuid::parse_str(&request_id) else {
                 return AgentResponse::err("invalid_request", "browser verification request is invalid");
