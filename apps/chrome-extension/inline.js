@@ -98,8 +98,9 @@ $('retry').addEventListener('click',(event) => { if (event.isTrusted) void perfo
 $('hide').addEventListener('click',(event) => { if (event.isTrusted) void perform('inline_hide_site'); });
 $('close').addEventListener('click',(event) => { if (event.isTrusted) void request('inline_cancel').catch(() => { status('请点击网页空白处关闭面板'); }); });
 document.addEventListener('keydown',(event) => { if (event.isTrusted && event.key === 'Escape') void request('inline_cancel').catch(() => {}); });
+let started = false;
 const heartbeat = setInterval(() => {
-  if (!tabId || invalid) return;
+  if (!started || invalid) return;
   request('inline_ping').then((response) => {
     if (!response.resumed || busy) return;
     metadata = null; $('list').replaceChildren(); $('choices').hidden = true;
@@ -115,8 +116,10 @@ const heartbeat = setInterval(() => {
 window.addEventListener('pagehide',() => { clearInterval(heartbeat); });
 (async () => {
   try {
-    const tab = await chrome.tabs.getCurrent(); tabId = tab?.id;
-    if (!tabId || !/^[0-9a-f-]{36}$/.test(token)) throw new Error('请从网页输入框或右键菜单打开此面板');
+    if (!/^[0-9a-f-]{36}$/.test(token)) throw new Error('请从网页输入框或右键菜单打开此面板');
+    // Firefox 把扩展页嵌进网页后不提供 tabs，标签由后台按消息发送方识别。
+    if (chrome.tabs?.getCurrent) tabId = (await chrome.tabs.getCurrent())?.id;
+    started = true;
     const info = await request('inline_ping');
     $('site').textContent = info.origin;
     await perform('inline_load',{automatic:!info.resumed});

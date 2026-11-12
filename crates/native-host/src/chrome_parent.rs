@@ -4,7 +4,7 @@ use thiserror::Error;
 pub enum ParentCheckError {
     #[error("could not identify browser parent process")]
     ParentUnknown,
-    #[error("parent process is not a trusted Google Chrome browser")]
+    #[error("parent process is not a trusted browser")]
     SignatureRejected,
     #[error("browser signature verification is unavailable")]
     VerificationUnavailable,
@@ -30,8 +30,9 @@ pub fn verify_chrome_parent() -> Result<(), ParentCheckError> {
     { Ok(()) }
 }
 
-/// 验证正在运行的代码对象，避免 Chrome 更新后磁盘路径改变导致误拒绝。
-/// 仅接受 Google 签名的 Chrome/Canary 及其 Helper，不信任进程名或任意祖先进程。
+/// 验证正在运行的代码对象，避免浏览器更新后磁盘路径改变导致误拒绝。
+/// 只接受直接父进程：Google 签名的 Chrome/Canary 及其 Helper，或 Mozilla 签名的 Firefox。
+/// Firefox 通过 nmhproxy 启动 Host，父进程不是主程序本身。不信任进程名或更上层祖先。
 #[cfg(target_os = "macos")]
 fn verify_browser_process(pid: i32) -> Result<(), ParentCheckError> {
     use std::ffi::{c_char, c_void, CString};
@@ -59,12 +60,15 @@ fn verify_browser_process(pid: i32) -> Result<(), ParentCheckError> {
     }
     impl Drop for Owned { fn drop(&mut self) { unsafe { CFRelease(self.0); } } }
     let text = CString::new(concat!(
-        "anchor apple generic and certificate leaf[subject.OU] = \"EQHXZ8M8AV\" and (",
+        "(anchor apple generic and certificate leaf[subject.OU] = \"EQHXZ8M8AV\" and (",
         "identifier \"com.google.Chrome\" or identifier \"com.google.Chrome.canary\" or ",
         "identifier \"com.google.Chrome.helper\" or identifier \"com.google.Chrome.helper.GPU\" or ",
         "identifier \"com.google.Chrome.helper.renderer\" or identifier \"com.google.Chrome.helper.Renderer\" or ",
         "identifier \"com.google.Chrome.canary.helper\" or identifier \"com.google.Chrome.canary.helper.GPU\" or ",
-        "identifier \"com.google.Chrome.canary.helper.renderer\" or identifier \"com.google.Chrome.canary.helper.Renderer\")"
+        "identifier \"com.google.Chrome.canary.helper.renderer\" or identifier \"com.google.Chrome.canary.helper.Renderer\")) or ",
+        "(anchor apple generic and certificate leaf[subject.OU] = \"43AQ936H96\" and (",
+        "identifier \"org.mozilla.firefox\" or identifier \"org.mozilla.firefoxdeveloperedition\" or ",
+        "identifier \"org.mozilla.nightly\" or identifier \"nmhproxy\"))"
     )).expect("static requirement");
     unsafe {
         let number = Owned::new(CFNumberCreate(null(), 3, &pid as *const i32 as Ref))?;

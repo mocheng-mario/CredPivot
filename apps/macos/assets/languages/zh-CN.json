@@ -1604,8 +1604,8 @@
       ]
     },
     "browser.build.description": {
-      "source": "通过 Chrome 扩展保存与填充。首次使用按以下步骤完成本机配置。",
-      "translation": "通过 Chrome 扩展保存与填充。首次使用按以下步骤完成本机配置。",
+      "source": "通过浏览器扩展保存与填充。Chrome 按以下步骤配置，Firefox 使用同一扩展目录。",
+      "translation": "通过浏览器扩展保存与填充。Chrome 按以下步骤配置，Firefox 使用同一扩展目录。",
       "description": "browser: build; description.",
       "placeholders": {},
       "locations": [
@@ -2040,6 +2040,135 @@
       "source": "与安装位置一致",
       "translation": "与安装位置一致",
       "description": "browser: labels; text.",
+      "placeholders": {},
+      "locations": [
+        "chrome_setup_tab.dart"
+      ]
+    },
+    "browser.firefox.description": {
+      "source": "与 Chrome 使用同一扩展目录。扩展 ID 已写在清单中，不必填到设置里。",
+      "translation": "与 Chrome 使用同一扩展目录。扩展 ID 已写在清单中，不必填到设置里。",
+      "description": "browser: firefox; description.",
+      "placeholders": {},
+      "locations": [
+        "chrome_setup_tab.dart"
+      ]
+    },
+    "browser.firefox.extensionId": {
+      "source": "Firefox 扩展 ID: {extensionId}",
+      "translation": "Firefox 扩展 ID: {extensionId}",
+      "description": "browser: firefox; text.",
+      "placeholders": {
+        "extensionId": {
+          "description": "Value for extensionId. Keep {extensionId} unchanged."
+        }
+      },
+      "locations": [
+        "chrome_setup_tab.dart"
+      ]
+    },
+    "browser.firefox.idMissing": {
+      "source": "扩展清单中没有 Firefox 扩展 ID。请先同步扩展产物。",
+      "translation": "扩展清单中没有 Firefox 扩展 ID。请先同步扩展产物。",
+      "description": "browser: firefox; text.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "browser.firefox.install": {
+      "source": "安装 Firefox 连接",
+      "translation": "安装 Firefox 连接",
+      "description": "browser: firefox; text.",
+      "placeholders": {},
+      "locations": [
+        "chrome_setup_tab.dart"
+      ]
+    },
+    "browser.firefox.installOk": {
+      "source": "已写入 Firefox Native Host。请完全退出 Firefox 后重新打开，再在 about:debugging 加载扩展。",
+      "translation": "已写入 Firefox Native Host。请完全退出 Firefox 后重新打开，再在 about:debugging 加载扩展。",
+      "description": "browser: firefox; text.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "browser.firefox.manifest": {
+      "source": "Firefox Host 清单: {path}",
+      "translation": "Firefox Host 清单: {path}",
+      "description": "browser: firefox; text.",
+      "placeholders": {
+        "path": {
+          "description": "Value for path. Keep {path} unchanged."
+        }
+      },
+      "locations": [
+        "chrome_setup_tab.dart"
+      ]
+    },
+    "browser.firefox.manifestExtensionId": {
+      "source": "清单中的 Firefox ID: {extensionId}",
+      "translation": "清单中的 Firefox ID: {extensionId}",
+      "description": "browser: firefox; text.",
+      "placeholders": {
+        "extensionId": {
+          "description": "Value for extensionId. Keep {extensionId} unchanged."
+        }
+      },
+      "locations": [
+        "chrome_setup_tab.dart"
+      ]
+    },
+    "browser.firefox.open": {
+      "source": "打开 Firefox",
+      "translation": "打开 Firefox",
+      "description": "browser: firefox; text.",
+      "placeholders": {},
+      "locations": [
+        "chrome_setup_tab.dart"
+      ]
+    },
+    "browser.firefox.openFailed": {
+      "source": "未找到 Firefox。请先安装 Firefox 开发者版、Nightly 或正式版。",
+      "translation": "未找到 Firefox。请先安装 Firefox 开发者版、Nightly 或正式版。",
+      "description": "browser: firefox; text.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "browser.firefox.opened": {
+      "source": "已打开 Firefox。请在地址栏打开 about:debugging，选择「此 Firefox」，临时加载扩展目录中的 manifest.json。若刚刚安装过 Host，需要先完全退出 Firefox 再打开，然后再加载扩展。",
+      "translation": "已打开 Firefox。请在地址栏打开 about:debugging，选择「此 Firefox」，临时加载扩展目录中的 manifest.json。若刚刚安装过 Host，需要先完全退出 Firefox 再打开，然后再加载扩展。",
+      "description": "browser: firefox; text.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "browser.firefox.pending": {
+      "source": "尚未写入 Firefox 的 Host 清单。开发者版、Nightly 和正式版共用这一份。",
+      "translation": "尚未写入 Firefox 的 Host 清单。开发者版、Nightly 和正式版共用这一份。",
+      "description": "browser: firefox; text.",
+      "placeholders": {},
+      "locations": [
+        "chrome_setup_tab.dart"
+      ]
+    },
+    "browser.firefox.ready": {
+      "source": "Host 已就绪。请先完全退出并重新打开 Firefox，然后在地址栏打开 about:debugging，选择「此 Firefox」，临时加载扩展目录中的 manifest.json。这样加载的扩展会在退出 Firefox 后移除，下次使用需要重新加载。",
+      "translation": "Host 已就绪。请先完全退出并重新打开 Firefox，然后在地址栏打开 about:debugging，选择「此 Firefox」，临时加载扩展目录中的 manifest.json。这样加载的扩展会在退出 Firefox 后移除，下次使用需要重新加载。",
+      "description": "browser: firefox; text.",
+      "placeholders": {},
+      "locations": [
+        "chrome_setup_tab.dart"
+      ]
+    },
+    "browser.firefox.title": {
+      "source": "Firefox",
+      "translation": "Firefox",
+      "description": "browser: firefox; title.",
       "placeholders": {},
       "locations": [
         "chrome_setup_tab.dart"
@@ -5068,8 +5197,8 @@
       ]
     },
     "native.handle.text.item2": {
-      "source": "本机浏览器连接已停用。",
-      "translation": "本机浏览器连接已停用。",
+      "source": "Chrome 连接已停用。",
+      "translation": "Chrome 连接已停用。",
       "description": "native: handle; text.",
       "placeholders": {},
       "locations": [
@@ -5077,8 +5206,8 @@
       ]
     },
     "native.handle.text.item3": {
-      "source": "浏览器连接已更新，请完全退出 Chrome 后重开。",
-      "translation": "浏览器连接已更新，请完全退出 Chrome 后重开。",
+      "source": "浏览器连接已更新，请完全退出 Chrome 与 Firefox 后重开。",
+      "translation": "浏览器连接已更新，请完全退出 Chrome 与 Firefox 后重开。",
       "description": "native: handle; text.",
       "placeholders": {},
       "locations": [
@@ -5106,6 +5235,15 @@
     "native.install.text.item3": {
       "source": "已安装 Native Host。请完全退出 Chrome 后重开，再在扩展里点「连接 App」。",
       "translation": "已安装 Native Host。请完全退出 Chrome 后重开，再在扩展里点「连接 App」。",
+      "description": "native: install; text.",
+      "placeholders": {},
+      "locations": [
+        "CredPivotPlatform.swift"
+      ]
+    },
+    "native.install.text.item4": {
+      "source": "已安装 Chrome 与 Firefox 的 Native Host。请完全退出对应浏览器后重开。",
+      "translation": "已安装 Chrome 与 Firefox 的 Native Host。请完全退出对应浏览器后重开。",
       "description": "native: install; text.",
       "placeholders": {},
       "locations": [
@@ -6587,8 +6725,8 @@
       ]
     },
     "settings.build.description.item4": {
-      "source": "管理 Chrome 扩展标识；安装和连接状态请前往「浏览器连接」。",
-      "translation": "管理 Chrome 扩展标识；安装和连接状态请前往「浏览器连接」。",
+      "source": "管理 Chrome 扩展标识。Firefox 使用清单中的固定 ID，无需填写。安装和连接状态请前往「浏览器连接」。",
+      "translation": "管理 Chrome 扩展标识。Firefox 使用清单中的固定 ID，无需填写。安装和连接状态请前往「浏览器连接」。",
       "description": "settings: build; description.",
       "placeholders": {},
       "locations": [
@@ -7024,8 +7162,8 @@
       ]
     },
     "settings.build.text.item51": {
-      "source": "从 chrome://extensions 复制 32 位 ID。保存后更新本机连接；清空则停用。",
-      "translation": "从 chrome://extensions 复制 32 位 ID。保存后更新本机连接；清空则停用。",
+      "source": "从 chrome://extensions 复制 32 位 ID。保存后更新 Chrome 连接；清空则停用 Chrome，不影响 Firefox。",
+      "translation": "从 chrome://extensions 复制 32 位 ID。保存后更新 Chrome 连接；清空则停用 Chrome，不影响 Firefox。",
       "description": "settings: build; text.",
       "placeholders": {},
       "locations": [

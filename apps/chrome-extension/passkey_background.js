@@ -17,8 +17,19 @@ export async function syncPasskeyScripts(sites) {
     return;
   }
   const script = {id:PAGE_SCRIPT,matches,js:["passkey_page.js"],world:"MAIN",runAt:"document_start",allFrames:false,persistAcrossSessions:true};
-  if (exists) await chrome.scripting.updateContentScripts([script]);
-  else await chrome.scripting.registerContentScripts([script]);
+  const write = async (entry) => {
+    if (exists) await chrome.scripting.updateContentScripts([entry]);
+    else await chrome.scripting.registerContentScripts([entry]);
+  };
+  try {
+    await write(script);
+  } catch (error) {
+    // Firefox 的 scripting schema 若拒绝该 Chrome 字段，去掉后重试；其他错误保持原样抛出。
+    const message = String(error?.message || error);
+    if (!script.persistAcrossSessions || !message.includes("persistAcrossSessions")) throw error;
+    delete script.persistAcrossSessions;
+    await write(script);
+  }
 }
 
 export async function passkeySiteState(origin) {

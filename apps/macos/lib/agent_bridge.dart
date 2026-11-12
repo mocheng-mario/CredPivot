@@ -285,6 +285,22 @@ class AgentBridge {
     return {'ok': false, 'message': tr('browser.errors.unexpectedResponse', args: {'raw': raw})};
   }
 
+  static Future<Map<String, dynamic>> installFirefoxHost() async {
+    final raw = await _channel.invokeMethod<dynamic>('installFirefoxHost');
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+    return {'ok': false, 'message': tr('browser.errors.unexpectedResponse', args: {'raw': raw})};
+  }
+
+  static Future<Map<String, dynamic>> openFirefoxDebuggingPage() async {
+    final raw = await _channel.invokeMethod<dynamic>('openFirefoxDebuggingPage');
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+    return {'ok': false, 'message': tr('browser.errors.unexpectedResponse', args: {'raw': raw})};
+  }
+
   static Future<Map<String, dynamic>> sshIdentityAgentStatus() async {
     final raw = await _channel.invokeMethod<dynamic>('sshIdentityAgentStatus');
     return raw is Map ? Map<String, dynamic>.from(raw) : {'ok': false};

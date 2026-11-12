@@ -1960,6 +1960,10 @@ final class CredPivotPlatform: NSObject {
       result(ChromeHostInstaller.revealExtensionDirectory())
     case "openChromeExtensionsPage":
       result(ChromeHostInstaller.openChromeExtensionsPage())
+    case "installFirefoxHost":
+      result(ChromeHostInstaller.installFirefoxHost())
+    case "openFirefoxDebuggingPage":
+      result(ChromeHostInstaller.openFirefoxDebuggingPage())
     case "sshIdentityAgentStatus":
       result(SshIdentityAgentHelper.status())
     case "gitSshStatus":
@@ -2671,10 +2675,21 @@ enum ChromeHostInstaller {
         isDirectory: false
       )
   }()
+  // Firefox 不读取 Chrome 的 Host 目录，也不认 allowed_origins。
+  // 开发者版、Nightly 与正式版都从 Mozilla/NativeMessagingHosts 查找，允许列表必须是扩展清单里的 gecko.id。
+  private static let firefoxManifestURL: URL = {
+    FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(
+        "Library/Application Support/Mozilla/NativeMessagingHosts/\(hostName).json",
+        isDirectory: false
+      )
+  }()
 
   static func status() -> [String: Any] {
     let stored = storedExtensionId() ?? ""
     let manifestId = manifestExtensionId()
+    let extensionDir = extensionDirectoryPath()
+    let firefoxId = firefoxExtensionId(directory: extensionDir) ?? ""
     let bundledHost = resolveSourceHostBinary()
     var trustedHostConfigured = false
     var installedHostCurrent = false
@@ -2703,14 +2718,27 @@ enum ChromeHostInstaller {
       "stored_extension_id": stored,
       "manifest_extension_id": manifestId ?? "",
       "host_id_matches_manifest": !stored.isEmpty && manifestId == stored,
-      "extension_dir_path": extensionDirectoryPath() ?? "",
-      "extension_dir_exists": extensionDirectoryPath() != nil,
+      "extension_dir_path": extensionDir ?? "",
+      "extension_dir_exists": extensionDir != nil,
+      "firefox_manifest_path": firefoxManifestURL.path,
+      "firefox_manifest_exists": FileManager.default.fileExists(atPath: firefoxManifestURL.path),
+      "firefox_extension_id": firefoxId,
+      "firefox_manifest_extension_id": "",
+      "firefox_id_matches": false,
+      "firefox_host_matches_installed": false,
     ]
     if let data = try? Data(contentsOf: manifestURL),
        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
       out["manifest_allowed_origins"] = json["allowed_origins"]
       out["manifest_host_binary"] = json["path"]
       out["manifest_host_matches_installed"] = (json["path"] as? String) == installedHostPath.path
+    }
+    if let data = try? Data(contentsOf: firefoxManifestURL),
+       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+      let allowed = json["allowed_extensions"] as? [String] ?? []
+      out["firefox_manifest_extension_id"] = allowed.first ?? ""
+      out["firefox_id_matches"] = !firefoxId.isEmpty && allowed.contains(firefoxId)
+      out["firefox_host_matches_installed"] = (json["path"] as? String) == installedHostPath.path
     }
     return out
   }
@@ -2760,6 +2788,20 @@ enum ChromeHostInstaller {
     return extensionIdFromOrigin(first)
   }
 
+  /// 与用户实际加载的扩展清单保持一致，避免 Swift 里再写死一份 ID。
+  private static func firefoxExtensionId(directory: String?) -> String? {
+    guard let directory,
+          let data = try? Data(contentsOf: URL(fileURLWithPath: directory).appendingPathComponent("manifest.json")),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let gecko = (json["browser_specific_settings"] as? [String: Any])?["gecko"] as? [String: Any],
+          let id = (gecko["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+          id.contains("@"),
+          id.count <= 200,
+          id.rangeOfCharacter(from: .whitespacesAndNewlines) == nil
+    else { return nil }
+    return id
+  }
+
   private static func extensionIdFromOrigin(_ origin: String) -> String? {
     let prefix = "chrome-extension://"
     guard origin.hasPrefix(prefix) else { return nil }
@@ -2782,6 +2824,20 @@ enum ChromeHostInstaller {
       inFileViewerRootedAtPath: path
     )
     return ["ok": true, "message": NativePresentation.tr("native.revealExtensionDirectory.text.item2"), "path": path]
+  }
+
+  static func openFirefoxDebuggingPage() -> [String: Any] {
+    let workspace = NSWorkspace.shared
+    let bundleIds = [
+      "org.mozilla.firefoxdeveloperedition",
+      "org.mozilla.nightly",
+      "org.mozilla.firefox",
+    ]
+    guard let appURL = bundleIds.compactMap({ workspace.urlForApplication(withBundleIdentifier: $0) }).first,
+          workspace.open(appURL) else {
+      return ["ok": false, "message": NativePresentation.tr("browser.firefox.openFailed")]
+    }
+    return ["ok": true, "message": NativePresentation.tr("browser.firefox.opened")]
   }
 
   static func openChromeExtensionsPage() -> [String: Any] {
@@ -2873,28 +2929,60 @@ enum ChromeHostInstaller {
 
     do {
       let host = try materializeHostBinary()
-      let manifest: [String: Any] = [
+      try writeNativeManifest(at: manifestURL, payload: [
         "name": hostName,
         "description": "CredPivot Native Messaging Host",
         "path": host,
         "type": "stdio",
         "allowed_origins": ["chrome-extension://\(extId)/"],
+      ])
+      applyTrustedNativeHostEnv()
+      let firefox = installFirefoxHost()
+      let firefoxOk = firefox["ok"] as? Bool == true
+      return [
+        "ok": true,
+        "message": NativePresentation.tr(firefoxOk ? "native.install.text.item4" : "native.install.text.item3"),
+        "manifest_path": manifestURL.path,
+        "extension_id": extId,
+        "host_binary": host,
+        "firefox_ok": firefoxOk,
+        "firefox_message": firefox["message"] as? String ?? "",
       ]
-      let dir = manifestURL.deletingLastPathComponent()
-      try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-      let data = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted])
-      try data.write(to: manifestURL, options: .atomic)
+    } catch {
+      return ["ok": false, "message": error.localizedDescription]
+    }
+  }
+
+  static func installFirefoxHost() -> [String: Any] {
+    guard let extensionId = firefoxExtensionId(directory: extensionDirectoryPath()) else {
+      return ["ok": false, "message": NativePresentation.tr("browser.firefox.idMissing")]
+    }
+    do {
+      let host = try materializeHostBinary()
+      try writeNativeManifest(at: firefoxManifestURL, payload: [
+        "name": hostName,
+        "description": "CredPivot Native Messaging Host",
+        "path": host,
+        "type": "stdio",
+        "allowed_extensions": [extensionId],
+      ])
       applyTrustedNativeHostEnv()
       return [
         "ok": true,
-        "message": NativePresentation.tr("native.install.text.item3"),
-        "manifest_path": manifestURL.path,
-        "extension_id": extId,
+        "message": NativePresentation.tr("browser.firefox.installOk"),
+        "manifest_path": firefoxManifestURL.path,
+        "extension_id": extensionId,
         "host_binary": host,
       ]
     } catch {
       return ["ok": false, "message": error.localizedDescription]
     }
+  }
+
+  private static func writeNativeManifest(at url: URL, payload: [String: Any]) throws {
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])
+    try data.write(to: url, options: .atomic)
   }
 
   /// 设置里还没有扩展 ID 时，只认升级前写在私有目录中的那一份。
@@ -2918,10 +3006,12 @@ enum ChromeHostInstaller {
     // 没有这项设置时不能删掉现有连接；只有用户明确保存成空字符串才移除清单。
     if raw == nil || raw is NSNull {
       if let legacy = legacyExtensionId() { return install(extensionId: legacy) }
+      _ = installFirefoxHost()
       return ["ok": true]
     }
     do {
       if FileManager.default.fileExists(atPath: manifestURL.path) { try FileManager.default.removeItem(at: manifestURL) }
+      _ = installFirefoxHost()
       return ["ok": true]
     } catch { return ["ok": false, "message": NativePresentation.tr("native.applyPreference.text.item6")] }
   }

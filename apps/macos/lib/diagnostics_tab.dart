@@ -91,8 +91,12 @@ class _DiagnosticsTabState extends State<DiagnosticsTab> {
       if (!mounted) return;
       final extId = host['stored_extension_id']?.toString() ?? '';
       if (extId.isEmpty) {
-        setState(
-            () => _repairMsg = tr('diagnostics.repairAgentAndHost.text'));
+        final firefox = await AgentBridge.installFirefoxHost();
+        if (!mounted) return;
+        final firefoxMsg = firefox['message']?.toString() ?? '';
+        setState(() => _repairMsg = [firefoxMsg, tr('diagnostics.repairAgentAndHost.text')]
+            .where((line) => line.isNotEmpty)
+            .join('\n'));
       } else {
         final r = await AgentBridge.installChromeHost(extId);
         if (!mounted) return;

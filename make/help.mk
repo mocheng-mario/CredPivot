@@ -30,6 +30,7 @@ help:
 	@echo ""
 	@echo "Chrome:"
 	@echo "  make chrome-info         扩展路径与加载说明"
+	@echo "  make chrome-pack         打包扩展为 dist/CredPivot-extension-<版本>.xpi"
 	@echo "  make chrome-host-manifest 写入 Native Messaging Host 清单"
 	@echo ""
 	@echo "Android（Android 9+；需 SDK、NDK 28.2.13676358 和 Rust Android targets）:"

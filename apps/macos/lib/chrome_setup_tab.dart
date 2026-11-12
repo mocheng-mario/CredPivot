@@ -72,8 +72,11 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
     await _run(tr('browser.installHost.text'), () async {
       final r = await AgentBridge.installChromeHost(id);
       if (!mounted) return;
+      final firefoxNote = r['firefox_ok'] == false ? (r['firefox_message']?.toString() ?? '') : '';
       setState(() {
-        _message = r['message']?.toString() ?? r.toString();
+        _message = [r['message']?.toString() ?? r.toString(), firefoxNote]
+            .where((line) => line.isNotEmpty)
+            .join('\n');
       });
       await _refresh();
     });
@@ -90,6 +93,15 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
     final hostPathMatch = _host['manifest_host_matches_installed'] == true;
     final stored = _host['stored_extension_id']?.toString() ?? '';
     final manifestId = _host['manifest_extension_id']?.toString() ?? '';
+    final firefoxManifestOk = _host['firefox_manifest_exists'] == true;
+    final firefoxId = _host['firefox_extension_id']?.toString() ?? '';
+    final firefoxManifestId = _host['firefox_manifest_extension_id']?.toString() ?? '';
+    final firefoxReady = firefoxManifestOk &&
+        _host['firefox_id_matches'] == true &&
+        _host['firefox_host_matches_installed'] == true &&
+        hostBinOk &&
+        trustedHostOk &&
+        hostCurrent;
     final configured = manifestOk &&
         hostBinOk &&
         idMatch &&
@@ -193,6 +205,45 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
                 ]),
           ),
           const SizedBox(height: 16),
+          AppPanel(
+            title: tr('browser.firefox.title'),
+            subtitle: tr('browser.firefox.description'),
+            icon: Icons.language_rounded,
+            trailing: AppStatusBadge(
+                firefoxReady ? tr('browser.build.text') : tr('browser.build.text.item2'),
+                color: firefoxReady ? AppColors.green : AppColors.muted),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text(firefoxReady ? tr('browser.firefox.ready') : tr('browser.firefox.pending'),
+                  style: Theme.of(context).textTheme.bodySmall),
+              if (firefoxId.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                SelectableText(tr('browser.firefox.extensionId', args: {'extensionId': firefoxId}),
+                    style: Theme.of(context).textTheme.bodySmall),
+              ],
+              const SizedBox(height: 14),
+              Wrap(spacing: 10, runSpacing: 10, children: [
+                FilledButton.icon(
+                  onPressed: busy ? null : () => _run(tr('browser.firefox.install'), () async {
+                    final r = await AgentBridge.installFirefoxHost();
+                    if (!mounted) return;
+                    setState(() => _message = r['message']?.toString() ?? '');
+                    await _refresh();
+                  }),
+                  icon: const Icon(Icons.link_rounded),
+                  label: const LText('browser.firefox.install'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _run(tr('browser.firefox.open'), () async {
+                    final r = await AgentBridge.openFirefoxDebuggingPage();
+                    if (mounted) setState(() => _message = r['message']?.toString() ?? '');
+                  }),
+                  icon: const Icon(Icons.open_in_new_rounded),
+                  label: const LText('browser.firefox.open'),
+                ),
+              ]),
+            ]),
+          ),
+          const SizedBox(height: 16),
           Card(
               child: ExpansionTile(
             shape: const Border(),
@@ -214,6 +265,9 @@ class _ChromeSetupTabState extends State<ChromeSetupTab> {
                       tr('browser.details.manifestPath', args: {'path': hostPathMatch ? tr('browser.labels.text.item9') : tr('browser.labels.text.item10')}),
                       if (manifestId.isNotEmpty) tr('browser.details.manifestExtensionId', args: {'extensionId': manifestId}),
                       if (stored.isNotEmpty) tr('browser.details.savedExtensionId', args: {'extensionId': stored}),
+                      tr('browser.firefox.manifest', args: {'path': firefoxManifestOk ? tr('browser.labels.text') : tr('browser.labels.text.item2')}),
+                      if (firefoxManifestId.isNotEmpty)
+                        tr('browser.firefox.manifestExtensionId', args: {'extensionId': firefoxManifestId}),
                     ].join('\n'),
                     style: const TextStyle(
                         fontSize: 12, fontFamily: 'monospace', height: 1.7),

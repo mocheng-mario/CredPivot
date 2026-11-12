@@ -1,4 +1,4 @@
-.PHONY: chrome-info chrome-host-manifest
+.PHONY: chrome-info chrome-host-manifest chrome-pack
 
 ## 打印扩展目录与加载方式
 chrome-info:
@@ -20,3 +20,12 @@ chrome-host-manifest: rust-host
 	  '  "allowed_origins": ["chrome-extension://REPLACE_WITH_EXTENSION_ID/"]' \
 	  '}' > "$$DIR/com.credpivot.chrome.m0.json"; \
 	echo "已写入 $$DIR/com.credpivot.chrome.m0.json（请替换 allowed_origins 中的扩展 ID）"
+
+## 打包扩展。压缩包根目录就是 manifest.json，可直接在 Firefox 中从文件安装。
+chrome-pack:
+	@mkdir -p "$(ROOT)/dist"
+	@version=$$(/usr/bin/plutil -extract version raw -o - "$(CHROME_EXT_DIR)/manifest.json"); \
+	archive="$(ROOT)/dist/CredPivot-extension-$$version.xpi"; \
+	rm -f "$$archive"; \
+	cd "$(CHROME_EXT_DIR)" && zip -r -X "$$archive" . -x '*.DS_Store' -x '__MACOSX/*'; \
+	echo "已生成 $$archive"
