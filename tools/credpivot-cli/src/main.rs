@@ -7,6 +7,7 @@ use ovb1_structure::parse_layout;
 use std::fs;
 use std::path::PathBuf;
 
+mod clear_associations;
 mod legacy_upgrade;
 
 #[derive(Parser)]
@@ -18,6 +19,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// 清空认证关联。不加 --apply 只预览计数；不升级数据库版本，不打印秘密
+    ClearAssociations {
+        /// 不指定时读取本机配置中的保险库目录
+        vault_dir: Option<PathBuf>,
+        #[arg(long)]
+        apply: bool,
+    },
     /// 独立升级检查：仅输出计数；--apply 备份后迁移，不导出秘密
     UpgradeLegacy {
         /// 不指定时读取本机配置中的保险库目录
@@ -64,6 +72,12 @@ enum Commands {
 fn main() {
     let cli = Cli::parse();
     let code = match cli.command {
+        Commands::ClearAssociations { vault_dir, apply } => {
+            match clear_associations::run(vault_dir, apply) {
+                Ok(()) => 0,
+                Err(message) => { eprintln!("关联清空未完成：{message}"); 1 }
+            }
+        }
         Commands::UpgradeLegacy { vault_dir, apply, launch_at_login } => {
             match legacy_upgrade::run(vault_dir, apply, launch_at_login) {
                 Ok(()) => 0,
