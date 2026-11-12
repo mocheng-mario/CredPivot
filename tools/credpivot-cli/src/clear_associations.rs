@@ -164,6 +164,31 @@ pub fn run(vault_dir: Option<PathBuf>, apply: bool) -> Result<()> {
         tx.execute_batch("ALTER TABLE server_login_profiles ADD COLUMN manual_secret TEXT NOT NULL DEFAULT ''")
             .map_err(|_| "无法添加连接自己的密码字段，当前事务已撤销")?;
     }
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS trashed_credential_links (
+            owner_item_id TEXT NOT NULL,
+            account_item_id TEXT NOT NULL,
+            target_item_id TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('mfa','ssh_key','passkey')),
+            PRIMARY KEY (owner_item_id, account_item_id, target_item_id, kind)
+        );",
+    )
+    .map_err(|_| "无法准备恢复关联，当前事务已撤销")?;
+    let has_mfa_item: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('recovery_code_items') WHERE name='mfa_item_id'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| "无法检查恢复码字段，当前事务已撤销")?;
+    if has_mfa_item == 0 {
+        tx.execute_batch("ALTER TABLE recovery_code_items ADD COLUMN mfa_item_id TEXT")
+            .map_err(|_| "无法添加 MFA 恢复码字段，当前事务已撤销")?;
+    }
+    tx.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_one_mfa ON recovery_code_items(mfa_item_id) WHERE mfa_item_id IS NOT NULL",
+    )
+    .map_err(|_| "无法准备 MFA 恢复码，当前事务已撤销")?;
     let profiles = profiles(&tx)?;
     for profile in &profiles {
         let revision = Uuid::new_v4().to_string();

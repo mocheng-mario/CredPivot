@@ -435,6 +435,135 @@ pub(crate) fn move_account_links(conn: &Connection, from_items: &[String], to_it
     Ok(())
 }
 
+pub(crate) fn snapshot_links(conn: &Connection, item: &str) -> Result<()> {
+    crate::schema::ensure_runtime_extras(conn)?;
+    if !table_ready(conn)? {
+        return Ok(());
+    }
+    let rows = {
+        let mut statement = conn.prepare(
+            "SELECT account_item_id, target_item_id, kind FROM credential_links WHERE account_item_id=?1 OR target_item_id=?1",
+        )?;
+        let mapped = statement.query_map([item], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))?;
+        mapped.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    for (account, target, kind) in rows {
+        conn.execute(
+            "INSERT OR REPLACE INTO trashed_credential_links (owner_item_id, account_item_id, target_item_id, kind) VALUES (?1, ?2, ?3, ?4)",
+            params![item, account, target, kind],
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn restore_links(conn: &Connection, item: &str) -> Result<()> {
+    crate::schema::ensure_runtime_extras(conn)?;
+    if !table_ready(conn)? {
+        return Ok(());
+    }
+    let rows = {
+        let mut statement = conn.prepare(
+            "SELECT account_item_id, target_item_id, kind FROM trashed_credential_links WHERE owner_item_id=?1",
+        )?;
+        let mapped = statement.query_map([item], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))?;
+        mapped.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    for (account, target, kind) in rows {
+        let account_ok = item_active(conn, &account)?;
+        let target_ok = item_active(conn, &target)?;
+        if !account_ok || !target_ok {
+            continue;
+        }
+        let same = crate::partitions::item_partition(conn, &account)? == crate::partitions::item_partition(conn, &target)?;
+        if !same {
+            continue;
+        }
+        if kind == "mfa" || kind == "passkey" {
+            let owner: Option<String> = conn.query_row(
+                "SELECT account_item_id FROM credential_links WHERE target_item_id=?1 AND kind=?2",
+                params![target, kind],
+                |row| row.get(0),
+            ).optional()?;
+            if owner.is_some_and(|owner| owner != account) {
+                continue;
+            }
+        }
+        conn.execute(
+            "INSERT OR IGNORE INTO credential_links (account_item_id, target_item_id, kind, created_at_ms) VALUES (?1, ?2, ?3, ?4)",
+            params![account, target, kind, crate::repo::now_ms()],
+        )?;
+        if kind == "mfa" {
+            sync_mfa_state(conn, &account)?;
+        }
+    }
+    conn.execute("DELETE FROM trashed_credential_links WHERE owner_item_id=?1", [item])?;
+    Ok(())
+}
+
+fn item_active(conn: &Connection, item: &str) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT trashed=0 FROM items WHERE id=?1",
+        [item],
+        |row| row.get::<_, bool>(0),
+    ).optional()?.unwrap_or(false))
+}
+
+pub(crate) fn login_delete_preview(conn: &Connection, item: &str) -> Result<serde_json::Value> {
+    let kind: String = conn.query_row("SELECT kind FROM items WHERE id=?1 AND trashed=0", [item], |row| row.get(0))
+        .map_err(|_| CoreError::format("账户不存在"))?;
+    if kind != "login" {
+        return Err(CoreError::format("只能在账户上选择关联内容一起删除"));
+    }
+    let mut items = Vec::new();
+    if table_ready(conn)? {
+        let mut statement = conn.prepare(
+            "SELECT k.target_item_id, k.kind, i.title FROM credential_links k JOIN items i ON i.id=k.target_item_id WHERE k.account_item_id=?1 AND i.trashed=0 ORDER BY k.kind, i.title",
+        )?;
+        let rows = statement.query_map([item], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))?;
+        for row in rows {
+            let (id, kind, title) = row?;
+            let mut others = Vec::new();
+            if kind == "ssh_key" {
+                let mut other = conn.prepare(
+                    "SELECT a.title FROM credential_links k JOIN items a ON a.id=k.account_item_id WHERE k.target_item_id=?1 AND k.kind='ssh_key' AND k.account_item_id<>?2 AND a.trashed=0",
+                )?;
+                let names = other.query_map(params![id, item], |row| row.get::<_, String>(0))?;
+                for name in names {
+                    others.push(name?);
+                }
+            }
+            items.push(serde_json::json!({"item_id": id, "kind": kind, "title": title, "other_accounts": others}));
+        }
+    }
+    Ok(serde_json::json!({"items": items}))
+}
+
+pub(crate) fn login_delete_apply(conn: &Connection, item: &str, also: &[String]) -> Result<()> {
+    let preview = login_delete_preview(conn, item)?;
+    let allowed: std::collections::BTreeSet<String> = preview["items"].as_array().unwrap_or(&Vec::new()).iter()
+        .filter_map(|row| row["item_id"].as_str().map(str::to_string)).collect();
+    if also.len() > 100 || also.iter().any(|id| !allowed.contains(id)) {
+        return Err(CoreError::format("只能删除这个账户直接关联的内容"));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for id in also {
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        let linked: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM credential_links WHERE account_item_id=?1 AND target_item_id=?2)",
+            params![item, id],
+            |row| row.get(0),
+        )?;
+        if !linked {
+            return Err(CoreError::format("只能删除这个账户直接关联的内容"));
+        }
+        crate::repo_m2::trash_item_in_tx(conn, id)?;
+    }
+    crate::repo_m2::trash_item_in_tx(conn, item)?;
+    Ok(())
+}
+
 pub fn replace_account_ssh_keys(conn: &Connection, account_item: &str, key_ids: &[String]) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
     replace_ssh_keys(&tx, account_item, key_ids)?;

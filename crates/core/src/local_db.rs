@@ -2,7 +2,7 @@
 
 use crate::crypto::derive_sqlcipher_key;
 use crate::error::{CoreError, Result};
-use crate::schema::{initialize_schema, validate_schema_version};
+use crate::schema::{ensure_runtime_extras, initialize_schema, validate_schema_version};
 use crate::limits::MAX_OVB_FILE_BYTES;
 use hex::encode;
 use rusqlite::{backup::Backup, Connection, OpenFlags};
@@ -57,6 +57,7 @@ fn open_connection(path: &Path, key: &[u8; 32], create: bool) -> Result<Connecti
     } else {
         initialize_schema(&conn)?;
     }
+    ensure_runtime_extras(&conn)?;
     Ok(conn)
 }
 

@@ -105,6 +105,7 @@ const TABLES: &[&str] = &[
     "server_login_profiles",
     "passkey_credentials",
     "credential_links",
+    "trashed_credential_links",
     "password_history",
     "password_candidates",
     "recovery_code_entries",
@@ -475,6 +476,7 @@ pub fn capture(conn: &Connection) -> Result<Document> {
                 "import_mappings" => "SELECT * FROM import_mappings WHERE local_item_id=?1 ORDER BY source_namespace,source_item_id".into(),
                 "passkey_credentials" => format!("SELECT * FROM {table} WHERE item_id=?1 ORDER BY credential_id"),
                 "credential_links" => "SELECT * FROM credential_links WHERE account_item_id=?1 ORDER BY target_item_id, kind".into(),
+                "trashed_credential_links" => "SELECT * FROM trashed_credential_links WHERE owner_item_id=?1 ORDER BY account_item_id, target_item_id, kind".into(),
                 _ => format!("SELECT * FROM {table} WHERE item_id=?1 ORDER BY id"),
             };
             let mut values = rows(&tx, &sql, [&id])?;
@@ -1629,6 +1631,9 @@ pub fn validate_document(doc: &Document) -> Result<()> {
                         return Err(invalid());
                     }
                     if table == "credential_links" && row["account_item_id"].as_str() != Some(id) {
+                        return Err(invalid());
+                    }
+                    if table == "trashed_credential_links" && row["owner_item_id"].as_str() != Some(id) {
                         return Err(invalid());
                     }
                     if [

@@ -88,8 +88,10 @@ CREATE TABLE recovery_code_items (
   current_revision TEXT NOT NULL,
   created_at_ms INTEGER NOT NULL,
   updated_at_ms INTEGER NOT NULL,
+  mfa_item_id TEXT,
   FOREIGN KEY (item_id) REFERENCES items(id)
 );
+CREATE UNIQUE INDEX idx_recovery_one_mfa ON recovery_code_items(mfa_item_id) WHERE mfa_item_id IS NOT NULL;
 
 CREATE TABLE vault_settings (
   key TEXT PRIMARY KEY NOT NULL,
@@ -189,6 +191,14 @@ CREATE UNIQUE INDEX idx_credential_links_one_owner
   WHERE kind IN ('mfa','passkey');
 CREATE INDEX idx_credential_links_target ON credential_links(target_item_id, kind);
 
+CREATE TABLE trashed_credential_links (
+  owner_item_id TEXT NOT NULL,
+  account_item_id TEXT NOT NULL,
+  target_item_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('mfa','ssh_key','passkey')),
+  PRIMARY KEY (owner_item_id, account_item_id, target_item_id, kind)
+);
+
 CREATE TABLE sync_state (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
 CREATE TABLE sync_tombstones (record_key TEXT PRIMARY KEY NOT NULL, deleted_at_ms INTEGER NOT NULL);
 CREATE TRIGGER sync_item_deleted AFTER DELETE ON items
@@ -233,6 +243,31 @@ pub fn validate_schema_version(conn: &Connection) -> Result<()> {
             "数据库结构版本 {version} 不受支持，需要版本 {SCHEMA_USER_VERSION}；不会自动升级"
         )));
     }
+    Ok(())
+}
+
+/// 现有版本 14 的库补上关联恢复和 MFA 恢复码所需的表，不改变数据库版本。
+pub fn ensure_runtime_extras(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS trashed_credential_links (
+            owner_item_id TEXT NOT NULL,
+            account_item_id TEXT NOT NULL,
+            target_item_id TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('mfa','ssh_key','passkey')),
+            PRIMARY KEY (owner_item_id, account_item_id, target_item_id, kind)
+        );",
+    )?;
+    let has_mfa: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('recovery_code_items') WHERE name='mfa_item_id'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_mfa == 0 {
+        conn.execute_batch("ALTER TABLE recovery_code_items ADD COLUMN mfa_item_id TEXT")?;
+    }
+    conn.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_one_mfa ON recovery_code_items(mfa_item_id) WHERE mfa_item_id IS NOT NULL",
+    )?;
     Ok(())
 }
 

@@ -328,21 +328,28 @@ pub(crate) fn trash_item_in_tx(conn: &Connection, item_id: &str) -> Result<()> {
             if let Some(id) = conn.query_row("SELECT id FROM login_credentials WHERE item_id=?1", [item_id], |row| row.get::<_, String>(0)).optional()? {
                 crate::associations::disable_profiles_for_credential(conn, "linked_login_id", &id, "关联账户已删除")?;
             }
+            crate::associations::snapshot_links(conn, item_id)?;
             crate::associations::delete_links_for_item(conn, item_id)?;
         }
         "totp" => {
             if let Some(id) = conn.query_row("SELECT id FROM totp_credentials WHERE item_id=?1", [item_id], |row| row.get::<_, String>(0)).optional()? {
                 crate::associations::disable_profiles_for_credential(conn, "linked_totp_id", &id, "所选 MFA 已删除")?;
             }
+            crate::associations::snapshot_links(conn, item_id)?;
             crate::associations::delete_links_for_item(conn, item_id)?;
+            trash_mfa_recovery(conn, item_id)?;
         }
         "ssh_key" => {
             if let Some((key_id, _)) = &ssh_key {
                 crate::associations::disable_profiles_for_credential(conn, "linked_ssh_key_id", key_id, "所选 SSH 密钥已删除")?;
             }
+            crate::associations::snapshot_links(conn, item_id)?;
             crate::associations::delete_links_for_item(conn, item_id)?;
         }
-        "passkey" => crate::associations::delete_links_for_item(conn, item_id)?,
+        "passkey" => {
+            crate::associations::snapshot_links(conn, item_id)?;
+            crate::associations::delete_links_for_item(conn, item_id)?;
+        }
         _ => {}
     }
     let n = conn
@@ -368,6 +375,35 @@ pub(crate) fn trash_item_in_tx(conn: &Connection, item_id: &str) -> Result<()> {
     }
     crate::website_rules::detach_mfa_references(conn,item_id)?;
     crate::restore_point::mark_restore_dirty(conn)?;
+    Ok(())
+}
+
+fn trash_mfa_recovery(conn: &Connection, totp_item: &str) -> Result<()> {
+    crate::schema::ensure_runtime_extras(conn)?;
+    let mut statement = conn.prepare(
+        "SELECT r.item_id FROM recovery_code_items r JOIN items i ON i.id=r.item_id WHERE r.mfa_item_id=?1 AND i.trashed=0",
+    )?;
+    let ids = statement.query_map([totp_item], |row| row.get::<_, String>(0))?;
+    let ids = ids.collect::<std::result::Result<Vec<_>, _>>()?;
+    for id in ids {
+        trash_item_in_tx(conn, &id)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn restore_mfa_recovery(conn: &Connection, totp_item: &str) -> Result<()> {
+    crate::schema::ensure_runtime_extras(conn)?;
+    let revision = new_revision();
+    let ts = now_ms();
+    conn.execute(
+        "UPDATE items SET trashed=0, trashed_at_ms=NULL, current_revision=?1, updated_at_ms=?2
+         WHERE trashed=1 AND id IN (SELECT item_id FROM recovery_code_items WHERE mfa_item_id=?3)",
+        params![revision, ts, totp_item],
+    )?;
+    conn.execute(
+        "UPDATE recovery_code_items SET current_revision=?1, updated_at_ms=?2 WHERE mfa_item_id=?3",
+        params![revision, ts, totp_item],
+    )?;
     Ok(())
 }
 
@@ -986,6 +1022,63 @@ pub fn list_recovery_codes(conn: &Connection) -> Result<Vec<RecoveryCodeRow>> {
         out.push(r.map_err(|e| CoreError::format(e.to_string()))?);
     }
     Ok(out)
+}
+
+pub fn mfa_recovery_status(conn: &Connection, totp_item: &str) -> Result<serde_json::Value> {
+    crate::schema::ensure_runtime_extras(conn)?;
+    let found: Option<(String, String, String)> = conn.query_row(
+        "SELECT r.id, r.item_id, r.service_name FROM recovery_code_items r JOIN items i ON i.id=r.item_id WHERE r.mfa_item_id=?1 AND i.trashed=0",
+        [totp_item],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).optional()?;
+    let Some((id, item_id, service_name)) = found else {
+        return Ok(serde_json::json!({"attached": false}));
+    };
+    let total: i64 = conn.query_row("SELECT COUNT(*) FROM recovery_code_entries WHERE recovery_id=?1", [&id], |row| row.get(0))?;
+    let remaining: i64 = conn.query_row("SELECT COUNT(*) FROM recovery_code_entries WHERE recovery_id=?1 AND used_at_ms IS NULL", [&id], |row| row.get(0))?;
+    Ok(serde_json::json!({"attached": true, "id": id, "item_id": item_id, "service_name": service_name, "remaining": remaining, "total": total}))
+}
+
+pub fn save_mfa_recovery(conn: &Connection, totp_item: &str, codes: &[String]) -> Result<serde_json::Value> {
+    crate::schema::ensure_runtime_extras(conn)?;
+    let (partition, label): (String, String) = conn.query_row(
+        "SELECT i.partition_id, t.issuer || ' · ' || t.account FROM totp_credentials t JOIN items i ON i.id=t.item_id WHERE t.item_id=?1 AND i.trashed=0",
+        [totp_item],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(|_| CoreError::format("MFA 不存在"))?;
+    let cleaned: Vec<String> = codes.iter().map(|code| code.trim().to_string()).filter(|code| !code.is_empty()).collect();
+    if cleaned.is_empty() || cleaned.len() > 100 || cleaned.iter().any(|code| code.chars().count() > 200) {
+        return Err(CoreError::format("恢复码数量或长度无效"));
+    }
+    let existing: Option<(String, String)> = conn.query_row(
+        "SELECT id, item_id FROM recovery_code_items WHERE mfa_item_id=?1",
+        [totp_item],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).optional()?;
+    let revision = new_revision();
+    let ts = now_ms();
+    let codes_json = serde_json::to_string(&cleaned).map_err(|e| CoreError::format(e.to_string()))?;
+    let (recovery_id, item_id) = if let Some((id, item_id)) = existing {
+        conn.execute("UPDATE items SET title=?1, trashed=0, trashed_at_ms=NULL, current_revision=?2, updated_at_ms=?3 WHERE id=?4", params![label, revision, ts, item_id])?;
+        conn.execute("UPDATE recovery_code_items SET service_name=?1, codes_json=?2, current_revision=?3, updated_at_ms=?4 WHERE id=?5", params![label, codes_json, revision, ts, id])?;
+        crate::credential_management::sync_recovery_entries(conn, &id, &cleaned)?;
+        (id, item_id)
+    } else {
+        let item_id = Uuid::new_v4().to_string();
+        let recovery_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO items (id, kind, title, trashed, current_revision, created_at_ms, updated_at_ms, partition_id) VALUES (?1, 'recovery_codes', ?2, 0, ?3, ?4, ?4, ?5)",
+            params![item_id, label, revision, ts, partition],
+        )?;
+        conn.execute(
+            "INSERT INTO recovery_code_items (id, item_id, service_name, codes_json, current_revision, created_at_ms, updated_at_ms, mfa_item_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7)",
+            params![recovery_id, item_id, label, codes_json, revision, ts, totp_item],
+        )?;
+        crate::credential_management::sync_recovery_entries(conn, &recovery_id, &cleaned)?;
+        (recovery_id, item_id)
+    };
+    crate::mark_restore_dirty(conn)?;
+    Ok(serde_json::json!({"id": recovery_id, "item_id": item_id, "remaining": cleaned.len(), "total": cleaned.len()}))
 }
 
 pub fn update_recovery_codes(

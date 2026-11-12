@@ -430,6 +430,59 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
     } catch (error) { vaultMessage(context, error); }
   }
 
+  Future<void> _deleteLogin(bool withLinks) async {
+    final login = _selected;
+    final itemId = login?['item_id']?.toString();
+    if (login == null || itemId == null) return;
+    final title = login['title']?.toString() ?? login['origin']?.toString() ?? '';
+    if (!withLinks) {
+      if (!await confirmCredentialDanger(context, title: tr('credentials.build.title.item6'), message: tr('credentials.login.deleteConfirmation', args: {'title': title}))) return;
+      if (!mounted || !await requireTouchId(context, reason: tr('credentials.build.title.item6'), confirmed: true)) return;
+      await AgentBridge.trashCredential(itemId);
+    } else {
+      Map<String, dynamic> preview;
+      try {
+        preview = await AgentBridge.manage({'action': 'login_delete_preview', 'item_id': itemId});
+      } catch (error) { vaultMessage(context, error); return; }
+      if (!mounted) return;
+      final items = (preview['items'] as List? ?? []).map((row) => Map<String, dynamic>.from(row as Map)).toList();
+      final chosen = <String>{};
+      final ok = await showDialog<bool>(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setLocal) => AlertDialog(
+        title: const Text('删除账户及勾选的关联内容'),
+        content: SizedBox(width: appEditDialogWidth(ctx), child: SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('将删除账户「$title」。勾选的关联内容一起删除，没勾的只解除关联。'),
+          const SizedBox(height: 8),
+          if (items.isEmpty) const Text('这个账户没有直接关联的 MFA、SSH 密钥或通行密钥。'),
+          for (final item in items)
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              value: chosen.contains(item['item_id']),
+              title: Text(item['title']?.toString() ?? ''),
+              subtitle: Text([
+                item['kind'] == 'mfa' ? 'MFA' : item['kind'] == 'ssh_key' ? 'SSH 密钥' : '通行密钥',
+                if ((item['other_accounts'] as List?)?.isNotEmpty == true)
+                  '其他账户也在使用：${(item['other_accounts'] as List).join('、')}',
+              ].join(' · ')),
+              onChanged: (value) => setLocal(() {
+                final id = item['item_id'].toString();
+                if (value == true) { chosen.add(id); } else { chosen.remove(id); }
+              }),
+            ),
+        ]))),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('common.cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('common.delete')),
+        ],
+      )));
+      if (ok != true || !mounted) return;
+      if (!await requireTouchId(context, reason: '删除账户及勾选的关联内容', confirmed: true)) return;
+      await AgentBridge.manage({'action': 'login_delete_apply', 'item_id': itemId, 'also': chosen.toList()});
+    }
+    _selected = null;
+    await _refresh();
+    if (mounted && widget.initialSelection != null && ModalRoute.of(context)?.isCurrent == true) Navigator.pop(context);
+  }
+
   Future<void> _select(Map<String, dynamic> row) async {
     if (defaultTargetPlatform == TargetPlatform.android) {
       await showCredentialDetailSheet(context, _LoginPasswordPanel(initialSelection: row));
@@ -621,27 +674,12 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                         dangerous: true,
                         children: [
                           OutlinedButton(
-                            onPressed: () async {
-                              final title = _selected!['title']?.toString() ??
-                                  _selected!['origin']?.toString() ??
-                                  tr('credentials.build.text.item3');
-                              if (!await confirmCredentialDanger(
-                                context,
-                                title: tr('credentials.build.title.item6'),
-                                message: tr('credentials.login.deleteConfirmation', args: {'title': title}),
-                              )) {
-                                return;
-                              }
-                              if (!await requireTouchId(context, reason: tr('credentials.build.title.item6'), confirmed: true))
-                                return;
-                              final itemId = _selected!['item_id'] as String?;
-                              if (itemId == null) return;
-                              await AgentBridge.trashCredential(itemId);
-                              _selected = null;
-                              await _refresh();
-                              if (mounted && widget.initialSelection != null && ModalRoute.of(context)?.isCurrent == true) Navigator.pop(context);
-                            },
+                            onPressed: () => _deleteLogin(false),
                             child: const LText('common.delete'),
+                          ),
+                          OutlinedButton(
+                            onPressed: () => _deleteLogin(true),
+                            child: const Text('删除账户及勾选的关联内容'),
                           ),
                         ],
                       ),
@@ -668,6 +706,7 @@ class _TotpPanelState extends State<_TotpPanel> {
   String _status = '';
   String? _liveCode;
   String? _liveCodeForId;
+  String _recoveryLine = '未录入';
   int _refreshGeneration = 0;
 
   void _onVaultChanged() { if (mounted) _refresh(); }
@@ -705,8 +744,21 @@ class _TotpPanelState extends State<_TotpPanel> {
         _liveCodeForId = null;
         _status = '';
       });
+      await _loadRecovery();
     } on AgentException catch (e) {
       if (mounted && generation == _refreshGeneration) setState(() => _status = AgentBridge.friendlyMessage(e));
+    }
+  }
+
+  Future<void> _loadRecovery() async {
+    final itemId = _selected?['item_id']?.toString();
+    if (itemId == null) return;
+    try {
+      final status = await AgentBridge.manage({'action': 'mfa_recovery_status', 'item_id': itemId});
+      if (!mounted || _selected?['item_id']?.toString() != itemId) return;
+      setState(() => _recoveryLine = status['attached'] == true ? '剩余 ${status['remaining'] ?? 0} / 共 ${status['total'] ?? 0}' : '未录入');
+    } catch (_) {
+      if (mounted) setState(() => _recoveryLine = '未能读取');
     }
   }
 
@@ -784,6 +836,44 @@ class _TotpPanelState extends State<_TotpPanel> {
     );
   }
 
+  Future<void> _showRecovery(Map<String, dynamic> row) async {
+    final itemId = row['item_id']?.toString();
+    if (itemId == null) return;
+    try {
+      final status = await AgentBridge.manage({'action': 'mfa_recovery_status', 'item_id': itemId});
+      if (!mounted) return;
+      if (status['attached'] == true) {
+        await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+          title: const Text('恢复码'),
+          content: Text('剩余 ${status['remaining'] ?? 0} / 共 ${status['total'] ?? 0}'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.close')),
+            FilledButton(onPressed: () async {
+              Navigator.pop(ctx);
+              await manageRecoveryEntries(context, {'id': status['id'], 'item_id': status['item_id']});
+            }, child: const Text('查看并标记')),
+          ],
+        ));
+        return;
+      }
+      final codes = TextEditingController();
+      final save = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+        title: const Text('录入恢复码'),
+        content: TextField(controller: codes, minLines: 3, maxLines: 8, decoration: const InputDecoration(hintText: '每行一条')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const LText('common.cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const LText('common.save')),
+        ],
+      ));
+      final text = codes.text;
+      codes.dispose();
+      if (save != true || !mounted) return;
+      if (!await requireTouchId(context, reason: '录入恢复码', confirmed: true)) return;
+      await AgentBridge.manage({'action': 'mfa_recovery_save', 'item_id': itemId, 'codes': text.split(RegExp(r'[\s,;]+')).where((code) => code.trim().isNotEmpty).toList()});
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('恢复码已录入')));
+    } catch (error) { vaultMessage(context, error); }
+  }
+
   Future<void> _deleteTotp(Map<String, dynamic> row) async {
     if (!await confirmCredentialDanger(
       context,
@@ -819,6 +909,7 @@ class _TotpPanelState extends State<_TotpPanel> {
       _liveCode = null;
       _liveCodeForId = null;
     });
+    await _loadRecovery();
   }
 
   @override
@@ -927,6 +1018,13 @@ class _TotpPanelState extends State<_TotpPanel> {
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      CredentialActionSection(
+                        title: '恢复码',
+                        children: [
+                          Text(_recoveryLine),
+                          OutlinedButton(onPressed: () async { await _showRecovery(_selected!); await _loadRecovery(); }, child: const Text('查看或录入')),
+                        ],
+                      ),
                       CredentialActionSection(
                         title: tr('credentials.build.title.item9'),
                         children: [

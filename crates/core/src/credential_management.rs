@@ -130,6 +130,10 @@ pub enum VaultAction {
         entry_id: String,
         used: bool,
     },
+    MfaRecoveryStatus { item_id: String },
+    MfaRecoverySave { item_id: String, codes: Vec<String> },
+    LoginDeletePreview { item_id: String },
+    LoginDeleteApply { item_id: String, #[serde(default)] also: Vec<String> },
     SshImport {
         label: String,
         pem: String,
@@ -186,6 +190,8 @@ impl VaultAction {
                 | Self::SecurityReport
                 | Self::TrashList
                 | Self::NoteCreate { .. }
+                | Self::MfaRecoveryStatus { .. }
+                | Self::LoginDeletePreview { .. }
         )
     }
     pub fn is_passive(&self) -> bool {
@@ -417,6 +423,11 @@ fn trash_change(conn: &Connection, item: &str, expected: &str, purge: bool) -> R
         let revision = new_revision();
         let ts = now_ms();
         conn.execute("UPDATE items SET trashed=0,trashed_at_ms=NULL,current_revision=?1,updated_at_ms=?2 WHERE id=?3", params![revision,ts,item])?;
+        let kind: String = conn.query_row("SELECT kind FROM items WHERE id=?1", [item], |row| row.get(0))?;
+        crate::associations::restore_links(conn, item)?;
+        if kind == "totp" {
+            crate::repo_m2::restore_mfa_recovery(conn, item)?;
+        }
         for table in [
             "login_credentials",
             "totp_credentials",
@@ -435,6 +446,8 @@ fn trash_change(conn: &Connection, item: &str, expected: &str, purge: bool) -> R
     }
     crate::website_rules::detach_mfa_references(conn,item)?;
     crate::associations::delete_links_for_item(conn, item)?;
+    crate::schema::ensure_runtime_extras(conn)?;
+    conn.execute("DELETE FROM trashed_credential_links WHERE owner_item_id=?1 OR account_item_id=?1 OR target_item_id=?1", [item])?;
     let revision = new_revision();
     let timestamp = now_ms();
     conn.execute("UPDATE items SET current_revision=?1,updated_at_ms=?2 WHERE id IN (SELECT item_id FROM login_credentials WHERE linked_totp_id IN (SELECT id FROM totp_credentials WHERE item_id=?3))", params![revision,timestamp,item])?;
@@ -1062,6 +1075,19 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
                 params![next, now_ms(), item],
             )?;
             json!({"current_revision":next})
+        }
+        MfaRecoveryStatus { item_id } => {
+            changed = false;
+            crate::repo_m2::mfa_recovery_status(&tx, &item_id)?
+        }
+        MfaRecoverySave { item_id, codes } => crate::repo_m2::save_mfa_recovery(&tx, &item_id, &codes)?,
+        LoginDeletePreview { item_id } => {
+            changed = false;
+            crate::associations::login_delete_preview(&tx, &item_id)?
+        }
+        LoginDeleteApply { item_id, also } => {
+            crate::associations::login_delete_apply(&tx, &item_id, &also)?;
+            json!({"deleted": true})
         }
         _ => return Err(CoreError::format("不支持的操作")),
     };
