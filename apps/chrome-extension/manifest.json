@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CredPivot",
-  "version": "0.9.19",
+  "version": "0.9.20",
   "minimum_chrome_version": "121",
   "description": "Connects to CredPivot Mac App with fingerprint or in-app master password verification.",
   "permissions": ["nativeMessaging", "storage", "scripting", "tabs", "contextMenus", "alarms"],
@@ -34,6 +34,13 @@
       "js": ["passkey_bridge.js"],
       "run_at": "document_start",
       "all_frames": false
+    },
+    {
+      "matches": ["https://*/*"],
+      "js": ["passkey_page.js"],
+      "run_at": "document_start",
+      "all_frames": false,
+      "world": "MAIN"
     },
     {
       "matches": ["<all_urls>"],

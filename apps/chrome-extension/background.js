@@ -373,7 +373,7 @@ function cancelInline(record, close = true) {
   inlineSessions.delete(record.token);
   if (record.gateRequestId) void sendNative({action:'extension.cancel',gate_request_id:record.gateRequestId}).catch(() => {});
   if (close) void chrome.tabs.sendMessage(record.tabId,
-    {type:'inline_close',token:record.token},{frameId:0,documentId:record.chromeDocumentId}).catch(() => {});
+    {type:'inline_close',token:record.token},{frameId:0,...(record.chromeDocumentId ? {documentId:record.chromeDocumentId} : {})}).catch(() => {});
 }
 async function checkInline(record, allowNativePrompt = false) {
   if (inlineRecord(record.token) !== record) throw inlineError('请求已取消');
@@ -537,16 +537,18 @@ async function setInlineHidden(origin, hidden) {
 async function handleInlineMessage(message, sender) {
   if (sender.id !== chrome.runtime.id) throw inlineError('来源未授权');
   const fromPopup = !sender.tab && sender.url?.split('#')[0] === chrome.runtime.getURL('popup.html');
-  const fromPage = sender.frameId === 0 && sender.tab?.id && sender.documentId && /^https?:\/\//.test(sender.url || '');
+  const fromPage = sender.frameId === 0 && sender.tab?.id && /^https?:\/\//.test(sender.url || "");
+  // Firefox 旧版本没有浏览器 documentId，面板使用扩展页自己生成的文档标识。
+  const panelDocumentId = sender.documentId ?? message.document_id;
   if (message.type === 'inline_resume') {
     // 后台休眠或重启后只恢复面板与当前文档的绑定，不恢复授权，也不重放填充。
     const token = message.token;
     const tabId = sender.tab?.id ?? message.tab_id;
-    if (typeof token !== 'string' || !/^[0-9a-f-]{36}$/.test(token) || !sender.documentId ||
+    if (typeof token !== 'string' || !/^[0-9a-f-]{36}$/.test(token) || typeof panelDocumentId !== 'string' || !panelDocumentId ||
         sender.url !== `${inlineUIUrl()}#${token}` || !Number.isInteger(tabId)) throw inlineError('请重新点击网页填充图标');
     if (inlineSessions.has(token)) {
       const record = inlineRecord(token);
-      if (record.panelDocumentId !== sender.documentId || record.tabId !== tabId) throw inlineError('候选面板已失效，请重新打开');
+      if (record.panelDocumentId !== panelDocumentId || record.tabId !== tabId) throw inlineError('候选面板已失效，请重新打开');
       await checkInline(record,true); return {ok:true,origin:record.origin};
     }
     const tab = await chrome.tabs.get(tabId);
@@ -554,13 +556,14 @@ async function handleInlineMessage(message, sender) {
     if (!tab.active || page?.url !== tab.url || page.panelToken !== token || !page.targetId || !page.targetValid) {
       throw inlineError('网页或输入框已变化，请重新点击填充图标','target_changed');
     }
-    const [top] = await chrome.scripting.executeScript({target:{tabId,frameIds:[0]},world:'ISOLATED',func:()=>null});
-    if (!top?.documentId || (await chrome.tabs.get(tabId)).url !== tab.url) throw inlineError('网页已跳转，请重新点击填充图标','document_mismatch');
+    const [top] = sender.documentId
+      ? await chrome.scripting.executeScript({target:{tabId,frameIds:[0]},world:'ISOLATED',func:()=>null}) : [];
+    if ((sender.documentId && !top?.documentId) || (await chrome.tabs.get(tabId)).url !== tab.url) throw inlineError('网页已跳转，请重新点击填充图标','document_mismatch');
     const current = await requestPageContext(tabId,page.targetId);
     if (current.documentId !== page.documentId || current.panelToken !== token) throw inlineError('页面已变化，请重新点击填充图标','document_mismatch');
     if (inlineSessions.size >= 8) throw inlineError('已有填充操作正在处理，请先关闭其他面板');
     const record = {token,tabId,windowId:tab.windowId,url:tab.url,origin:page.origin,
-      chromeDocumentId:top.documentId,documentId:page.documentId,targetId:page.targetId,panelDocumentId:sender.documentId,
+      chromeDocumentId:top?.documentId,documentId:page.documentId,targetId:page.targetId,panelDocumentId,
       mode:page.targetKind === 'otp' ? 'otp' : 'login',expires:Date.now()+INLINE_TTL_MS,
       busy:false,cancelled:false,completed:false,autoUsed:true,panelReady:true,accountId:'',accounts:[],candidates:[]};
     inlineSessions.set(token,record);
@@ -593,20 +596,21 @@ async function handleInlineMessage(message, sender) {
   }
   const record = inlineRecord(message.token);
   if (fromPage && message.type === 'inline_cancel' && sender.tab.id === record.tabId &&
-      sender.documentId === record.chromeDocumentId && message.document_id === record.documentId) {
+      message.document_id === record.documentId) {
+    if (record.chromeDocumentId && sender.documentId && sender.documentId !== record.chromeDocumentId) throw inlineError('请求已取消');
     cancelInline(record); return {ok:true};
   }
   // 只接收随扩展发布的候选面板；普通内容脚本没有候选选择和取密权限。
   const tabId = sender.tab?.id ?? message.tab_id;
-  if (sender.url !== `${inlineUIUrl()}#${record.token}` || tabId !== record.tabId || !sender.documentId ||
-      (record.panelDocumentId && record.panelDocumentId !== sender.documentId)) throw inlineError('候选面板已失效，请重新操作');
-  record.panelDocumentId ??= sender.documentId;
+  if (sender.url !== `${inlineUIUrl()}#${record.token}` || tabId !== record.tabId || typeof panelDocumentId !== 'string' || !panelDocumentId ||
+      (record.panelDocumentId && record.panelDocumentId !== panelDocumentId)) throw inlineError('候选面板已失效，请重新操作');
+  record.panelDocumentId ??= panelDocumentId;
   if (message.type === 'inline_cancel') { cancelInline(record); return {ok:true}; }
   if (message.type === 'inline_feedback') {
     await checkInline(record,true);
     await chrome.tabs.sendMessage(record.tabId,{type:'inline_feedback',token:record.token,
       message:typeof message.message === 'string' ? message.message.slice(0,500) : ''},
-      {frameId:0,documentId:record.chromeDocumentId});
+      {frameId:0,...(record.chromeDocumentId ? {documentId:record.chromeDocumentId} : {})});
     return {ok:true};
   }
   if (message.type === 'inline_ping') {
@@ -614,7 +618,7 @@ async function handleInlineMessage(message, sender) {
     if (!record.panelReady) {
       record.panelReady = true;
       await chrome.tabs.sendMessage(record.tabId,{type:'inline_ready',token:record.token},
-        {frameId:0,documentId:record.chromeDocumentId});
+        {frameId:0,...(record.chromeDocumentId ? {documentId:record.chromeDocumentId} : {})});
     }
     return {ok:true,origin:record.origin};
   }

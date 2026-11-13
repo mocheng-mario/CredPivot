@@ -13,7 +13,7 @@
     if (active) { port.postMessage({error:{name:"NotAllowedError",message:"已有通行密钥请求正在处理"}}); port.close(); return; }
     const requestId = crypto.randomUUID();
     active = requestId;
-    const cancel = () => { void chrome.runtime.sendMessage({type:"passkey_cancel",request_id:requestId}).catch(() => {}); };
+    const cancel = () => { void chrome.runtime.sendMessage({type:"passkey_cancel",request_id:requestId,document_token:documentToken}).catch(() => {}); };
     port.onmessage = (message) => { if (message.data?.cancel) cancel(); };
     port.start();
     const leave = () => cancel();

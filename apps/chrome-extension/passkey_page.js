@@ -53,12 +53,12 @@
       });
     }
     const value = Object.create(PublicKeyCredential.prototype);
+    // 不挂自有 toJSON：GitHub 等站点的 webauthn-json 会在 create/get 返回后赋值 toJSON；只读属性会抛 TypeError。
     Object.defineProperties(value, {
       id: {value: data.id, enumerable: true}, rawId: {value: decode(data.rawId), enumerable: true},
       type: {value: "public-key", enumerable: true}, response: {value: response, enumerable: true},
       authenticatorAttachment: {value: data.authenticatorAttachment, enumerable: true},
       getClientExtensionResults: {value: () => structuredClone(data.clientExtensionResults)},
-      toJSON: {value: () => structuredClone(data)},
     });
     return value;
   }

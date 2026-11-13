@@ -19,6 +19,7 @@ let stopWaiting = false;
 let gateRequestId = null;
 let passkeyEnabled = false;
 let inlineHidden = false;
+let siteAccessPattern = '';
 
 $("ver").textContent = `v${chrome.runtime.getManifest().version}`;
 
@@ -559,16 +560,37 @@ $("passkeyToggle").addEventListener("click", async () => {
   finally { setBusy(false); }
 });
 
+async function refreshSiteAccess() {
+  $('siteAccess').hidden = !siteAccessPattern || await chrome.permissions.contains({origins:[siteAccessPattern]});
+}
+
+$('allowSiteAccess').addEventListener('click',async () => {
+  if (!siteAccessPattern) return;
+  $('allowSiteAccess').disabled = true;
+  try {
+    // 直接在点击回调中申请，Firefox 要求保留用户手势。
+    const granted = await chrome.permissions.request({origins:[siteAccessPattern]});
+    if (!granted) { setStatus('未授予网站访问权限，自动接管和页面入口尚未启用。','warning'); return; }
+    await getTargetTab();
+    await refreshSiteAccess();
+    setStatus('已允许自动访问此网站。请刷新网页，使通行密钥和填充入口生效。','success');
+  } catch (error) { showError({error:error.message}); }
+  finally { $('allowSiteAccess').disabled = false; }
+});
+
 async function init() {
   [targetTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (/^https?:\/\//.test(targetTab?.url ?? "")) {
     targetOrigin = new URL(targetTab.url).origin;
+    const url = new URL(targetTab.url);
+    siteAccessPattern = `${url.protocol}//${url.hostname}/*`;
     $("site").textContent = new URL(targetTab.url).host;
     $("site").title = targetOrigin;
   } else {
     $("site").textContent = "请选择普通网页";
   }
   renderAccounts();
+  await refreshSiteAccess();
   if (targetOrigin) {
     try { await refreshInlinePreference(); }
     catch (_) { $('inlineToggle').textContent = '网站设置暂不可用'; }

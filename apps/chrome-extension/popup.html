@@ -21,6 +21,10 @@
       <section class="display-panel" aria-label="当前网站">
         <div class="section-heading"><h2 id="accountTitle">当前网站</h2><span id="accountCount">加载中</span></div>
         <div id="site" class="site-name">读取网页…</div>
+        <div id="siteAccess" hidden>
+          <p class="muted">尚未允许自动访问此网站。授权并刷新网页后，通行密钥和输入框旁的填充入口即可自动生效。</p>
+          <button id="allowSiteAccess" class="secondary-button">始终允许此网站</button>
+        </div>
         <div id="searchField" hidden>
           <label class="sr-only" for="accountSearch">搜索此网站的账号</label>
           <input id="accountSearch" type="search" placeholder="搜索此网站的账号" autocomplete="off" />

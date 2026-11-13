@@ -25,24 +25,10 @@ function siteEnabledInMap(sites, origin) {
 }
 
 export async function syncPasskeyScripts() {
-  // 默认在所有 HTTPS 页面注入；仅用户手动关闭的站点在 handlePasskey 中回退浏览器。
-  const matches = ["https://*/*"];
-  const exists = (await chrome.scripting.getRegisteredContentScripts({ids:[PAGE_SCRIPT]})).length > 0;
-  const script = {id:PAGE_SCRIPT,matches,js:["passkey_page.js"],world:"MAIN",runAt:"document_start",allFrames:false,persistAcrossSessions:true};
-  const write = async (entry) => {
-    if (exists) await chrome.scripting.updateContentScripts([entry]);
-    else await chrome.scripting.registerContentScripts([entry]);
-  };
-  try {
-    await write(script);
-  } catch (error) {
-    // Firefox 的 scripting schema 若拒绝该 Chrome 字段，去掉后重试；其他错误保持原样抛出。
-    const message = String(error?.message || error);
-    if (!script.persistAcrossSessions || !message.includes("persistAcrossSessions")) throw error;
-    delete script.persistAcrossSessions;
-    await write(script);
+  // 由清单在 document_start 注入，清理旧版本遗留的动态注册，避免重复接管。
+  if ((await chrome.scripting.getRegisteredContentScripts({ids:[PAGE_SCRIPT]})).length) {
+    await chrome.scripting.unregisterContentScripts({ids:[PAGE_SCRIPT]});
   }
-  // 已打开的页面须刷新，确保拦截脚本和通信桥使用有效的扩展上下文。
 }
 
 export async function enablePasskeySiteIfUnset(origin) {
@@ -72,7 +58,8 @@ async function checkDocument(request) {
   if (request.cancelled) throw new Error("请求已取消");
   const tab = await chrome.tabs.get(request.tabId);
   if (!tab.url || new URL(tab.url).origin !== request.origin) throw new Error("网页来源已改变");
-  const response = await chrome.tabs.sendMessage(request.tabId, {type:"passkey_document_check"}, {documentId:request.documentId,frameId:0});
+  const response = await chrome.tabs.sendMessage(request.tabId, {type:"passkey_document_check"},
+    {frameId:0,...(request.documentId ? {documentId:request.documentId} : {})});
   if (response?.document_token !== request.documentToken) throw new Error("页面已跳转，请重新操作");
   if (request.cancelled) throw new Error("请求已取消");
 }
@@ -93,11 +80,13 @@ function supported(kind, options, origin) {
 
 export function cancelPasskey(message, sender) {
   const request = active.get(message.request_id);
-  if (request?.tabId === sender.tab?.id && request.documentId === sender.documentId) request.cancelled = true;
+  if (!request || sender.frameId !== 0 || request.tabId !== sender.tab?.id ||
+      request.documentToken !== message.document_token) return;
+  if (!request.documentId || request.documentId === sender.documentId) request.cancelled = true;
 }
 
 export async function handlePasskey(message, sender, sendNative, gateGeneration = () => 0) {
-  if (sender.frameId !== 0 || !sender.documentId || !sender.tab?.id || !/^https:\/\//.test(sender.url || "") ||
+  if (sender.frameId !== 0 || !sender.tab?.id || !/^https:\/\//.test(sender.url || "") ||
       !["create","get"].includes(message.kind) || typeof message.request_id !== "string" ||
       !/^[0-9a-f-]{36}$/.test(message.request_id) || typeof message.document_token !== "string") {
     return {error:{name:"SecurityError",message:"通行密钥仅支持顶层 HTTPS 页面"}};
@@ -106,7 +95,7 @@ export async function handlePasskey(message, sender, sendNative, gateGeneration 
   if ([...active.values()].some((r) => r.tabId === sender.tab.id) || active.size >= 8) {
     return {error:{name:"NotAllowedError",message:"已有通行密钥请求正在处理"}};
   }
-  const request = {tabId:sender.tab.id,documentId:sender.documentId,documentToken:message.document_token,origin,cancelled:false};
+  const request = {tabId:sender.tab.id,documentId:sender.documentId ?? null,documentToken:message.document_token,origin,cancelled:false};
   active.set(message.request_id,request);
   const options = message.options;
   const requested = Number(options?.timeout);

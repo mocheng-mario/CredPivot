@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const token = location.hash.slice(1);
+const documentId = crypto.randomUUID();
 let tabId, metadata = null, busy = false, invalid = false;
 function status(message, kind = '') { $('status').textContent = message; $('status').className = kind; }
 function setBusy(value) {
@@ -9,12 +10,12 @@ function setBusy(value) {
   $('search').disabled = value || invalid;
 }
 async function request(type, values = {}) {
-  let response = await chrome.runtime.sendMessage({type,token,tab_id:tabId,...values});
+  let response = await chrome.runtime.sendMessage({type,token,tab_id:tabId,document_id:documentId,...values});
   if (response?.code === 'inline_session_expired' && ['inline_ping','inline_load'].includes(type)) {
-    const resumed = await chrome.runtime.sendMessage({type:'inline_resume',token,tab_id:tabId});
+    const resumed = await chrome.runtime.sendMessage({type:'inline_resume',token,tab_id:tabId,document_id:documentId});
     if (!resumed?.ok) throw Object.assign(new Error(resumed?.message || '请重新点击网页填充图标'),{code:resumed?.code});
     if (type === 'inline_ping') return {...resumed,resumed:true};
-    response = await chrome.runtime.sendMessage({type,token,tab_id:tabId,...values,automatic:false});
+    response = await chrome.runtime.sendMessage({type,token,tab_id:tabId,document_id:documentId,...values,automatic:false});
   }
   if (!response?.ok) throw Object.assign(new Error(response?.message || '本机连接中断，请关闭面板后重试'),{code:response?.code});
   return response;
