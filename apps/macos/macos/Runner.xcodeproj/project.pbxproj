@@ -32,6 +32,7 @@
 		A17C010B204400010003C045 /* credpivot-firefox-manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = A17C010C204400010003C045 /* credpivot-firefox-manifest.json */; };
 		A17C0105204400010003C045 /* credpivot-askpass in Resources */ = {isa = PBXBuildFile; fileRef = A17C0106204400010003C045 /* credpivot-askpass */; };
 		A17C0109204400010003C045 /* credpivot-git-ssh in Resources */ = {isa = PBXBuildFile; fileRef = A17C010A204400010003C045 /* credpivot-git-ssh */; };
+		A17C010D204400010003C045 /* credpivot-connect in Resources */ = {isa = PBXBuildFile; fileRef = A17C010E204400010003C045 /* credpivot-connect */; };
 		A17C0107204400010003C045 /* ssh-expect-pass.exp in Resources */ = {isa = PBXBuildFile; fileRef = A17C0108204400010003C045 /* ssh-expect-pass.exp */; };
 		CP10F0012044CP0010003C045 /* CredPivotPlatform.swift in Sources */ = {isa = PBXBuildFile; fileRef = CP10R0012044CP0010003C045 /* CredPivotPlatform.swift */; };
 		CP10F0022044CP0020003C045 /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CP10R0022044CP0020003C045 /* MenuBarController.swift */; };
@@ -94,6 +95,7 @@
 		A17C010C204400010003C045 /* credpivot-firefox-manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "credpivot-firefox-manifest.json"; sourceTree = "<group>"; };
 		A17C0106204400010003C045 /* credpivot-askpass */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = "credpivot-askpass"; sourceTree = "<group>"; };
 		A17C010A204400010003C045 /* credpivot-git-ssh */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = "credpivot-git-ssh"; sourceTree = "<group>"; };
+		A17C010E204400010003C045 /* credpivot-connect */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = "credpivot-connect"; sourceTree = "<group>"; };
 		A17C0108204400010003C045 /* ssh-expect-pass.exp */ = {isa = PBXFileReference; lastKnownFileType = text.script; path = "ssh-expect-pass.exp"; sourceTree = "<group>"; };
 		CP10R0012044CP0010003C045 /* CredPivotPlatform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredPivotPlatform.swift; sourceTree = "<group>"; };
 		CP10R0022044CP0020003C045 /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
@@ -189,6 +191,7 @@
 				A17C0102204400010003C045 /* credpivot-native-host */,
 				A17C0106204400010003C045 /* credpivot-askpass */,
 				A17C010A204400010003C045 /* credpivot-git-ssh */,
+				A17C010E204400010003C045 /* credpivot-connect */,
 				A17C0108204400010003C045 /* ssh-expect-pass.exp */,
 				A17C0104204400010003C045 /* credpivot-chrome-extension */,
 				A17C010C204400010003C045 /* credpivot-firefox-manifest.json */,
@@ -322,6 +325,7 @@
 				A17C010B204400010003C045 /* credpivot-firefox-manifest.json in Resources */,
 				A17C0105204400010003C045 /* credpivot-askpass in Resources */,
 				A17C0109204400010003C045 /* credpivot-git-ssh in Resources */,
+				A17C010D204400010003C045 /* credpivot-connect in Resources */,
 				A17C0107204400010003C045 /* ssh-expect-pass.exp in Resources */,
 				33CC10F32044A3C60003C045 /* Assets.xcassets in Resources */,
 				33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */,

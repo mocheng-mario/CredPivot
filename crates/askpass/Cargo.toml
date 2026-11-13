@@ -13,6 +13,10 @@ path = "src/main.rs"
 name = "credpivot-git-ssh"
 path = "src/git_ssh.rs"
 
+[[bin]]
+name = "credpivot-connect"
+path = "src/connect.rs"
+
 [dependencies]
 credpivot-agent = { path = "../agent" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }

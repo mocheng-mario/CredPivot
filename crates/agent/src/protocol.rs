@@ -237,6 +237,10 @@ pub enum AgentRequest {
     },
     /// 将 CredPivot SSH Agent 当前身份切换为指定库内密钥。
     SshSelectKey { key_id: String },
+    /// 仅随 App 分发的终端连接程序可从 Unix socket 发起。
+    TerminalConnect { vault_id: String, connection_id: String },
+    TerminalConnectPending,
+    TerminalConnectResolve { request_id: String, approved: bool },
     /// App 内一键 SSH：登记短时会话，供 askpass 按提示取密（不落盘）。
     SshSessionPrepare {
         host: String,
@@ -400,6 +404,9 @@ impl AgentRequest {
             Self::SshKeyGenerate { .. } => "ssh_key_generate",
             Self::SshSelectKey { .. } => "ssh_select_key",
             Self::SshSessionPrepare { .. } => "ssh_session_prepare",
+            Self::TerminalConnect { .. } => "terminal_connect",
+            Self::TerminalConnectPending => "terminal_connect_pending",
+            Self::TerminalConnectResolve { .. } => "terminal_connect_resolve",
             Self::SshAskpass { .. } => "ssh_askpass",
             Self::VaultCreate { .. } => "vault_create",
             Self::VaultChangePassword { .. } => "vault_change_password",

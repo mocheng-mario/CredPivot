@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -30,6 +31,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
   Map<String, dynamic>? _selected;
   String _status = '';
   int _refreshGeneration = 0;
+  bool _copyingTerminalCommand = false;
 
   void _onVaultChanged() { if (mounted) _refresh(); }
 
@@ -311,6 +313,27 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     }
   }
 
+  Future<void> _copyTerminalConnectCommand() async {
+    final row = _selected;
+    if (row == null || _copyingTerminalCommand) return;
+    if (row['unavailable'] == true) {
+      setState(() => _status = row['unavailable_reason']?.toString().isNotEmpty == true
+          ? row['unavailable_reason'].toString() : '这条连接已停用，需要重新确认后才能使用');
+      return;
+    }
+    setState(() => _copyingTerminalCommand = true);
+    try {
+      final command = await AgentBridge.terminalConnectCommand(row['id'].toString());
+      await Clipboard.setData(ClipboardData(text: command));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: LText('server.terminal.copied')));
+    } catch (error) {
+      if (mounted) setState(() => _status = error is AgentException
+          ? AgentBridge.friendlyMessage(error) : tr('server.terminal.unavailable'));
+    } finally {
+      if (mounted) setState(() => _copyingTerminalCommand = false);
+    }
+  }
+
   Future<void> _copySshHint() async {
     final host = _selected?['host']?.toString() ?? '';
     final port = _selected?['port'] ?? 22;
@@ -441,6 +464,11 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                             onPressed: _openInTerminal,
                             icon: const Icon(Icons.terminal),
                             label: const LText('server.build.text.item9'),
+                          ),
+                          if (Platform.isMacOS) OutlinedButton.icon(
+                            onPressed: _copyingTerminalCommand || _selected!['unavailable'] == true ? null : _copyTerminalConnectCommand,
+                            icon: const Icon(Icons.copy_rounded),
+                            label: const LText('server.terminal.copy'),
                           ),
                         ],
                       ),

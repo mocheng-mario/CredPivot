@@ -28,8 +28,12 @@ pub struct SshSessionGrant {
     pub expires_at_ms: u128,
     pub password_uses_left: u8,
     pub otp_uses_left: u8,
+    #[serde(default)]
+    pub allow_account_mfa_fallback: bool,
     #[serde(skip)]
     manual_secret: HiddenSecret,
+    #[serde(skip)]
+    pub(crate) connection_source: Option<crate::terminal_connect::SessionSource>,
 }
 
 pub fn now_ms() -> u128 {
@@ -138,7 +142,9 @@ pub fn prepare_session(
         expires_at_ms: now + SSH_SESSION_TTL_MS,
         password_uses_left: MAX_PASSWORD_PROMPTS,
         otp_uses_left: MAX_OTP_PROMPTS,
+        allow_account_mfa_fallback: true,
         manual_secret: HiddenSecret(manual_secret.to_string()),
+        connection_source: None,
     };
     map.insert(session_id.clone(), grant);
     session_id
@@ -158,6 +164,12 @@ pub fn consume_askpass_secret(
     if now_ms() > grant.expires_at_ms {
         map.remove(session_id);
         return Err(AgentError::Protocol("ssh session expired".into()));
+    }
+    if let Some(source) = &grant.connection_source {
+        if let Err(message) = source.validate(vault) {
+            map.remove(session_id);
+            return Err(AgentError::Protocol(message));
+        }
     }
     let kind = match force_kind.map(|s| s.trim().to_lowercase()) {
         Some(k) if k == "password" => AskpassKind::Password,
@@ -179,6 +191,9 @@ pub fn consume_askpass_secret(
             }
             grant.password_uses_left -= 1;
             if grant.login_credential_id.is_empty() {
+                if let Some(source) = &grant.connection_source {
+                    return source.password(vault).map_err(AgentError::Protocol);
+                }
                 return Ok(grant.manual_secret.0.clone());
             }
             let cred = vault.get_credential(&login_id)?;
@@ -192,7 +207,7 @@ pub fn consume_askpass_secret(
             // 已指定 MFA 时不再读取账户；独立连接没有账户 ID。
             let totp_id = if let Some(id) = session_totp {
                 Some(id)
-            } else if login_id.is_empty() {
+            } else if login_id.is_empty() || !grant.allow_account_mfa_fallback {
                 None
             } else {
                 cred_totp_id(vault, &login_id)?

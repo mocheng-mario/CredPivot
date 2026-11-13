@@ -70,6 +70,27 @@ pub(crate) fn authorize_git_ssh_peer(pid: u32) -> Result<()> {
 }
 
 #[cfg(not(target_os = "android"))]
+pub(crate) fn authorize_terminal_connect_peer(pid: u32) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let peer = fs::canonicalize(peer_executable_path(pid)?)?;
+        let executable = std::env::current_exe()?;
+        let bundled = executable.parent().and_then(Path::parent)
+            .ok_or_else(|| AgentError::PeerDenied("App path unavailable".into()))?
+            .join("Resources/credpivot-connect");
+        let directory = crate::paths::runtime_dir().join("connect");
+        let installed = peer.parent().and_then(Path::parent)
+            .is_some_and(|parent| fs::canonicalize(&directory).ok().as_deref() == Some(parent));
+        if peer.file_name().and_then(|name| name.to_str()) == Some("credpivot-connect")
+            && (installed || paths_same_file(&peer, &bundled)?) && sha256_file(&peer)? == sha256_file(&bundled)?
+        { return Ok(()); }
+        Err(AgentError::PeerDenied("终端连接组件已更新或不受信任，请重新打开 App 后执行命令".into()))
+    }
+    #[cfg(not(target_os = "macos"))]
+    { let _ = pid; Err(AgentError::PeerDenied("terminal connection requires macOS".into())) }
+}
+
+#[cfg(not(target_os = "android"))]
 pub fn authorize_peer(pid: u32, cfg: &PeerAuthConfig) -> Result<()> {
     // Release 不接受环境变量或调用方构造配置绕过这道身份边界。
     if cfg!(debug_assertions) && cfg.dev_skip_peer_check {

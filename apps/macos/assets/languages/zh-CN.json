@@ -5,6 +5,62 @@
   "name": "简体中文",
   "source_locale": "zh-CN",
   "messages": {
+    "server.terminal.copy": {
+      "source": "复制终端连接命令",
+      "translation": "复制终端连接命令",
+      "description": "服务器详情的终端连接入口",
+      "placeholders": {},
+      "locations": ["server_login_page.dart"]
+    },
+    "server.terminal.copied": {
+      "source": "终端连接命令已复制，可保存并重复使用",
+      "translation": "终端连接命令已复制，可保存并重复使用",
+      "description": "固定连接命令复制成功",
+      "placeholders": {},
+      "locations": ["server_login_page.dart"]
+    },
+    "server.terminal.confirmTitle": {
+      "source": "允许终端连接服务器？",
+      "translation": "允许终端连接服务器？",
+      "description": "终端请求的连接确认",
+      "placeholders": {},
+      "locations": ["CredPivotPlatform.swift"]
+    },
+    "server.terminal.confirmBody": {
+      "source": "连接：{label}\n目标：{user}@{host}:{port}\n\n验证后将在发起命令的终端中登录。",
+      "translation": "连接：{label}\n目标：{user}@{host}:{port}\n\n验证后将在发起命令的终端中登录。",
+      "description": "展示当前连接的实际目标",
+      "placeholders": {"label": "连接名称", "user": "账号", "host": "主机", "port": "端口"},
+      "locations": ["CredPivotPlatform.swift"]
+    },
+    "server.terminal.verifyReason": {
+      "source": "允许终端使用此服务器连接的密码和 MFA",
+      "translation": "允许终端使用此服务器连接的密码和 MFA",
+      "description": "复用一键连接的身份验证",
+      "placeholders": {},
+      "locations": ["CredPivotPlatform.swift"]
+    },
+    "server.terminal.unlockReason": {
+      "source": "解锁保险库以继续终端连接",
+      "translation": "解锁保险库以继续终端连接",
+      "description": "终端连接先解锁再确认目标",
+      "placeholders": {},
+      "locations": ["CredPivotPlatform.swift"]
+    },
+    "server.terminal.unavailable": {
+      "source": "无法生成连接命令，请确认保险库和服务器连接已就绪",
+      "translation": "无法生成连接命令，请确认保险库和服务器连接已就绪",
+      "description": "连接命令缺少有效引用",
+      "placeholders": {},
+      "locations": ["CredPivotPlatform.swift", "agent_bridge.dart"]
+    },
+    "server.terminal.componentMissing": {
+      "source": "缺少终端连接组件，请更新 CredPivot App",
+      "translation": "缺少终端连接组件，请更新 CredPivot App",
+      "description": "App 未携带连接程序",
+      "placeholders": {},
+      "locations": ["CredPivotPlatform.swift"]
+    },
     "credentials.list.search": {
       "source": "搜索当前列表",
       "translation": "搜索当前列表",

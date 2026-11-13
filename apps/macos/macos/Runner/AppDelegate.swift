@@ -4,6 +4,7 @@ import FlutterMacOS
 @main
 class AppDelegate: FlutterAppDelegate {
   static let launchedForBrowser = ProcessInfo.processInfo.arguments.contains("--credpivot-browser-background")
+  static let launchedForTerminal = ProcessInfo.processInfo.arguments.contains("--credpivot-terminal-background")
   private var menuBar: MenuBarController?
   private var platform: CredPivotPlatform?
 
@@ -23,7 +24,7 @@ class AppDelegate: FlutterAppDelegate {
       NSApp.terminate(nil)
       return
     }
-    if Self.launchedForBrowser {
+    if Self.launchedForBrowser || Self.launchedForTerminal {
       mainFlutterWindow?.orderOut(nil)
       NSApp.setActivationPolicy(.accessory)
     }
@@ -39,6 +40,7 @@ class AppDelegate: FlutterAppDelegate {
         // 只有持有 Agent 单写锁的实例才能更新共享集成，避免第二个 Debug/Release 实例覆盖它。
         _ = try? SshAskpassLauncher.materializeInstalledBinary()
         _ = try? SshAskpassLauncher.materializeExpectScript()
+        _ = try? TerminalConnectLauncher.install()
         TerminalLauncher.purgeTerminalLaunchScripts()
         _ = ChromeHostInstaller.applyPreference()
         _ = LoginItemRegistrar.applyPreference()
@@ -49,7 +51,7 @@ class AppDelegate: FlutterAppDelegate {
       }
     }
 
-    if !Self.launchedForBrowser {
+    if !Self.launchedForBrowser && !Self.launchedForTerminal {
       showMainWindow()
     }
   }

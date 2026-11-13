@@ -61,6 +61,7 @@ pub struct VaultSession {
     pub ssh_authorization: crate::ssh_agent::SshAuthorization,
     pub passkey_requests: crate::passkey::PendingRequests,
     pub browser_mfa_requests: crate::browser_mfa::PendingRequests,
+    pub(crate) terminal_connections: std::collections::HashMap<String, crate::terminal_connect::PendingConnection>,
     pub data_revision: String,
     pub idle_timeout: Duration,
     pub last_activity: Instant,
@@ -110,6 +111,7 @@ impl VaultSession {
             ssh_authorization: Default::default(),
             passkey_requests: Default::default(),
             browser_mfa_requests: Default::default(),
+            terminal_connections: Default::default(),
             data_revision: uuid::Uuid::new_v4().to_string(),
             idle_timeout: Duration::from_secs(settings.vault_idle_seconds),
             settings,
@@ -133,6 +135,7 @@ impl VaultSession {
     }
 
     fn abort_partial_unlock(&mut self) {
+        self.terminal_connections.clear();
         self.sync_plan = None;
         self.passkey_requests.clear();
         self.browser_mfa_requests.clear();
@@ -233,7 +236,7 @@ impl VaultSession {
 
     pub fn apply_settings(&mut self, settings: credpivot_core::AppSettings) -> bool {
         let security_changed = self.settings.security_differs(&settings);
-        if security_changed { self.sensitive_authenticated_at = None; self.ssh_authorization.clear(); self.passkey_requests.clear(); self.browser_mfa_requests.clear(); }
+        if security_changed { self.sensitive_authenticated_at = None; self.ssh_authorization.clear(); self.passkey_requests.clear(); self.browser_mfa_requests.clear(); self.terminal_connections.clear(); }
         self.idle_timeout = Duration::from_secs(settings.vault_idle_seconds);
         self.settings = settings;
         security_changed
@@ -245,6 +248,7 @@ impl VaultSession {
 
     /// 丢掉内存中的密钥，不写恢复点。重置前使用，避免把即将删除的库再备份一份。
     pub fn discard_secrets(&mut self) {
+        self.terminal_connections.clear();
         self.bootstrap_plan = None;
         self.sync_plan = None;
         self.passkey_requests.clear();
@@ -262,6 +266,7 @@ impl VaultSession {
     }
 
     pub fn lock(&mut self) {
+        self.terminal_connections.clear();
         self.bootstrap_plan = None;
         self.sync_plan = None;
         self.passkey_requests.clear();

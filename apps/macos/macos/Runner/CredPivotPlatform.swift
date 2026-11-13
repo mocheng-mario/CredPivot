@@ -1534,8 +1534,12 @@ final class CredPivotPlatform: NSObject {
       DispatchQueue.global(qos: .userInitiated).async { [weak self] in
         let passkeys = LocalVaultUnlock.request(["type": "passkey_requests_pending"])?["requests"] as? [[String: Any]] ?? []
         var ssh: [[String: Any]] = []
+        var terminal: [[String: Any]] = []
         if passkeys.isEmpty {
           ssh = LocalVaultUnlock.request(["type": "ssh_authorizations_pending"])?["requests"] as? [[String: Any]] ?? []
+          if ssh.isEmpty {
+            terminal = LocalVaultUnlock.request(["type": "terminal_connect_pending"])?["requests"] as? [[String: Any]] ?? []
+          }
         }
         DispatchQueue.main.async { [weak self] in
           guard let self = self else { return }
@@ -1543,9 +1547,102 @@ final class CredPivotPlatform: NSObject {
           guard epoch == TouchIdGate.authenticationEpoch else { return }
           self.consumePasskeyAuthorization(requests: passkeys)
           self.consumeSshAuthorization(requests: ssh)
+          self.consumeTerminalConnection(requests: terminal)
         }
       }
     }
+  }
+
+  private func consumeTerminalConnection(requests: [[String: Any]]) {
+    guard !showingSshAuthorization, !showingPasskeyAuthorization, !TouchIdGate.isAuthenticating,
+          NSApp.modalWindow == nil, let request = requests.first, let id = request["id"] as? String else { return }
+    showingSshAuthorization = true
+    let previousApp = NSWorkspace.shared.frontmostApplication
+    var finished = false
+    var checking = false
+    var authEpoch: UInt64?
+    var alert: NSAlert?
+    var timer: Timer?
+    func finish(_ approved: Bool) {
+      guard !finished else { return }
+      finished = true
+      timer?.invalidate(); timer = nil
+      DispatchQueue.global(qos: .userInitiated).async {
+        _ = LocalVaultUnlock.request(["type": "terminal_connect_resolve", "request_id": id, "approved": approved])
+        DispatchQueue.main.async {
+          self.showingSshAuthorization = false
+          if NSApp.isActive, previousApp?.bundleIdentifier != Bundle.main.bundleIdentifier {
+            previousApp?.activate(options: [.activateIgnoringOtherApps])
+          }
+        }
+      }
+    }
+    func authenticate(_ reason: String, completion: @escaping (Bool) -> Void) {
+      DispatchQueue.global(qos: .userInitiated).async {
+        let status = LocalVaultUnlock.request(["type": "status"])
+        DispatchQueue.main.async {
+          guard !finished else { return }
+          guard let status, !TouchIdGate.isAuthenticating, NSApp.modalWindow == nil else { finish(false); return }
+          authEpoch = TouchIdGate.authenticationEpoch &+ 1
+          TouchIdGate.shared.authenticateSensitiveOperation(reason: reason, preparedStatus: status) { ok in
+            authEpoch = nil
+            guard !finished else { return }
+            completion(ok)
+          }
+        }
+      }
+    }
+    func confirm(_ details: [String: Any]) {
+      guard !finished, details["needs_unlock"] as? Bool == false else { finish(false); return }
+      let prompt = NSAlert()
+      alert = prompt
+      prompt.messageText = NativePresentation.tr("server.terminal.confirmTitle")
+      prompt.informativeText = NativePresentation.tr("server.terminal.confirmBody", arguments: [
+        "label": details["label"] as? String ?? "", "host": details["host"] as? String ?? "",
+        "port": String(describing: details["port"] ?? 22), "user": details["user"] as? String ?? "",
+      ])
+      prompt.addButton(withTitle: NativePresentation.tr("common.continue"))
+      prompt.addButton(withTitle: NativePresentation.tr("common.cancel"))
+      NSApp.activate(ignoringOtherApps: true)
+      let accepted = prompt.runModal() == .alertFirstButtonReturn
+      alert = nil
+      guard !finished else { return }
+      guard accepted else { finish(false); return }
+      authenticate(NativePresentation.tr("server.terminal.verifyReason")) { finish($0) }
+    }
+    // 终端退出或请求超时后，关闭本次确认与验证，不留下迟到的授权。
+    let monitor = Timer(timeInterval: 0.5, repeats: true) { _ in
+      guard !finished, !checking else { return }
+      checking = true
+      DispatchQueue.global(qos: .userInitiated).async {
+        let pending = LocalVaultUnlock.request(["type": "terminal_connect_pending"])?["requests"] as? [[String: Any]] ?? []
+        DispatchQueue.main.async {
+          checking = false
+          guard !finished, !pending.contains(where: { $0["id"] as? String == id }) else { return }
+          let ownsAuthentication = authEpoch != nil && (authEpoch == TouchIdGate.authenticationEpoch || !TouchIdGate.isAuthenticating)
+          if let modal = NSApp.modalWindow, modal === alert?.window || ownsAuthentication {
+            NSApp.abortModal(); modal.orderOut(nil)
+          }
+          if authEpoch == TouchIdGate.authenticationEpoch { TouchIdGate.invalidateInFlightAuthentication() }
+          finish(false)
+        }
+      }
+    }
+    timer = monitor
+    RunLoop.main.add(monitor, forMode: .common)
+    RunLoop.main.add(monitor, forMode: .modalPanel)
+    if request["needs_unlock"] as? Bool == true {
+      authenticate(NativePresentation.tr("server.terminal.unlockReason")) { ok in
+        guard ok else { finish(false); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+          let pending = LocalVaultUnlock.request(["type": "terminal_connect_pending"])?["requests"] as? [[String: Any]] ?? []
+          DispatchQueue.main.async {
+            guard let details = pending.first(where: { $0["id"] as? String == id }) else { finish(false); return }
+            confirm(details)
+          }
+        }
+      }
+    } else { confirm(request) }
   }
 
   private func consumeSshAuthorization(requests: [[String: Any]]) {
@@ -1877,7 +1974,8 @@ final class CredPivotPlatform: NSObject {
       let requestType = requestObject?["type"] as? String ?? ""
       if ["status", "sync_status", "app_settings_get", "browser_mfa_pending"].contains(requestType) {
         let notice = LocalVaultUnlock.setupNotice
-        let backgroundLaunch = AppDelegate.launchedForBrowser
+        // 后台入口的解锁由对应请求协调，避免 Flutter 启动时再弹一次验证。
+        let backgroundLaunch = AppDelegate.launchedForBrowser || AppDelegate.launchedForTerminal
         DispatchQueue.global(qos: .userInitiated).async {
           var response = credpivotAgentRequestJsonString(json)
           if requestType == "status", let responseData = response.data(using: .utf8),
@@ -2186,6 +2284,18 @@ final class CredPivotPlatform: NSObject {
       } else {
         result(nil)
       }
+    case "terminalConnectCommand":
+      guard let id = call.arguments as? String, UUID(uuidString: id) != nil,
+            let status = LocalVaultUnlock.request(["type": "status"]),
+            let vaultId = status["vault_id"] as? String, UUID(uuidString: vaultId) != nil else {
+        result(FlutterError(code: "terminal_connect", message: NativePresentation.tr("server.terminal.unavailable"), details: nil))
+        return
+      }
+      do {
+        let executable = try TerminalConnectLauncher.install()
+        let command = [executable, "--vault", vaultId, "--connection", id].map { TerminalLauncher.shellQuoteForPlan($0) }.joined(separator: " ")
+        result(command)
+      } catch { result(FlutterError(code: "terminal_connect", message: error.localizedDescription, details: nil)) }
     case "materializeSshAskpass":
       do {
         let path = try SshAskpassLauncher.materializeInstalledBinary()
@@ -2601,8 +2711,8 @@ final class TouchIdGate {
     authenticate(reason: reason, allowReuse: false, preparedStatus: preparedStatus, completion: completion)
   }
 
-  func authenticateSensitiveOperation(reason: String, completion: @escaping (Bool) -> Void) {
-    authenticate(reason: reason, allowReuse: true, completion: completion)
+  func authenticateSensitiveOperation(reason: String, preparedStatus: [String: Any]? = nil, completion: @escaping (Bool) -> Void) {
+    authenticate(reason: reason, allowReuse: true, preparedStatus: preparedStatus, completion: completion)
   }
 
   private func authenticate(reason: String, allowReuse: Bool, preparedStatus: [String: Any]? = nil, completion: @escaping (Bool) -> Void) {
@@ -3731,6 +3841,32 @@ enum TerminalLauncher {
 
   private static func escapeAppleScript(_ s: String) -> String {
     s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+  }
+}
+
+enum TerminalConnectLauncher {
+  static func install() throws -> String {
+    guard let source = Bundle.main.url(forResource: "credpivot-connect", withExtension: nil) else {
+      throw NSError(domain: "CredPivot", code: 1, userInfo: [NSLocalizedDescriptionKey: NativePresentation.tr("server.terminal.componentMissing")])
+    }
+    let files = FileManager.default
+    let root = files.homeDirectoryForCurrentUser.appendingPathComponent(".credpivot", isDirectory: true)
+    let data = try Data(contentsOf: source)
+    let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    let directory = root.appendingPathComponent("connect/\(digest)", isDirectory: true)
+    try files.createDirectory(at: directory, withIntermediateDirectories: true)
+    let executable = directory.appendingPathComponent("credpivot-connect")
+    if (try? Data(contentsOf: executable)) != data { try data.write(to: executable, options: .atomic) }
+    try files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+    let entry = root.appendingPathComponent("credpivot-connect")
+    if (try? files.destinationOfSymbolicLink(atPath: entry.path)) != executable.path {
+      let staged = root.appendingPathComponent(UUID().uuidString + ".tmp")
+      defer { try? files.removeItem(at: staged) }
+      try files.createSymbolicLink(at: staged, withDestinationURL: executable)
+      guard Darwin.rename(staged.path, entry.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
+    }
+    try Bundle.main.bundleURL.path.write(to: root.appendingPathComponent("terminal-app.path"), atomically: true, encoding: .utf8)
+    return entry.path
   }
 }
 

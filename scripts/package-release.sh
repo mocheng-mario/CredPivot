@@ -75,7 +75,7 @@ case "$KIND" in
     [[ "$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$SOURCE/Contents/Info.plist")" == "${VERSION%%-*}" ]] || { echo "App 版本与发布版本不一致" >&2; exit 1; }
     [[ "$(/usr/bin/plutil -extract CFBundleVersion raw -o - "$SOURCE/Contents/Info.plist")" == "$BUILD_NUMBER" ]] || { echo "App 构建号不一致" >&2; exit 1; }
     # 独立发包必须携带 SSH 运行依赖，不能靠开发机 ~/.credpivot 中的旧文件兜底。
-    for item in credpivot-native-host credpivot-askpass credpivot-git-ssh ssh-expect-pass.exp credpivot-chrome-extension/manifest.json credpivot-firefox-manifest.json; do
+    for item in credpivot-native-host credpivot-askpass credpivot-git-ssh credpivot-connect ssh-expect-pass.exp credpivot-chrome-extension/manifest.json credpivot-firefox-manifest.json; do
       [[ -f "$SOURCE/Contents/Resources/$item" ]] || { echo "App 缺少资源: $item" >&2; exit 1; }
     done
     [[ ! -e "$SOURCE/Contents/Resources/credpivot-cli" ]] || { echo "CLI 应独立分发" >&2; exit 1; }

@@ -189,6 +189,13 @@ async fn handle_ipc_connection(
         .map_err(|e| AgentError::Protocol(e.to_string()))?;
 
     let peer_pid = peer_pid(stream)?;
+    if let AgentRequest::TerminalConnect { vault_id, connection_id } = &req {
+        if let Err(error) = crate::peer_auth::authorize_terminal_connect_peer(peer_pid) {
+            return write_ipc_response(stream, AgentResponse::err("peer_denied", error.to_string())).await;
+        }
+        expire_idle_session(&state).await;
+        return crate::terminal_connect::serve(stream, state, vault_id, connection_id).await;
+    }
     let mut peer = match peer_context_for_pid(peer_pid, &state).await {
         Ok(p) => p,
         Err(e) => {
@@ -224,7 +231,7 @@ async fn handle_ipc_connection(
 }
 
 #[cfg(not(target_os = "android"))]
-async fn write_ipc_response(
+pub(crate) async fn write_ipc_response(
     stream: &mut tokio::net::UnixStream,
     resp: AgentResponse,
 ) -> Result<()> {
@@ -414,6 +421,7 @@ async fn handle_request_inner(
         | AgentRequest::SyncBootstrapPrepare { .. } | AgentRequest::SyncBootstrapApply { .. } | AgentRequest::SyncBootstrapCancel | AgentRequest::SyncBootstrapFinish { .. }
         | AgentRequest::VaultManage { .. } | AgentRequest::AppCredentialPasswordUpdate { .. } | AgentRequest::AppPasskey { .. }
         | AgentRequest::SshAuthorizationsPending | AgentRequest::SshAuthorizationResolve { .. }
+        | AgentRequest::TerminalConnectPending | AgentRequest::TerminalConnectResolve { .. }
         | AgentRequest::PasskeyRequestsPending { .. } | AgentRequest::PasskeyResolve { .. } | AgentRequest::PasskeyList
         | AgentRequest::BrowserMfaPending { .. } | AgentRequest::BrowserMfaResolve { .. }
         | AgentRequest::VaultResetRecoveryKey { .. } | AgentRequest::VaultExportJson { .. }
@@ -430,6 +438,7 @@ async fn handle_request_inner(
         | AgentRequest::UnlockLocal { .. } | AgentRequest::UnlockPassword { .. }
         | AgentRequest::VerifyMasterPassword { .. }
         | AgentRequest::SshAuthorizationsPending | AgentRequest::PasskeyRequestsPending { .. }
+        | AgentRequest::TerminalConnectPending | AgentRequest::TerminalConnectResolve { .. }
         | AgentRequest::BrowserMfaPending { .. } | AgentRequest::BrowserMfaPoll { .. } | AgentRequest::BrowserMfaCancel { .. }
         | AgentRequest::LocalReset { .. } | AgentRequest::PasskeySitesReport { .. } | AgentRequest::PasskeySitesGet) {
         let mut v = st.vault.lock().await;
@@ -1561,6 +1570,12 @@ async fn handle_request_inner(
                 Err(e) => AgentResponse::err("vault", e.to_string()),
             }
         }
+        AgentRequest::TerminalConnect { .. } => AgentResponse::err("forbidden", "terminal connection requires its dedicated socket entry"),
+        AgentRequest::TerminalConnectPending => {
+            let mut vault = st.vault.lock().await;
+            AgentResponse::ok(json!({"requests": crate::terminal_connect::pending(&mut vault)}))
+        }
+        AgentRequest::TerminalConnectResolve { request_id, approved } => crate::terminal_connect::resolve(st, &request_id, approved).await,
         AgentRequest::SshSessionPrepare {
             host,
             port,

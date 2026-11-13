@@ -17,6 +17,7 @@ mod ssh_agent;
 #[cfg(not(target_os = "android"))]
 pub mod git_ssh;
 mod ssh_session;
+mod terminal_connect;
 mod vault_session;
 mod sync;
 

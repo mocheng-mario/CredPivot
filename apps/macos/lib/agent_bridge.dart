@@ -525,6 +525,19 @@ class AgentBridge {
     });
   }
 
+  /// 只复制连接引用；终端执行时再由 App 授权。
+  static Future<String> terminalConnectCommand(String connectionId) async {
+    try {
+      final command = await _channel.invokeMethod<String>('terminalConnectCommand', connectionId);
+      if (command == null || command.isEmpty) {
+        throw AgentException('terminal_connect', tr('server.terminal.unavailable'));
+      }
+      return command;
+    } on PlatformException catch (error) {
+      throw AgentException(error.code, error.message ?? tr('server.terminal.unavailable'));
+    }
+  }
+
   /// 安装 askpass 到 `~/.credpivot/credpivot-askpass`。
   static Future<String> materializeSshAskpass() async {
     final path = await _channel.invokeMethod<String>('materializeSshAskpass');

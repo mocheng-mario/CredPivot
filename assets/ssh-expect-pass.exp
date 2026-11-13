@@ -8,6 +8,31 @@ set port ""
 set session_id ""
 set askpass_bin ""
 
+# Expect 默认会把 SIGINT/SIGTERM 当作成功退出；终端取消应返回对应的失败状态。
+trap {exit [expr {128 + [trap -number]}]} {SIGINT SIGTERM SIGHUP}
+
+proc finish_ssh {} {
+    global spawn_id
+    catch {close -i $spawn_id}
+    if {[catch {wait -i $spawn_id} result] || [llength $result] < 4 || [lindex $result 2] != 0} {
+        exit 255
+    }
+    if {[lindex $result 4] eq "CHILDKILLED"} {
+        # 重发子进程的终止信号，让 shell 得到原来的信号退出状态。
+        set signal [lindex $result 5]
+        catch {trap SIG_DFL $signal}
+        catch {exec /bin/kill -s [string range $signal 3 end] [pid]}
+        exit 255
+    }
+    exit [lindex $result 3]
+}
+
+proc manual_interaction {} {
+    global spawn_id
+    catch {interact}
+    finish_ssh
+}
+
 proc usage {} {
     global argv0
     puts "Usage:"
@@ -92,15 +117,13 @@ proc send_password {} {
     global password_tries max_password_tries
     if {$password_tries >= $max_password_tries} {
         send_user "\r\nCredPivot: 密码尝试次数已达上限，请手动输入。\r\n"
-        interact
-        exit 1
+        manual_interaction
     }
     incr password_tries
     set pw [fetch_secret "password"]
     if {$pw eq ""} {
         send_user "\r\nCredPivot: 密码为空，请手动输入。\r\n"
-        interact
-        return
+        manual_interaction
     }
     send -- "$pw\r"
 }
@@ -112,15 +135,13 @@ proc send_otp {} {
     global otp_tries max_otp_tries
     if {$otp_tries >= $max_otp_tries} {
         send_user "\r\nCredPivot: MFA 尝试次数已达上限，请手动输入。\r\n"
-        interact
-        return
+        manual_interaction
     }
     incr otp_tries
     set code [fetch_secret "otp"]
     if {$code eq ""} {
         send_user "\r\nCredPivot: MFA 验证码获取失败，请手动输入。\r\n"
-        interact
-        return
+        manual_interaction
     }
     send -- "$code\r"
 }
@@ -160,21 +181,19 @@ while {1} {
         }
         -re {Permission denied \(publickey,password\)} {
             send_user "\r\nCredPivot: 认证失败（公钥与密码均被拒绝）。\r\n"
-            interact
-            exit 1
+            manual_interaction
         }
         -re {[@%$#>]\s*$} {
             break
         }
         timeout {
             send_user "\r\nCredPivot: 等待提示超时，进入手动交互。\r\n"
-            interact
-            exit 0
+            manual_interaction
         }
         eof {
-            exit 0
+            finish_ssh
         }
     }
 }
 
-interact
+manual_interaction

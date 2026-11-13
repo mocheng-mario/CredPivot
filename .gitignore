@@ -46,6 +46,7 @@ apps/macos/macos/Runner/libcredpivot_ffi.a
 apps/macos/macos/Runner/credpivot-native-host
 apps/macos/macos/Runner/credpivot-askpass
 apps/macos/macos/Runner/credpivot-git-ssh
+apps/macos/macos/Runner/credpivot-connect
 apps/macos/macos/Runner/credpivot-chrome-extension
 apps/macos/macos/Runner/credpivot-firefox-manifest.json
 
