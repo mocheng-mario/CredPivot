@@ -44,6 +44,14 @@ fn invalid() -> CoreError {
     CoreError::format("无效或暂不支持的通行密钥请求")
 }
 
+/// WebAuthn：RP ID 须与页面主机相同，或为其后缀（如 `example.com` 配 `www.example.com`）。
+fn rp_id_matches_host(rp_id: &str, host: &str) -> bool {
+    host == rp_id
+        || (host.len() > rp_id.len() + 1
+            && host.as_bytes().get(host.len() - rp_id.len() - 1) == Some(&b'.')
+            && host.ends_with(rp_id))
+}
+
 fn bytes(value: &Value, max: usize) -> Result<Vec<u8>> {
     let input = value.as_str().ok_or_else(invalid)?;
     if input.len() > max * 2 {
@@ -83,7 +91,7 @@ impl Request {
         } else {
             requested_rp.as_str().ok_or_else(invalid)?
         };
-        if rp_id != host {
+        if !rp_id_matches_host(rp_id, host) {
             return Err(invalid());
         }
         let challenge = URL_SAFE_NO_PAD.encode(bytes(&options["challenge"], 1024)?);

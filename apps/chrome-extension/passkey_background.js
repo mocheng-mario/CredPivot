@@ -4,20 +4,33 @@ export function onPasskeySitesChanged(listener) { afterSiteChange = listener; }
 const active = new Map();
 const PAGE_SCRIPT = "credpivot-passkey-page";
 
+function rpIdMatchesHost(rpId, host) {
+  if (rpId == null || rpId === "") return true;
+  return host === rpId || (host.endsWith(`.${rpId}`) && host.length > rpId.length + 1);
+}
+
+function siteEnabledInMap(sites, origin) {
+  if (Object.prototype.hasOwnProperty.call(sites, origin)) return sites[origin] === true;
+  return true;
+}
+
+async function injectPasskeyPageIntoOpenTabs(sites) {
+  const disabled = new Set(Object.entries(sites).filter(([, enabled]) => enabled === false).map(([origin]) => origin));
+  const tabs = await chrome.tabs.query({url: ["https://*/*"]});
+  await Promise.allSettled(tabs.map(async (tab) => {
+    if (!tab.id || !tab.url?.startsWith("https://")) return;
+    let origin;
+    try { origin = new URL(tab.url).origin; } catch (_) { return; }
+    if (disabled.has(origin)) return;
+    await chrome.scripting.executeScript({target: {tabId: tab.id, frameIds: [0]}, files: ["passkey_page.js"], world: "MAIN"});
+  }));
+}
+
 export async function syncPasskeyScripts(sites) {
   if (!sites) sites = (await chrome.storage.local.get(ENABLED_SITES))[ENABLED_SITES] || {};
-  // 只在主动启用的网站注入网页 API 接入代码，其他网站保持原有 WebAuthn 路径。
-  const matches = [...new Set(Object.entries(sites).filter(([,enabled]) => enabled === true).flatMap(([origin]) => {
-    try {
-      const url = new URL(origin);
-      return url.protocol === "https:" ? [`https://${url.hostname}/*`] : [];
-    } catch (_) { return []; }
-  }))];
+  // 默认在所有 HTTPS 页面注入；仅用户手动关闭的站点在 handlePasskey 中回退浏览器。
+  const matches = ["https://*/*"];
   const exists = (await chrome.scripting.getRegisteredContentScripts({ids:[PAGE_SCRIPT]})).length > 0;
-  if (!matches.length) {
-    if (exists) await chrome.scripting.unregisterContentScripts({ids:[PAGE_SCRIPT]});
-    return;
-  }
   const script = {id:PAGE_SCRIPT,matches,js:["passkey_page.js"],world:"MAIN",runAt:"document_start",allFrames:false,persistAcrossSessions:true};
   const write = async (entry) => {
     if (exists) await chrome.scripting.updateContentScripts([entry]);
@@ -32,19 +45,18 @@ export async function syncPasskeyScripts(sites) {
     delete script.persistAcrossSessions;
     await write(script);
   }
+  await injectPasskeyPageIntoOpenTabs(sites);
 }
 
 export async function enablePasskeySiteIfUnset(origin) {
   const stored = await chrome.storage.local.get(ENABLED_SITES);
   const sites = stored[ENABLED_SITES] || {};
-  if (Object.prototype.hasOwnProperty.call(sites, origin)) return sites[origin] === true;
-  await setPasskeySiteState(origin, true);
-  return true;
+  return siteEnabledInMap(sites, origin);
 }
 
 export async function passkeySiteState(origin) {
   const stored = await chrome.storage.local.get(ENABLED_SITES);
-  return stored[ENABLED_SITES]?.[origin] === true;
+  return siteEnabledInMap(stored[ENABLED_SITES] || {}, origin);
 }
 
 export async function setPasskeySiteState(origin, enabled) {
@@ -71,8 +83,8 @@ async function checkDocument(request) {
 function supported(kind, options, origin) {
   if (!options || typeof options !== "object" || JSON.stringify(options).length > 64 * 1024) return false;
   const host = new URL(origin).hostname;
-  if ((kind === "create" ? options.rp?.id : options.rpId) != null &&
-      (kind === "create" ? options.rp.id : options.rpId) !== host) return false;
+  const rpId = kind === "create" ? options.rp?.id : options.rpId;
+  if (!rpIdMatchesHost(rpId, host)) return false;
   if (options.extensions && Object.keys(options.extensions).some((key) => key !== "credProps" &&
       !(key === "appid" && kind === "get") && !(key === "appidExclude" && kind === "create"))) return false;
   const attachment = options.authenticatorSelection?.authenticatorAttachment;

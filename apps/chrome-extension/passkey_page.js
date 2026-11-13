@@ -1,6 +1,8 @@
 // 网页世界只接触 WebAuthn 公共参数和响应；私钥生成与签名均在 App 内完成。
 (() => {
+  if (globalThis.__credpivotPasskeyPageReady) return;
   if (!window.isSecureContext || window !== window.top || !navigator.credentials || !window.PublicKeyCredential) return;
+  globalThis.__credpivotPasskeyPageReady = true;
   const container = navigator.credentials;
   const originalCreate = container.create.bind(container);
   const originalGet = container.get.bind(container);
