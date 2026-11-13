@@ -255,9 +255,12 @@ Future<void> showPartitionMigration(BuildContext context, String source, {Set<St
           const SizedBox(height: 12),
           Expanded(child: ListView.builder(itemCount: affected.length, itemBuilder: (_, index) {
             final item = affected[index];
-            return ListTile(title: Text(item['title']?.toString() ?? ''),
-              subtitle: Text([item['kind'], item['account'], item['partition_name'], item['group_name'],
-                if (item['trashed'] == 1) tr('partitions.trashed')].where((v) => v != null && v.toString().isNotEmpty).join(' · ')),
+            final parts = <Object?>[item['kind'], item['account'], item['partition_name'], item['group_name']];
+            if (item['trashed'] == 1) parts.add(tr('partitions.trashed'));
+            return ListTile(
+              title: Text(item['title']?.toString() ?? ''),
+              subtitle: Text(parts.where((v) => v != null && v.toString().isNotEmpty).join(' · ')),
+            );
           })),
           if (dependencies.isNotEmpty) ...[
             const SizedBox(height: 8),

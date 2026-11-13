@@ -643,6 +643,7 @@ impl VaultSession {
         password: Option<&str>,
         website_rules: Option<&[credpivot_core::UriRule]>,
         linked_mfa_ids: Option<&[String]>,
+        linked_ssh_key_ids: Option<&[String]>,
     ) -> Result<credpivot_core::LoginListRow> {
         let db = self
             .db
@@ -660,6 +661,7 @@ impl VaultSession {
             password,
             website_rules,
             linked_mfa_ids,
+            linked_ssh_key_ids,
         )
             .map_err(|e| match e {
                 credpivot_core::CoreError::Conflict => AgentError::Vault("revision conflict".into()),

@@ -1,4 +1,4 @@
-.PHONY: chrome-info chrome-host-manifest chrome-pack
+.PHONY: chrome-info chrome-host-manifest chrome-pack firefox-pack
 
 ## 打印扩展目录与加载方式
 chrome-info:
@@ -21,11 +21,9 @@ chrome-host-manifest: rust-host
 	  '}' > "$$DIR/com.credpivot.chrome.m0.json"; \
 	echo "已写入 $$DIR/com.credpivot.chrome.m0.json（请替换 allowed_origins 中的扩展 ID）"
 
-## 打包扩展。压缩包根目录就是 manifest.json，可直接在 Firefox 中从文件安装。
+## Chrome 与 Firefox 分开打包。源目录清单仍同时包含两边字段，供开发时直接加载。
 chrome-pack:
-	@mkdir -p "$(ROOT)/dist"
-	@version=$$(/usr/bin/plutil -extract version raw -o - "$(CHROME_EXT_DIR)/manifest.json"); \
-	archive="$(ROOT)/dist/CredPivot-extension-$$version.xpi"; \
-	rm -f "$$archive"; \
-	cd "$(CHROME_EXT_DIR)" && zip -r -X "$$archive" . -x '*.DS_Store' -x '__MACOSX/*'; \
-	echo "已生成 $$archive"
+	bash "$(ROOT)/scripts/package-release.sh" chrome "$(CHROME_EXT_DIR)"
+
+firefox-pack:
+	bash "$(ROOT)/scripts/package-release.sh" firefox "$(CHROME_EXT_DIR)"

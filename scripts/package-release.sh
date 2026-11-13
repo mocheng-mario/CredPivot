@@ -2,7 +2,7 @@
 # 只打包显式传入的构建产物，不访问用户保险库、钥匙串或同步配置。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-KIND="${1:?用法: package-release.sh app|cli|extension path}"
+KIND="${1:?用法: package-release.sh app|cli|chrome|firefox|extension path}"
 SOURCE="${2:?请传入构建产物路径}"
 VERSION="$(awk '/^version: / {print $2; exit}' "$ROOT/apps/macos/pubspec.yaml")"
 BUILD_NUMBER="${VERSION##*+}"
@@ -11,6 +11,49 @@ VERSION="${VERSION%%+*}"
 mkdir -p "$ROOT/dist"
 TEMP_DIR="$(mktemp -d -t credpivot-package)"
 trap 'rm -rf "$TEMP_DIR"' EXIT
+publish() {
+  local archive="$1"
+  shasum -a 256 "$archive" | sed "s|  .*/|  |" > "$archive.sha256"
+  printf '已生成 %s\n' "$archive" "$archive.sha256"
+}
+# 源目录清单同时带 Chrome 与 Firefox 字段，发布包按浏览器拆开，避免一边拒绝另一边的键。
+package_browser() {
+  local browser="$1"
+  [[ -f "$SOURCE/manifest.json" ]] || { echo "扩展清单不存在" >&2; exit 1; }
+  local ext_version stage archive
+  ext_version="$(/usr/bin/plutil -extract version raw -o - "$SOURCE/manifest.json")"
+  stage="$TEMP_DIR/stage-$browser"
+  rm -rf "$stage"
+  mkdir -p "$stage"
+  COPYFILE_DISABLE=1 cp -R "$SOURCE/." "$stage/"
+  find "$stage" -name '.DS_Store' -delete
+  find "$stage" -name '._*' -delete
+  rm -f "$stage/native-messaging-host-m0.json"
+  case "$browser" in
+    chrome)
+      /usr/bin/plutil -remove browser_specific_settings "$stage/manifest.json"
+      /usr/bin/plutil -remove background.scripts "$stage/manifest.json"
+      archive="$ROOT/dist/CredPivot-Chrome-$ext_version.zip"
+      rm -f "$archive" "$archive.sha256"
+      # 解压后目录名保持 chrome-extension，便于按原说明加载未打包扩展。
+      mkdir -p "$TEMP_DIR/chrome-root"
+      rm -rf "$TEMP_DIR/chrome-root/chrome-extension"
+      mv "$stage" "$TEMP_DIR/chrome-root/chrome-extension"
+      (cd "$TEMP_DIR/chrome-root" && zip -r -X "$TEMP_DIR/chrome.zip" chrome-extension -x '*.DS_Store' -x '__MACOSX/*' -x '*/._*' -x '._*')
+      mv "$TEMP_DIR/chrome.zip" "$archive"
+      ;;
+    firefox)
+      /usr/bin/plutil -remove minimum_chrome_version "$stage/manifest.json"
+      archive="$ROOT/dist/CredPivot-Firefox-$ext_version.xpi"
+      rm -f "$archive" "$archive.sha256"
+      # xpi 根目录必须是 manifest.json，Firefox 才能从文件安装。
+      (cd "$stage" && zip -r -X "$TEMP_DIR/firefox.zip" . -x '*.DS_Store' -x '__MACOSX/*')
+      mv "$TEMP_DIR/firefox.zip" "$archive"
+      ;;
+    *) echo "未知浏览器: $browser" >&2; exit 1 ;;
+  esac
+  publish "$archive"
+}
 case "$KIND" in
   cli)
     [[ -x "$SOURCE" ]] || { echo "CLI 构建产物不存在" >&2; exit 1; }
@@ -25,6 +68,7 @@ case "$KIND" in
     ARCHIVE="$ROOT/dist/$NAME.tar.gz"
     tar -czf "$TEMP_DIR/archive.tar.gz" -C "$TEMP_DIR" "$NAME"
     mv "$TEMP_DIR/archive.tar.gz" "$ARCHIVE"
+    publish "$ARCHIVE"
     ;;
   app)
     [[ -d "$SOURCE/Contents" ]] || { echo "App 构建产物不存在" >&2; exit 1; }
@@ -51,15 +95,14 @@ case "$KIND" in
     hdiutil create -volname CredPivot -srcfolder "$TEMP_DIR/dmg" -fs HFS+ -format UDZO "$TEMP_DIR/archive.dmg"
     hdiutil verify "$TEMP_DIR/archive.dmg"
     mv "$TEMP_DIR/archive.dmg" "$ARCHIVE"
+    publish "$ARCHIVE"
+    ;;
+  chrome|firefox)
+    package_browser "$KIND"
     ;;
   extension)
-    [[ -f "$SOURCE/manifest.json" ]] || { echo "扩展清单不存在" >&2; exit 1; }
-    EXT_VERSION="$(/usr/bin/plutil -extract version raw -o - "$SOURCE/manifest.json")"
-    ARCHIVE="$ROOT/dist/CredPivot-Chrome-$EXT_VERSION.zip"
-    ditto -c -k --keepParent "$SOURCE" "$TEMP_DIR/archive.zip"
-    mv "$TEMP_DIR/archive.zip" "$ARCHIVE"
+    package_browser chrome
+    package_browser firefox
     ;;
   *) echo "未知产物类型: $KIND" >&2; exit 1 ;;
 esac
-shasum -a 256 "$ARCHIVE" | sed "s|  .*/|  |" > "$ARCHIVE.sha256"
-printf '已生成 %s\n' "$ARCHIVE" "$ARCHIVE.sha256"

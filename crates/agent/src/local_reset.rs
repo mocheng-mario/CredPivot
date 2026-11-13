@@ -5,36 +5,48 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 pub fn reset_vault(active: &Path) -> io::Result<()> {
-    let default_dir = crate::paths::runtime_dir().join("vault");
+    let current = current_vault(active)?;
+    ensure_deletable(&current)?;
     let mut settings = credpivot_core::read_app_settings()?;
-    let previous = settings
-        .vault_directory
-        .clone()
-        .map(PathBuf::from);
-    ensure_deletable(active)?;
-    if let Some(dir) = &previous {
-        ensure_deletable(dir)?;
-    }
-    ensure_deletable(&default_dir)?;
     // 先改本机配置。写入失败时保险库文件保持不动。
     settings.webdav = None;
     settings.sync_host_names.clear();
     settings.vault_directory = None;
     credpivot_core::write_app_settings(&settings)?;
-    remove_vault_files(active)?;
-    if let Some(dir) = previous {
-        if dir != active {
-            remove_vault_files(&dir)?;
-        }
-    }
-    if default_dir != active {
-        remove_vault_files(&default_dir)?;
-    }
+    remove_vault_files(&current)?;
     Ok(())
 }
 
-pub fn reset_app() -> io::Result<()> {
-    let dir = crate::paths::runtime_dir();
+pub fn reset_app(active: &Path) -> io::Result<()> {
+    let current = current_vault(active)?;
+    ensure_deletable(&current)?;
+    let runtime = crate::paths::runtime_dir();
+    // 自定义目录不在运行目录里，删除运行目录不会带走当前库。
+    let outside = !path_within(&current, &runtime);
+    if outside {
+        remove_vault_files(&current)?;
+    }
+    remove_runtime(&runtime)
+}
+
+fn current_vault(active: &Path) -> io::Result<PathBuf> {
+    if active.as_os_str().is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "当前保险库路径无效"));
+    }
+    Ok(active.to_path_buf())
+}
+
+fn path_within(path: &Path, parent: &Path) -> bool {
+    let Ok(path) = normalize(path) else { return false };
+    let Ok(parent) = normalize(parent) else { return false };
+    path.starts_with(parent)
+}
+
+fn normalize(path: &Path) -> io::Result<PathBuf> {
+    if path.exists() { path.canonicalize() } else { Ok(path.to_path_buf()) }
+}
+
+fn remove_runtime(dir: &Path) -> io::Result<()> {
     if !dir.exists() {
         return Ok(());
     }

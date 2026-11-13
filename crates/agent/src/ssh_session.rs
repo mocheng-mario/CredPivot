@@ -189,7 +189,14 @@ pub fn consume_askpass_secret(
                 return Err(AgentError::Protocol("otp prompt budget exhausted".into()));
             }
             grant.otp_uses_left -= 1;
-            let totp_id = session_totp.or(cred_totp_id(vault, &login_id)?);
+            // 已指定 MFA 时不再读取账户；独立连接没有账户 ID。
+            let totp_id = if let Some(id) = session_totp {
+                Some(id)
+            } else if login_id.is_empty() {
+                None
+            } else {
+                cred_totp_id(vault, &login_id)?
+            };
             let id = totp_id
                 .ok_or_else(|| AgentError::Protocol("no MFA configured for this session".into()))?;
             vault.totp_code(&id)

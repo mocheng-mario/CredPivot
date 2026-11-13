@@ -219,6 +219,11 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
   Future<void> _openInTerminal() async {
     final row = _selected;
     if (row == null) return;
+    if (row['unavailable'] == true) {
+      final reason = row['unavailable_reason']?.toString() ?? '';
+      setState(() => _status = reason.isEmpty ? '这条连接已停用，需要重新确认后才能使用' : reason);
+      return;
+    }
     final host = row['host']?.toString().trim() ?? '';
     if (host.isEmpty) {
       setState(() => _status = tr('server.openSshAuto.text'));

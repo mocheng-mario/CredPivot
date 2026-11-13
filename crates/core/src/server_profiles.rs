@@ -275,8 +275,8 @@ fn checked_auth(
         return Ok((String::new(), String::new()));
     }
     if manual_username.trim().is_empty() { return Err(CoreError::format("请填写连接自己的用户名")); }
-    let secret = manual_secret.unwrap_or("").trim();
-    if secret.is_empty() { return Err(CoreError::format("请填写连接自己的密码")); }
+    let secret = manual_secret.unwrap_or("");
+    if secret.trim().is_empty() { return Err(CoreError::format("请填写连接自己的密码")); }
     if let Some(totp_id) = totp_id.filter(|id| !id.is_empty()) {
         let same = conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM totp_credentials t JOIN items i ON i.id=t.item_id WHERE t.id=?1 AND i.trashed=0 AND i.partition_id=?2)",

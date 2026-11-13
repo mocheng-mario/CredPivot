@@ -838,7 +838,7 @@ async fn handle_request_inner(
             let result = if scope == "vault" {
                 crate::local_reset::reset_vault(&vault_dir)
             } else {
-                crate::local_reset::reset_app()
+                crate::local_reset::reset_app(&vault_dir)
             };
             let mut v = st.vault.lock().await;
             match result {
@@ -1116,15 +1116,11 @@ async fn handle_request_inner(
                 website_rules.as_deref(),
                 linked_mfa_ids.as_deref(),
                 password_active_since_ms,
+                linked_ssh_key_ids.as_deref(),
             ) {
                 Ok(c) => c,
                 Err(e) => return AgentResponse::err("vault", e.to_string()),
             };
-            if let Some(ids) = &linked_ssh_key_ids {
-                if let Err(e) = credpivot_core::replace_account_ssh_keys(db.conn(), &cred.item_id, ids) {
-                    return AgentResponse::err("vault", e.to_string());
-                }
-            }
             AgentResponse::ok(json!({
                 "request_id": request_id,
                 "saved": true,
@@ -1178,15 +1174,11 @@ async fn handle_request_inner(
             let mut v=st.vault.lock().await;
             if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
             let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","vault locked"); };
-            if !credential_id.is_empty() && !v.credential_matches_page(&credential_id, &origin) {
-                return AgentResponse::err("origin_mismatch", "账号与网站不匹配");
-            }
+            if totp_id.is_empty() { return AgentResponse::err("bad_args", "请选择当前网站的 MFA"); }
             if !credential_id.is_empty() && !credpivot_core::partitions::same_credentials(db.conn(),&credential_id,&totp_id).unwrap_or(false) {
                 return AgentResponse::err("forbidden","partitions.errors.crossLink");
             }
-            // 明确选择 MFA 后仅验证该记录；不为读取验证码重新扫描全库。
-            if totp_id.is_empty() { return AgentResponse::err("bad_args", "请选择当前网站的 MFA"); }
-            if !credpivot_core::mfa_matches_origin(db.conn(), &totp_id, &origin).unwrap_or(false) {
+            if !credpivot_core::browser_mfa_allowed(db.conn(), &origin, opt_nonempty(&credential_id), &totp_id, partition).unwrap_or(false) {
                 return AgentResponse::err("origin_mismatch", "MFA 与网站不匹配");
             }
             let id = totp_id;
@@ -1363,16 +1355,9 @@ async fn handle_request_inner(
                 password.as_deref(),
                 website_rules.as_deref(),
                 linked_mfa_ids.as_deref(),
+                linked_ssh_key_ids.as_deref(),
             ) {
-                Ok(row) => {
-                    if let Some(ids) = &linked_ssh_key_ids {
-                        let Some(db) = v.db.as_ref() else { return AgentResponse::err("locked", "database not attached"); };
-                        if let Err(e) = credpivot_core::replace_account_ssh_keys(db.conn(), &row.item_id, ids) {
-                            return AgentResponse::err("vault", e.to_string());
-                        }
-                    }
-                    AgentResponse::ok(json!({ "updated": true, "item": row }))
-                }
+                Ok(row) => AgentResponse::ok(json!({ "updated": true, "item": row })),
                 Err(e) => {
                     let msg = e.to_string();
                     if msg.contains("revision conflict") {
@@ -1592,7 +1577,12 @@ async fn handle_request_inner(
             let totp = totp_id.filter(|s| !s.trim().is_empty());
             if let Some(totp)=&totp {
                 let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","vault locked"); };
-                if !credpivot_core::partitions::same_credentials(db.conn(),&login_credential_id,totp).unwrap_or(false) {
+                let same = if login_credential_id.trim().is_empty() {
+                    credpivot_core::partitions::server_profile_matches_totp(db.conn(), server_profile_id.trim(), totp).unwrap_or(false)
+                } else {
+                    credpivot_core::partitions::same_credentials(db.conn(), &login_credential_id, totp).unwrap_or(false)
+                };
+                if !same {
                     return AgentResponse::err("forbidden","partitions.errors.crossLink");
                 }
             }

@@ -103,6 +103,7 @@ const TABLES: &[&str] = &[
     "ssh_keys",
     "recovery_code_items",
     "server_login_profiles",
+    "server_stale_auth",
     "passkey_credentials",
     "credential_links",
     "trashed_credential_links",
@@ -477,6 +478,7 @@ pub fn capture(conn: &Connection) -> Result<Document> {
                 "passkey_credentials" => format!("SELECT * FROM {table} WHERE item_id=?1 ORDER BY credential_id"),
                 "credential_links" => "SELECT * FROM credential_links WHERE account_item_id=?1 ORDER BY target_item_id, kind".into(),
                 "trashed_credential_links" => "SELECT * FROM trashed_credential_links WHERE owner_item_id=?1 ORDER BY account_item_id, target_item_id, kind".into(),
+                "server_stale_auth" => "SELECT * FROM server_stale_auth WHERE profile_id IN (SELECT id FROM server_login_profiles WHERE item_id=?1) ORDER BY profile_id".into(),
                 _ => format!("SELECT * FROM {table} WHERE item_id=?1 ORDER BY id"),
             };
             let mut values = rows(&tx, &sql, [&id])?;
@@ -1634,6 +1636,10 @@ pub fn validate_document(doc: &Document) -> Result<()> {
                         return Err(invalid());
                     }
                     if table == "trashed_credential_links" && row["owner_item_id"].as_str() != Some(id) {
+                        return Err(invalid());
+                    }
+                    if table == "server_stale_auth" && !record.tables.get("server_login_profiles").into_iter().flatten()
+                        .any(|profile| profile["id"].as_str() == row["profile_id"].as_str()) {
                         return Err(invalid());
                     }
                     if [

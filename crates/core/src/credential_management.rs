@@ -411,6 +411,25 @@ pub(crate) fn sync_recovery_entries(
     Ok(())
 }
 
+fn restore_item_row(conn: &Connection, item: &str, expected: &str) -> Result<()> {
+    let revision: String = conn.query_row(
+        "SELECT current_revision FROM items WHERE id=?1 AND trashed=1",
+        [item],
+        |row| row.get(0),
+    )?;
+    check_revision(&revision, expected)?;
+    let revision = new_revision();
+    let ts = now_ms();
+    conn.execute("UPDATE items SET trashed=0,trashed_at_ms=NULL,current_revision=?1,updated_at_ms=?2 WHERE id=?3", params![revision, ts, item])?;
+    for table in ["login_credentials", "totp_credentials", "ssh_keys", "recovery_code_items", "server_login_profiles"] {
+        conn.execute(
+            &format!("UPDATE {table} SET current_revision=?1,updated_at_ms=?2 WHERE item_id=?3"),
+            params![revision, ts, item],
+        )?;
+    }
+    Ok(())
+}
+
 fn trash_change(conn: &Connection, item: &str, expected: &str, purge: bool) -> Result<()> {
     let revision: String = conn.query_row(
         "SELECT current_revision FROM items WHERE id=?1 AND trashed=1",
@@ -419,28 +438,11 @@ fn trash_change(conn: &Connection, item: &str, expected: &str, purge: bool) -> R
     )?;
     check_revision(&revision, expected)?;
     if !purge {
-        // 被删除的关联对象可能已永久清理，恢复时只保留仍然存在的引用。
-        let revision = new_revision();
-        let ts = now_ms();
-        conn.execute("UPDATE items SET trashed=0,trashed_at_ms=NULL,current_revision=?1,updated_at_ms=?2 WHERE id=?3", params![revision,ts,item])?;
-        let kind: String = conn.query_row("SELECT kind FROM items WHERE id=?1", [item], |row| row.get(0))?;
+        restore_item_row(conn, item, expected)?;
         crate::associations::restore_links(conn, item)?;
+        let kind: String = conn.query_row("SELECT kind FROM items WHERE id=?1", [item], |row| row.get(0))?;
         if kind == "totp" {
             crate::repo_m2::restore_mfa_recovery(conn, item)?;
-        }
-        for table in [
-            "login_credentials",
-            "totp_credentials",
-            "ssh_keys",
-            "recovery_code_items",
-            "server_login_profiles",
-        ] {
-            conn.execute(
-                &format!(
-                    "UPDATE {table} SET current_revision=?1,updated_at_ms=?2 WHERE item_id=?3"
-                ),
-                params![revision, ts, item],
-            )?;
         }
         return Ok(());
     }
@@ -574,10 +576,23 @@ fn items_batch(conn: &Connection, operation: &str, partition: &str,
     }
     // 同批选择服务器与 SSH 密钥时，先删除引用方，仍有未选中的引用时沿用原有保护。
     items.sort_by_key(|(_, kind)| kind == "ssh_key");
-    for (id, _) in items {
-        if operation == "trash" { crate::repo_m2::trash_item_in_tx(&tx, id)?; }
-        else if operation == "restore" { trash_change(&tx,id,&expected[id],false)?; }
-        else { crate::credential_groups::set_item_group_in_tx(&tx, id, group)?; }
+    if operation == "restore" {
+        for (id, _) in &items {
+            restore_item_row(&tx, id, &expected[*id])?;
+        }
+        for (id, kind) in &items {
+            if kind == "totp" {
+                crate::repo_m2::restore_mfa_recovery(&tx, id)?;
+            }
+        }
+        for (id, _) in &items {
+            crate::associations::restore_links(&tx, id)?;
+        }
+    } else {
+        for (id, _) in items {
+            if operation == "trash" { crate::repo_m2::trash_item_in_tx(&tx, id)?; }
+            else { crate::credential_groups::set_item_group_in_tx(&tx, id, group)?; }
+        }
     }
     crate::mark_restore_dirty(&tx)?;
     tx.commit()?;
@@ -1109,7 +1124,10 @@ pub(crate) const LOGICAL_TABLES: &[&str] = &[
     "recovery_code_items",
     "recovery_code_entries",
     "server_login_profiles",
+    "server_stale_auth",
     "passkey_credentials",
+    "credential_links",
+    "trashed_credential_links",
     "credential_groups",
     "import_mappings",
 ];

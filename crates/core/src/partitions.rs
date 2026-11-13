@@ -115,6 +115,14 @@ fn edges(conn: &Connection) -> Result<Vec<(String,String)>> {
             result.push((row["account_item_id"].as_str().unwrap_or("").into(), row["target_item_id"].as_str().unwrap_or("").into()));
         }
     }
+    let has_mfa: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('recovery_code_items') WHERE name='mfa_item_id'",
+        [], |row| row.get(0))?;
+    if has_mfa != 0 {
+        for row in rows(conn, "SELECT item_id, mfa_item_id FROM recovery_code_items WHERE mfa_item_id IS NOT NULL AND mfa_item_id<>''", [])? {
+            result.push((row["item_id"].as_str().unwrap_or("").into(), row["mfa_item_id"].as_str().unwrap_or("").into()));
+        }
+    }
     result.sort(); result.dedup();
     Ok(result)
 }
@@ -146,6 +154,12 @@ pub fn same_credentials(conn: &Connection, login: &str, totp: &str) -> Result<bo
     Ok(conn.query_row("SELECT EXISTS(SELECT 1 FROM login_credentials l JOIN items a ON a.id=l.item_id
         JOIN totp_credentials t ON t.id=?2 JOIN items b ON b.id=t.item_id
         WHERE l.id=?1 AND a.partition_id=b.partition_id)",params![login,totp],|r|r.get(0))?)
+}
+
+pub fn server_profile_matches_totp(conn: &Connection, profile: &str, totp: &str) -> Result<bool> {
+    Ok(conn.query_row("SELECT EXISTS(SELECT 1 FROM server_login_profiles s JOIN items a ON a.id=s.item_id
+        JOIN totp_credentials t ON t.id=?2 JOIN items b ON b.id=t.item_id
+        WHERE s.id=?1 AND b.trashed=0 AND a.partition_id=b.partition_id)", params![profile, totp], |row| row.get(0))?)
 }
 
 /// 列表只附加分区元数据；凭据内容不参与分区标签或迁移预览。

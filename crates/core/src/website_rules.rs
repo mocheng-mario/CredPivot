@@ -278,6 +278,12 @@ pub fn browser_mfa_candidates(conn: &Connection, origin: &str, credential_id: Op
     Ok(json!({"candidates":result,"can_check_other_matches":false,"all_matches":false}))
 }
 
+/// 取码与候选使用同一套规则：已选账户时，没写 origin 的关联 MFA 可用；未选账户时只接受未关联且 origin 命中的 MFA。
+pub fn browser_mfa_allowed(conn: &Connection, origin: &str, credential_id: Option<&str>, totp_id: &str, partition: Option<&str>) -> Result<bool> {
+    let payload = browser_mfa_candidates(conn, origin, credential_id, partition)?;
+    Ok(payload["candidates"].as_array().is_some_and(|rows| rows.iter().any(|row| row["id"].as_str() == Some(totp_id))))
+}
+
 fn linked_to_any_account(conn: &Connection, totp_item: &str) -> Result<bool> {
     if !crate::associations::table_ready(conn)? {
         return Ok(false);

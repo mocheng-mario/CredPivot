@@ -463,28 +463,35 @@ pub(crate) fn restore_links(conn: &Connection, item: &str) -> Result<()> {
     }
     let rows = {
         let mut statement = conn.prepare(
-            "SELECT account_item_id, target_item_id, kind FROM trashed_credential_links WHERE owner_item_id=?1",
+            "SELECT owner_item_id, account_item_id, target_item_id, kind FROM trashed_credential_links
+             WHERE owner_item_id=?1 OR account_item_id=?1 OR target_item_id=?1",
         )?;
-        let mapped = statement.query_map([item], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))?;
+        let mapped = statement.query_map([item], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?)))?;
         mapped.collect::<std::result::Result<Vec<_>, _>>()?
     };
-    for (account, target, kind) in rows {
-        let account_ok = item_active(conn, &account)?;
-        let target_ok = item_active(conn, &target)?;
-        if !account_ok || !target_ok {
+    for (owner, account, target, kind) in rows {
+        let account_state = item_presence(conn, &account)?;
+        let target_state = item_presence(conn, &target)?;
+        if account_state == Presence::Missing || target_state == Presence::Missing {
+            delete_trashed_link(conn, &owner, &account, &target, &kind)?;
             continue;
         }
-        let same = crate::partitions::item_partition(conn, &account)? == crate::partitions::item_partition(conn, &target)?;
-        if !same {
+        // 对端还在回收站时保留快照，等它恢复后再挂接。
+        if account_state == Presence::Trashed || target_state == Presence::Trashed {
+            continue;
+        }
+        if crate::partitions::item_partition(conn, &account)? != crate::partitions::item_partition(conn, &target)? {
+            delete_trashed_link(conn, &owner, &account, &target, &kind)?;
             continue;
         }
         if kind == "mfa" || kind == "passkey" {
-            let owner: Option<String> = conn.query_row(
+            let current: Option<String> = conn.query_row(
                 "SELECT account_item_id FROM credential_links WHERE target_item_id=?1 AND kind=?2",
                 params![target, kind],
                 |row| row.get(0),
             ).optional()?;
-            if owner.is_some_and(|owner| owner != account) {
+            if current.is_some_and(|current| current != account) {
+                delete_trashed_link(conn, &owner, &account, &target, &kind)?;
                 continue;
             }
         }
@@ -495,17 +502,28 @@ pub(crate) fn restore_links(conn: &Connection, item: &str) -> Result<()> {
         if kind == "mfa" {
             sync_mfa_state(conn, &account)?;
         }
+        delete_trashed_link(conn, &owner, &account, &target, &kind)?;
     }
-    conn.execute("DELETE FROM trashed_credential_links WHERE owner_item_id=?1", [item])?;
     Ok(())
 }
 
-fn item_active(conn: &Connection, item: &str) -> Result<bool> {
-    Ok(conn.query_row(
-        "SELECT trashed=0 FROM items WHERE id=?1",
-        [item],
-        |row| row.get::<_, bool>(0),
-    ).optional()?.unwrap_or(false))
+fn delete_trashed_link(conn: &Connection, owner: &str, account: &str, target: &str, kind: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM trashed_credential_links WHERE owner_item_id=?1 AND account_item_id=?2 AND target_item_id=?3 AND kind=?4",
+        params![owner, account, target, kind],
+    )?;
+    Ok(())
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Presence { Active, Trashed, Missing }
+
+fn item_presence(conn: &Connection, item: &str) -> Result<Presence> {
+    Ok(match conn.query_row("SELECT trashed FROM items WHERE id=?1", [item], |row| row.get::<_, i64>(0)).optional()? {
+        Some(0) => Presence::Active,
+        Some(_) => Presence::Trashed,
+        None => Presence::Missing,
+    })
 }
 
 pub(crate) fn login_delete_preview(conn: &Connection, item: &str) -> Result<serde_json::Value> {

@@ -11,13 +11,13 @@ fn memory_db() -> Connection {
 fn login_with_mfa(conn: &Connection, name: &str, mfa: &str, group: Option<&str>) -> credpivot_core::LoginListRow {
     credpivot_core::insert_login_extended_in_partition(conn, partitions::PERSONAL,
         "https://example.test", name, "release-test-password", name, "", Some(mfa), group,
-        None, Some(&[mfa.to_string()]), None).unwrap()
+        None, Some(&[mfa.to_string()]), None, None).unwrap()
 }
 
 fn login_only(conn: &Connection, name: &str, group: Option<&str>) -> credpivot_core::LoginListRow {
     credpivot_core::insert_login_extended_in_partition(conn, partitions::PERSONAL,
         "https://example.test", name, "release-test-password", name, "", None, group,
-        None, None, None).unwrap()
+        None, None, None, None).unwrap()
 }
 
 fn mfa(conn: &Connection) -> String {
