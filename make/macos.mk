@@ -26,6 +26,7 @@ macos-sync-artifacts: rust-ffi rust-host rust-askpass
 	chmod +x $(MACOS_RUNNER)/credpivot-git-ssh
 	rm -rf $(MACOS_RUNNER)/credpivot-chrome-extension
 	cp -R $(CHROME_EXT_DIR) $(MACOS_RUNNER)/credpivot-chrome-extension
+	cp $(ROOT)/apps/firefox-extension/manifest.json $(MACOS_RUNNER)/credpivot-firefox-manifest.json
 	cp $(ROOT)/assets/ssh-expect-pass.exp $(MACOS_RUNNER)/ssh-expect-pass.exp
 	chmod 755 $(MACOS_RUNNER)/ssh-expect-pass.exp
 ifeq ($(INSTALL_DEV_ARTIFACTS),1)

@@ -500,6 +500,7 @@ fn trash_change(conn: &Connection, item: &str, expected: &str, purge: bool) -> R
     }
     conn.execute("DELETE FROM local_usage WHERE item_id=?1", [item])?;
     conn.execute("DELETE FROM import_mappings WHERE local_item_id=?1", [item])?;
+    conn.execute("UPDATE recovery_code_items SET mfa_item_id=NULL WHERE mfa_item_id=?1", [item])?;
     conn.execute("DELETE FROM items WHERE id=?1", [item])?;
     Ok(())
 }

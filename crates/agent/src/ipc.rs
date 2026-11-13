@@ -1080,6 +1080,7 @@ async fn handle_request_inner(
             website_rules,
             linked_mfa_ids,
             linked_ssh_key_ids,
+            linked_passkey_ids,
             partition_id,
         } => {
             let display_name = if peer.from_native_host {
@@ -1117,10 +1118,18 @@ async fn handle_request_inner(
                 linked_mfa_ids.as_deref(),
                 password_active_since_ms,
                 linked_ssh_key_ids.as_deref(),
+                linked_passkey_ids.as_deref(),
             ) {
                 Ok(c) => c,
                 Err(e) => return AgentResponse::err("vault", e.to_string()),
             };
+            if let Some(ids) = &linked_passkey_ids {
+                if let Some(db) = v.db.as_ref() {
+                    if let Ok(origins) = credpivot_core::passkey::link_origins(db.conn(), ids) {
+                        for origin in origins { crate::passkey_sites::queue_if_unset(&origin); }
+                    }
+                }
+            }
             AgentResponse::ok(json!({
                 "request_id": request_id,
                 "saved": true,
@@ -1337,6 +1346,7 @@ async fn handle_request_inner(
             website_rules,
             linked_mfa_ids,
             linked_ssh_key_ids,
+            linked_passkey_ids,
         } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
@@ -1356,8 +1366,18 @@ async fn handle_request_inner(
                 website_rules.as_deref(),
                 linked_mfa_ids.as_deref(),
                 linked_ssh_key_ids.as_deref(),
+                linked_passkey_ids.as_deref(),
             ) {
-                Ok(row) => AgentResponse::ok(json!({ "updated": true, "item": row })),
+                Ok(row) => {
+                    if let Some(ids) = &linked_passkey_ids {
+                        if let Some(db) = v.db.as_ref() {
+                            if let Ok(origins) = credpivot_core::passkey::link_origins(db.conn(), ids) {
+                                for origin in origins { crate::passkey_sites::queue_if_unset(&origin); }
+                            }
+                        }
+                    }
+                    AgentResponse::ok(json!({ "updated": true, "item": row }))
+                }
                 Err(e) => {
                     let msg = e.to_string();
                     if msg.contains("revision conflict") {

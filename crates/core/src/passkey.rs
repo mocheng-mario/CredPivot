@@ -4,7 +4,7 @@ use crate::repo::{new_revision, now_ms};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use p256::ecdsa::{signature::Signer, Signature, SigningKey};
 use rand::{rngs::OsRng, RngCore};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -369,6 +369,22 @@ fn cbor_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
         out.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
     }
     out.extend_from_slice(bytes);
+}
+
+pub fn link_origins(conn: &Connection, credential_ids: &[String]) -> Result<Vec<String>> {
+    let mut origins = Vec::new();
+    for id in credential_ids {
+        let rp_id: Option<String> = conn.query_row(
+            "SELECT rp_id FROM passkey_credentials WHERE credential_id=?1",
+            [id],
+            |row| row.get(0),
+        ).optional()?;
+        if let Some(rp_id) = rp_id {
+            let origin = if rp_id.starts_with("https://") { rp_id } else { format!("https://{rp_id}") };
+            origins.push(origin);
+        }
+    }
+    Ok(origins)
 }
 
 fn logins(conn: &Connection, passkey_item: &str) -> Result<Vec<Value>> {

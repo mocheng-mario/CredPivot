@@ -102,6 +102,8 @@ pub enum AgentRequest {
         linked_mfa_ids: Option<Vec<String>>,
         #[serde(default)]
         linked_ssh_key_ids: Option<Vec<String>>,
+        #[serde(default)]
+        linked_passkey_ids: Option<Vec<String>>,
         /// 仅浏览器新建账号时使用。App 仍走 PartitionRequest，空值表示个人分区。
         #[serde(default)]
         partition_id: String,
@@ -158,6 +160,8 @@ pub enum AgentRequest {
         linked_mfa_ids: Option<Vec<String>>,
         #[serde(default)]
         linked_ssh_key_ids: Option<Vec<String>>,
+        #[serde(default)]
+        linked_passkey_ids: Option<Vec<String>>,
     },
     CredentialTrash { item_id: String },
     VaultManage { action: credpivot_core::VaultAction },

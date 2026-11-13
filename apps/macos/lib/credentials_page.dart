@@ -10,7 +10,7 @@ import 'agent_bridge.dart';
 import 'vault_tools.dart';
 import 'google_password_import.dart';
 import 'website_rules_editor.dart';
-import 'mfa_bindings_editor.dart';
+import 'link_choice.dart';
 import 'totp_editor.dart';
 import 'app_ui.dart';
 import 'credential_confirm.dart';
@@ -68,10 +68,36 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
     final partition = existing?['partition_id']?.toString() ?? AgentBridge.activePartitionId;
     List<Map<String, dynamic>> totps = [];
     List<Map<String, dynamic>> sshKeys = [];
+    List<Map<String, dynamic>> passkeys = [];
     List<Map<String, dynamic>> groups = [];
+    final mfasOnOtherAccounts = <String>{};
+    var mfaReady = false, sshReady = false, passkeyReady = false;
     try {
       totps = await AgentBridge.listTotp(partitionId: partition);
+      final accounts = await AgentBridge.listCredentials(null, partition);
+      for (final account in accounts) {
+        if (account['id'] != existing?['id']) {
+          mfasOnOtherAccounts.addAll((account['linked_mfa_ids'] as List? ?? []).map((id) => id.toString()));
+        }
+      }
+      mfaReady = true;
+    } on AgentException catch (e) {
+      if (context.mounted) vaultMessage(context, e);
+    }
+    try {
       sshKeys = await AgentBridge.listSshKeys(partitionId: partition);
+      sshReady = true;
+    } on AgentException catch (e) {
+      if (context.mounted) vaultMessage(context, e);
+    }
+    try {
+      final listed = AgentBridge.payloadOf(await AgentBridge.request({'type': 'passkey_list'}, partitionId: partition));
+      passkeys = (listed['items'] as List? ?? []).map((row) => Map<String, dynamic>.from(row as Map)).toList();
+      passkeyReady = true;
+    } on AgentException catch (e) {
+      if (context.mounted) vaultMessage(context, e);
+    }
+    try {
       groups = await loadCredentialGroups('login', partitionId: partition);
     } on AgentException catch (e) {
       if (context.mounted) vaultMessage(context, e);
@@ -80,6 +106,7 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
     List<Map<String, dynamic>> websiteRules = [newWebsiteRule()];
     List<String> linkedMfaIds = [];
     List<String> linkedSshKeyIds = [];
+    List<String> linkedPasskeyIds = [];
     var passwordActiveSince = DateTime.now().millisecondsSinceEpoch;
     if (isEdit) {
       try {
@@ -87,6 +114,10 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
         websiteRules = (result['rules'] as List).map((row) => Map<String, dynamic>.from(row as Map)).toList();
         linkedMfaIds = (result['linked_mfa_ids'] as List? ?? []).cast<String>();
         linkedSshKeyIds = (result['linked_ssh_key_ids'] as List? ?? []).cast<String>();
+        if (passkeyReady) {
+          linkedPasskeyIds = passkeys.where((passkey) => (passkey['linked_logins'] as List? ?? [])
+              .any((login) => login is Map && login['id'] == existing['id'])).map((passkey) => passkey['credential_id'].toString()).toList();
+        }
       } on AgentException catch (e) {
         if (context.mounted) vaultMessage(context, e);
         return false;
@@ -104,7 +135,7 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
     var groupId = dropdownValueIfPresent(rawGroupId, groups);
     final rawTotp = existing?['linked_totp_id'] as String?;
     final linkedTotp = dropdownValueIfPresent(rawTotp, totps);
-    String snapshot() => jsonEncode([nameCtl.text,userCtl.text,passCtl.text,groupId,websiteRules,linkedMfaIds,linkedSshKeyIds,passwordActiveSince]);
+    String snapshot() => jsonEncode([nameCtl.text,userCtl.text,passCtl.text,groupId,websiteRules,linkedMfaIds,linkedSshKeyIds,linkedPasskeyIds,passwordActiveSince]);
     final initialSnapshot = snapshot();
     var confirmingDiscard = false;
     Future<void> cancel(BuildContext ctx) async {
@@ -164,32 +195,49 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
               if (!isEdit) PasswordActiveDateField(value: passwordActiveSince, enabled: !validating,
                 onChanged: (v) => setLocal(() => passwordActiveSince = v)),
               WebsiteRulesEditor(rules: websiteRules, enabled: !validating),
-              for (final key in sshKeys)
-                CheckboxListTile(
-                  value: linkedSshKeyIds.contains(key['id']),
-                  title: Text(key['label']?.toString() ?? 'SSH'),
-                  onChanged: validating ? null : (checked) => setLocal(() {
-                    final id = key['id'].toString();
-                    if (checked == true) {
-                      if (!linkedSshKeyIds.contains(id)) linkedSshKeyIds.add(id);
-                    } else {
-                      linkedSshKeyIds.remove(id);
-                    }
-                  }),
-                ),
-              MfaBindingsEditor(linkedIds: linkedMfaIds, mfas: totps, enabled: !validating,
-                onEdit: (mfa) async {
-                  if (validating || closing) return;
-                  setLocal(() => validating = true);
-                  try {
-                    if (await showTotpEditor(ctx, existing: mfa)) {
-                      final updated = await AgentBridge.listTotp(partitionId: partition);
-                      if (ctx.mounted) setLocal(() => totps = updated);
-                    }
-                  } finally {
-                    if (ctx.mounted && !closing) setLocal(() => validating = false);
-                  }
-                }),
+              LinkChoice(
+                title: tr('mfa.links.add'),
+                buttonLabel: tr('mfa.links.add'),
+                linkedIds: linkedMfaIds,
+                enabled: !validating && mfaReady,
+                options: [
+                  for (final mfa in totps)
+                    if (!mfasOnOtherAccounts.contains(mfa['id']?.toString()))
+                      LinkOption(
+                        mfa['id'].toString(),
+                        mfa['issuer']?.toString().isNotEmpty == true ? mfa['issuer'].toString() : tr('mfaLinks.chooseMfa.text.item2'),
+                        mfa['account']?.toString() ?? ''),
+                ],
+                onChanged: () => setLocal(() {}),
+              ),
+              if (!mfaReady) AppNotice(tr('links.loadFailed')),
+              const SizedBox(height: 16),
+              LinkChoice(
+                title: tr('credentials.ssh.title'),
+                buttonLabel: tr('ssh.links.add'),
+                linkedIds: linkedSshKeyIds,
+                enabled: !validating && sshReady,
+                options: [
+                  for (final key in sshKeys) LinkOption(key['id'].toString(), key['label']?.toString() ?? 'SSH',
+                    key['public_openssh']?.toString() ?? ''),
+                ],
+                onChanged: () => setLocal(() {}),
+              ),
+              if (!sshReady) AppNotice(tr('links.loadFailed')),
+              const SizedBox(height: 16),
+              LinkChoice(
+                title: tr('credentials.passkey.title'),
+                buttonLabel: tr('passkey.links.add'),
+                linkedIds: linkedPasskeyIds,
+                enabled: !validating && passkeyReady,
+                options: [
+                  for (final passkey in passkeys)
+                    if (!(passkey['linked_logins'] as List? ?? []).any((login) => login is Map && login['id'] != existing?['id'] && (login['id']?.toString() ?? '').isNotEmpty))
+                      LinkOption(passkey['credential_id'].toString(), passkey['rp_id']?.toString() ?? '', passkey['username']?.toString() ?? ''),
+                ],
+                onChanged: () => setLocal(() {}),
+              ),
+              if (!passkeyReady) AppNotice(tr('links.loadFailed')),
               if (formError.isNotEmpty) Text(formError, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
             ]),
           ),
@@ -213,8 +261,9 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
                     expectedRevision: existing['current_revision'] as String,
                     origin: origin,
                     websiteRules: websiteRules,
-                    linkedMfaIds: linkedMfaIds,
-                    linkedSshKeyIds: linkedSshKeyIds,
+                    linkedMfaIds: mfaReady ? linkedMfaIds : null,
+                    linkedSshKeyIds: sshReady ? linkedSshKeyIds : null,
+                    linkedPasskeyIds: passkeyReady ? linkedPasskeyIds : null,
                     username: user,
                     displayName: displayName,
                     groupId: groupId,
@@ -227,8 +276,9 @@ Future<bool> showLoginEditor(BuildContext context, {Map<String, dynamic>? existi
                     partitionId: partition,
                     origin: origin,
                     websiteRules: websiteRules,
-                    linkedMfaIds: linkedMfaIds,
-                    linkedSshKeyIds: linkedSshKeyIds,
+                    linkedMfaIds: mfaReady ? linkedMfaIds : null,
+                    linkedSshKeyIds: sshReady ? linkedSshKeyIds : null,
+                    linkedPasskeyIds: passkeyReady ? linkedPasskeyIds : null,
                     username: user,
                     password: passCtl.text,
                     passwordActiveSinceMs: passwordActiveSince,
@@ -350,6 +400,9 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
   List<Map<String, dynamic>> _items = [];
   List<Map<String, dynamic>> _groups = [];
   List<Map<String, dynamic>> _passkeys = [];
+  List<Map<String, dynamic>> _totps = [];
+  List<Map<String, dynamic>> _sshKeys = [];
+  bool _accountLinksUnavailable = false;
   Map<String, dynamic>? _passkeySites;
   bool _passkeysUnavailable = false;
   String? _filterGroupId;
@@ -386,6 +439,13 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
       final partition = AgentBridge.activePartitionId;
       final items = await AgentBridge.listCredentials(q.isEmpty ? null : q, partition);
       final groups = await loadCredentialGroups('login', partitionId: partition);
+      List<Map<String, dynamic>> totps = [];
+      List<Map<String, dynamic>> sshKeys = [];
+      var catalogsUnavailable = false;
+      try { totps = await AgentBridge.listTotp(partitionId: partition); }
+      catch (_) { catalogsUnavailable = true; }
+      try { sshKeys = await AgentBridge.listSshKeys(partitionId: partition); }
+      catch (_) { catalogsUnavailable = true; }
       List<Map<String, dynamic>> passkeys = [];
       var passkeysUnavailable = false;
       try {
@@ -397,6 +457,8 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
       final selectedId = _selected?['id'];
       _items = items;
       _groups = groups;
+      _totps = totps;
+      _sshKeys = sshKeys;
       _passkeys = passkeys;
       _passkeySites = sites;
       _passkeysUnavailable = passkeysUnavailable;
@@ -408,6 +470,7 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
           break;
         }
       }
+      _accountLinksUnavailable = catalogsUnavailable;
       _filterGroupId = dropdownValueIfPresent(_filterGroupId, _groups);
       _status = '';
     } on AgentException catch (e) {
@@ -505,6 +568,10 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
         .toList();
     final linkedPasskeys = _passkeys.where((passkey) =>
         (passkey['linked_logins'] as List? ?? []).any((login) => login['id'] == _selected?['id'])).toList();
+    final mfaIds = (_selected?['linked_mfa_ids'] as List? ?? []).map((id) => id.toString()).toSet();
+    final sshIds = (_selected?['linked_ssh_key_ids'] as List? ?? []).map((id) => id.toString()).toSet();
+    final linkedMfas = _totps.where((mfa) => mfaIds.contains(mfa['id']?.toString())).toList();
+    final linkedKeys = _sshKeys.where((key) => sshIds.contains(key['id']?.toString())).toList();
     return CredentialPanel(
       detailsOnly: widget.initialSelection != null,
       detailNotice: _status.isEmpty ? null : AppNotice(_status),
@@ -616,6 +683,12 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                     tr('common.website'): _selected!['origin']?.toString() ?? '',
                     tr('common.username'): _selected!['username']?.toString() ?? '',
                     tr('common.password'): '••••••••',
+                    'MFA / TOTP': _accountLinksUnavailable ? tr('links.loadFailed')
+                        : linkedMfas.isEmpty ? tr('common.notLinked')
+                        : linkedMfas.map((mfa) => '${mfa['issuer'] ?? ''} · ${mfa['account'] ?? ''}').join('\n'),
+                    tr('credentials.ssh.title'): _accountLinksUnavailable ? tr('links.loadFailed')
+                        : linkedKeys.isEmpty ? tr('common.notLinked')
+                        : linkedKeys.map((key) => key['label']?.toString() ?? '').join('\n'),
                     tr('credentials.passkey.title'): _passkeysUnavailable ? tr('passkey.links.loadFailed')
                         : linkedPasskeys.isEmpty ? tr('common.notLinked')
                         : linkedPasskeys.map((passkey) => '${passkey['rp_id']} · ${passkey['username']} · ${AgentBridge.passkeySiteLabel(_passkeySites, passkey['rp_id'])}').join('\n'),
@@ -645,15 +718,6 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
                                 _copyPassword(_selected!['id'] as String),
                             child: const LText('server.build.text.item11'),
                           ),
-                        ],
-                      ),
-                      CredentialActionSection(
-                        title: tr('credentials.passkey.title'),
-                        children: [
-                          OutlinedButton(onPressed: _busy ? null : () async {
-                            await editItemDetails(context, _selected!);
-                            if (mounted) await _refresh();
-                          }, child: const LText('passkey.links.manage')),
                         ],
                       ),
                       CredentialActionSection(

@@ -16,7 +16,7 @@ publish() {
   shasum -a 256 "$archive" | sed "s|  .*/|  |" > "$archive.sha256"
   printf '已生成 %s\n' "$archive" "$archive.sha256"
 }
-# 源目录清单同时带 Chrome 与 Firefox 字段，发布包按浏览器拆开，避免一边拒绝另一边的键。
+# 源目录是 Chrome 清单加共用文件。Firefox 清单单独存放，临时加载目录只复制共用文件。
 package_browser() {
   local browser="$1"
   [[ -f "$SOURCE/manifest.json" ]] || { echo "扩展清单不存在" >&2; exit 1; }
@@ -31,8 +31,9 @@ package_browser() {
   rm -f "$stage/native-messaging-host-m0.json"
   case "$browser" in
     chrome)
-      /usr/bin/plutil -remove browser_specific_settings "$stage/manifest.json"
-      /usr/bin/plutil -remove background.scripts "$stage/manifest.json"
+      if /usr/bin/plutil -extract browser_specific_settings json -o /dev/null "$stage/manifest.json" 2>/dev/null; then
+        /usr/bin/plutil -remove browser_specific_settings "$stage/manifest.json"
+      fi
       archive="$ROOT/dist/CredPivot-Chrome-$ext_version.zip"
       rm -f "$archive" "$archive.sha256"
       # 解压后目录名保持 chrome-extension，便于按原说明加载未打包扩展。
@@ -43,7 +44,6 @@ package_browser() {
       mv "$TEMP_DIR/chrome.zip" "$archive"
       ;;
     firefox)
-      /usr/bin/plutil -remove minimum_chrome_version "$stage/manifest.json"
       archive="$ROOT/dist/CredPivot-Firefox-$ext_version.xpi"
       rm -f "$archive" "$archive.sha256"
       # xpi 根目录必须是 manifest.json，Firefox 才能从文件安装。
@@ -75,7 +75,7 @@ case "$KIND" in
     [[ "$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$SOURCE/Contents/Info.plist")" == "${VERSION%%-*}" ]] || { echo "App 版本与发布版本不一致" >&2; exit 1; }
     [[ "$(/usr/bin/plutil -extract CFBundleVersion raw -o - "$SOURCE/Contents/Info.plist")" == "$BUILD_NUMBER" ]] || { echo "App 构建号不一致" >&2; exit 1; }
     # 独立发包必须携带 SSH 运行依赖，不能靠开发机 ~/.credpivot 中的旧文件兜底。
-    for item in credpivot-native-host credpivot-askpass credpivot-git-ssh ssh-expect-pass.exp credpivot-chrome-extension/manifest.json; do
+    for item in credpivot-native-host credpivot-askpass credpivot-git-ssh ssh-expect-pass.exp credpivot-chrome-extension/manifest.json credpivot-firefox-manifest.json; do
       [[ -f "$SOURCE/Contents/Resources/$item" ]] || { echo "App 缺少资源: $item" >&2; exit 1; }
     done
     [[ ! -e "$SOURCE/Contents/Resources/credpivot-cli" ]] || { echo "CLI 应独立分发" >&2; exit 1; }

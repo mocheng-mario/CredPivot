@@ -2750,7 +2750,7 @@ enum ChromeHostInstaller {
     let stored = storedExtensionId() ?? ""
     let manifestId = manifestExtensionId()
     let extensionDir = extensionDirectoryPath()
-    let firefoxId = firefoxExtensionId(directory: extensionDir) ?? ""
+    let firefoxId = firefoxExtensionId() ?? ""
     let bundledHost = resolveSourceHostBinary()
     var trustedHostConfigured = false
     var installedHostCurrent = false
@@ -2849,10 +2849,10 @@ enum ChromeHostInstaller {
     return extensionIdFromOrigin(first)
   }
 
-  /// 与用户实际加载的扩展清单保持一致，避免 Swift 里再写死一份 ID。
-  private static func firefoxExtensionId(directory: String?) -> String? {
-    guard let directory,
-          let data = try? Data(contentsOf: URL(fileURLWithPath: directory).appendingPathComponent("manifest.json")),
+  /// Firefox 的 ID 来自专用清单，不能从 Chrome 扩展目录读取。
+  private static func firefoxExtensionId() -> String? {
+    guard let manifest = Bundle.main.url(forResource: "credpivot-firefox-manifest", withExtension: "json"),
+          let data = try? Data(contentsOf: manifest),
           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let gecko = (json["browser_specific_settings"] as? [String: Any])?["gecko"] as? [String: Any],
           let id = (gecko["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -3015,7 +3015,7 @@ enum ChromeHostInstaller {
   }
 
   static func installFirefoxHost() -> [String: Any] {
-    guard let extensionId = firefoxExtensionId(directory: extensionDirectoryPath()) else {
+    guard let extensionId = firefoxExtensionId() else {
       return ["ok": false, "message": NativePresentation.tr("browser.firefox.idMissing")]
     }
     do {

@@ -29,6 +29,7 @@
 		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
 		A17C0101204400010003C045 /* credpivot-native-host in Resources */ = {isa = PBXBuildFile; fileRef = A17C0102204400010003C045 /* credpivot-native-host */; };
 		A17C0103204400010003C045 /* credpivot-chrome-extension in Resources */ = {isa = PBXBuildFile; fileRef = A17C0104204400010003C045 /* credpivot-chrome-extension */; };
+		A17C010B204400010003C045 /* credpivot-firefox-manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = A17C010C204400010003C045 /* credpivot-firefox-manifest.json */; };
 		A17C0105204400010003C045 /* credpivot-askpass in Resources */ = {isa = PBXBuildFile; fileRef = A17C0106204400010003C045 /* credpivot-askpass */; };
 		A17C0109204400010003C045 /* credpivot-git-ssh in Resources */ = {isa = PBXBuildFile; fileRef = A17C010A204400010003C045 /* credpivot-git-ssh */; };
 		A17C0107204400010003C045 /* ssh-expect-pass.exp in Resources */ = {isa = PBXBuildFile; fileRef = A17C0108204400010003C045 /* ssh-expect-pass.exp */; };
@@ -90,6 +91,7 @@
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		A17C0102204400010003C045 /* credpivot-native-host */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = "credpivot-native-host"; sourceTree = "<group>"; };
 		A17C0104204400010003C045 /* credpivot-chrome-extension */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "credpivot-chrome-extension"; sourceTree = "<group>"; };
+		A17C010C204400010003C045 /* credpivot-firefox-manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "credpivot-firefox-manifest.json"; sourceTree = "<group>"; };
 		A17C0106204400010003C045 /* credpivot-askpass */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = "credpivot-askpass"; sourceTree = "<group>"; };
 		A17C010A204400010003C045 /* credpivot-git-ssh */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = "credpivot-git-ssh"; sourceTree = "<group>"; };
 		A17C0108204400010003C045 /* ssh-expect-pass.exp */ = {isa = PBXFileReference; lastKnownFileType = text.script; path = "ssh-expect-pass.exp"; sourceTree = "<group>"; };
@@ -189,6 +191,7 @@
 				A17C010A204400010003C045 /* credpivot-git-ssh */,
 				A17C0108204400010003C045 /* ssh-expect-pass.exp */,
 				A17C0104204400010003C045 /* credpivot-chrome-extension */,
+				A17C010C204400010003C045 /* credpivot-firefox-manifest.json */,
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
 				CP10R0052044CP0050003C045 /* CredPivotRustFFI.swift */,
 				CP10R0062044CP0060003C045 /* ProcessMemory.swift */,
@@ -316,6 +319,7 @@
 			files = (
 				A17C0101204400010003C045 /* credpivot-native-host in Resources */,
 				A17C0103204400010003C045 /* credpivot-chrome-extension in Resources */,
+				A17C010B204400010003C045 /* credpivot-firefox-manifest.json in Resources */,
 				A17C0105204400010003C045 /* credpivot-askpass in Resources */,
 				A17C0109204400010003C045 /* credpivot-git-ssh in Resources */,
 				A17C0107204400010003C045 /* ssh-expect-pass.exp in Resources */,

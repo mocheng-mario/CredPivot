@@ -291,7 +291,9 @@ async function sendNative(message) {
   for (let attempt = 0; ; attempt++) {
     try {
       const response = await sendNativeOnce(request);
-      if (retryable && attempt === 0 && ["app_unreachable", "agent_unavailable", "agent_timeout", "host_outdated"].includes(response?.code)) {
+      if (response?.code === "app_unreachable") remindAppClosed();
+      else if (response?.ok) clearAppReminder();
+      if (retryable && attempt === 0 && ["agent_unavailable", "agent_timeout", "host_outdated"].includes(response?.code)) {
         if (nativePort) closeNativePort(nativePort, connectionError("正在重新连接本机 App"));
         continue;
       }
@@ -302,6 +304,17 @@ async function sendNative(message) {
       if (!retryable || attempt > 0 || !error.nativeConnection) throw error;
     }
   }
+}
+
+function remindAppClosed() {
+  chrome.action.setBadgeBackgroundColor({color: "#B45309"}).catch(() => {});
+  chrome.action.setBadgeText({text: "!"}).catch(() => {});
+  chrome.action.setTitle({title: "请先打开 CredPivot"}).catch(() => {});
+}
+
+function clearAppReminder() {
+  chrome.action.setBadgeText({text: ""}).catch(() => {});
+  chrome.action.setTitle({title: "CredPivot"}).catch(() => {});
 }
 
 let publishingPasskeySites = false;

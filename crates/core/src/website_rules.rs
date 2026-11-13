@@ -264,12 +264,14 @@ pub fn browser_mfa_candidates(conn: &Connection, origin: &str, credential_id: Op
         if scope.is_some_and(|partition| crate::partitions::item_partition(conn, &row.item_id).ok().as_deref() != Some(partition)) {
             continue;
         }
+        let configured = !row.website_rules.is_empty();
         let rules: Vec<_> = row.website_rules.iter().filter(|rule| match_rank(rule).is_some()).collect();
         let matched = rules.iter().any(|rule| rule_matches(rule, &page).unwrap_or(false));
+        // never 等不可匹配模式仍算已设置 origin，不能把过滤后的空列表当成未设置。
         let include = if account.is_some() {
-            linked.contains(&row.id) && (rules.is_empty() || matched)
+            linked.contains(&row.id) && (!configured || matched)
         } else {
-            !linked_to_any_account(conn, &row.item_id)? && !rules.is_empty() && matched
+            !linked_to_any_account(conn, &row.item_id)? && configured && matched
         };
         if include {
             result.push(json!({"id":row.id,"issuer":row.issuer,"account":row.account,"linked":linked.contains(&row.id)}));

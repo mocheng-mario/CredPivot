@@ -586,6 +586,7 @@ class AgentBridge {
     List<Map<String, dynamic>>? websiteRules,
     List<String>? linkedMfaIds,
     List<String>? linkedSshKeyIds,
+    List<String>? linkedPasskeyIds,
     int? passwordActiveSinceMs,
   }) async {
     final resp = await request({
@@ -602,6 +603,7 @@ class AgentBridge {
       if (websiteRules != null) 'website_rules': websiteRules,
       if (linkedMfaIds != null) 'linked_mfa_ids': linkedMfaIds,
       if (linkedSshKeyIds != null) 'linked_ssh_key_ids': linkedSshKeyIds,
+      if (linkedPasskeyIds != null) 'linked_passkey_ids': linkedPasskeyIds,
     }, partitionId: partitionId);
     return Map<String, dynamic>.from(payloadOf(resp)['credential'] as Map? ?? {});
   }
@@ -619,6 +621,7 @@ class AgentBridge {
     List<Map<String, dynamic>>? websiteRules,
     List<String>? linkedMfaIds,
     List<String>? linkedSshKeyIds,
+    List<String>? linkedPasskeyIds,
   }) async {
     final resp = await request({
       'type': 'credential_update',
@@ -634,6 +637,7 @@ class AgentBridge {
       if (websiteRules != null) 'website_rules': websiteRules,
       if (linkedMfaIds != null) 'linked_mfa_ids': linkedMfaIds,
       if (linkedSshKeyIds != null) 'linked_ssh_key_ids': linkedSshKeyIds,
+      if (linkedPasskeyIds != null) 'linked_passkey_ids': linkedPasskeyIds,
     });
     return Map<String, dynamic>.from(payloadOf(resp)['item'] as Map? ?? {});
   }

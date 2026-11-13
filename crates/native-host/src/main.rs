@@ -1,11 +1,11 @@
 mod chrome_parent;
+#[cfg(test)]
 mod launch_app;
 
 use chrome_parent::verify_chrome_parent;
 use credpivot_agent::{
     agent_socket_path, call_agent, diagnostics, AgentRequest, AgentResponse, PROTOCOL_VERSION,
 };
-use launch_app::{launch_credpivot_app, wait_for_agent_socket};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 
@@ -94,17 +94,7 @@ async fn forward_to_agent(envelope: Value) -> Result<Value, Box<dyn std::error::
     let socket = agent_socket_path();
     // 文件存在也可能是崩溃遗留的 socket；以实际可连接性判断。
     if !matches!(tokio::time::timeout(std::time::Duration::from_secs(1), tokio::net::UnixStream::connect(&socket)).await, Ok(Ok(_))) {
-        if !launch_credpivot_app() {
-            return Ok(error_envelope("app_unreachable", "请从目标版本 App 更新 Native Host 后重试", request_id));
-        }
-        let ok = wait_for_agent_socket(&socket, 8_000).await;
-        if !ok {
-            return Ok(error_envelope(
-                "app_unreachable",
-                "CredPivot App is not running",
-                request_id,
-            ));
-        }
+        return Ok(error_envelope("app_unreachable", "请先打开 CredPivot", request_id));
     }
 
     // 待确认会话由 Agent 写入，App 的协调器负责唤起身份验证。
@@ -229,6 +219,7 @@ fn map_extension_to_agent(
             website_rules: None,
             linked_mfa_ids: None,
             linked_ssh_key_ids: None,
+            linked_passkey_ids: None,
         }),
         "partitions.list" => Ok(AgentRequest::BrowserPartitions),
         "credential.suggest_for_origin" => Ok(AgentRequest::CredentialSuggest {

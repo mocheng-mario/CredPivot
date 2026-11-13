@@ -267,7 +267,7 @@ dependencies = [
 
 [[package]]
 name = "credpivot-agent"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.5"
 dependencies = [
  "base64",
  "chrono",
@@ -289,7 +289,7 @@ dependencies = [
 
 [[package]]
 name = "credpivot-core"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.5"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -322,7 +322,7 @@ dependencies = [
 
 [[package]]
 name = "credpivot-ffi-android"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.5"
 dependencies = [
  "credpivot-agent",
  "rusqlite",

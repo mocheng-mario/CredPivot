@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "CredPivot",
+  "version": "0.9.16",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "credpivot@credpivot.app",
+      "strict_min_version": "128.0"
+    }
+  },
+  "description": "Connects to CredPivot Mac App with fingerprint or in-app master password verification.",
+  "permissions": ["nativeMessaging", "storage", "scripting", "tabs", "contextMenus", "alarms"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "scripts": ["background.js"],
+    "type": "module"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "CredPivot",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    }
+  },
+  "web_accessible_resources": [
+    {"resources": ["inline.html"], "matches": ["https://*/*", "http://*/*"]}
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://*/*"],
+      "js": ["passkey_bridge.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

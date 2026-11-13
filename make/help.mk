@@ -31,6 +31,7 @@ help:
 	@echo "Browser:"
 	@echo "  make chrome-info         扩展路径与加载说明"
 	@echo "  make chrome-pack         打包 Chrome 扩展为 dist/CredPivot-Chrome-<版本>.zip"
+	@echo "  make firefox-unpacked   生成 Firefox 临时加载目录 dist/firefox-unpacked"
 	@echo "  make firefox-pack        打包 Firefox 扩展为 dist/CredPivot-Firefox-<版本>.xpi"
 	@echo "  make chrome-host-manifest 写入 Native Messaging Host 清单"
 	@echo ""

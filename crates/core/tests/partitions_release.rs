@@ -11,13 +11,13 @@ fn memory_db() -> Connection {
 fn login_with_mfa(conn: &Connection, name: &str, mfa: &str, group: Option<&str>) -> credpivot_core::LoginListRow {
     credpivot_core::insert_login_extended_in_partition(conn, partitions::PERSONAL,
         "https://example.test", name, "release-test-password", name, "", Some(mfa), group,
-        None, Some(&[mfa.to_string()]), None, None).unwrap()
+        None, Some(&[mfa.to_string()]), None, None, None).unwrap()
 }
 
 fn login_only(conn: &Connection, name: &str, group: Option<&str>) -> credpivot_core::LoginListRow {
     credpivot_core::insert_login_extended_in_partition(conn, partitions::PERSONAL,
         "https://example.test", name, "release-test-password", name, "", None, group,
-        None, None, None, None).unwrap()
+        None, None, None, None, None).unwrap()
 }
 
 fn mfa(conn: &Connection) -> String {
@@ -57,7 +57,7 @@ fn cross_partition_writes_and_stale_preview_are_rejected() {
     // 从创建入口拒绝跨分区关联，并确认事务没有留下半条记录。
     assert!(credpivot_core::insert_login_extended_in_partition(&conn, partitions::WORK,
         "https://example.test", "invalid", "password", "invalid", "", Some(&otp),
-        None, None, None, None).is_err());
+        None, None, None, None, None, None).is_err());
     assert_eq!(conn.query_row("SELECT count(*) FROM items", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
     let group = credpivot_core::create_credential_group_in_partition(&conn, partitions::WORK, "login", "Work").unwrap();
     assert!(credpivot_core::set_item_group(&conn, &login.item_id, Some(&group.id)).is_err());

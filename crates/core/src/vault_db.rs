@@ -115,7 +115,7 @@ impl VaultDatabase {
         new_password: Option<&str>,
         website_rules: Option<&[crate::UriRule]>,
     ) -> Result<LoginListRow> {
-        self.update_login_with_mfa(credential_id,expected_revision,origin,username,display_name,connection_host,linked_totp_id,group_id,new_password,website_rules,None,None)
+        self.update_login_with_mfa(credential_id,expected_revision,origin,username,display_name,connection_host,linked_totp_id,group_id,new_password,website_rules,None,None,None)
     }
 
     pub fn update_login_with_mfa(
@@ -132,6 +132,7 @@ impl VaultDatabase {
         website_rules: Option<&[crate::UriRule]>,
         linked_mfa_ids: Option<&[String]>,
         linked_ssh_key_ids: Option<&[String]>,
+        linked_passkey_ids: Option<&[String]>,
     ) -> Result<LoginListRow> {
         let row = crate::repo_m2::update_login_with_mfa(
             &self.conn,
@@ -147,6 +148,7 @@ impl VaultDatabase {
             website_rules,
             linked_mfa_ids,
             linked_ssh_key_ids,
+            linked_passkey_ids,
         )?;
         mark_restore_dirty(&self.conn)?;
         Ok(row)

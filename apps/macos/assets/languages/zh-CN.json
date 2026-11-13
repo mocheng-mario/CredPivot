@@ -5748,6 +5748,62 @@
         "passkeys_page.dart"
       ]
     },
+    "passkey.links.add": {
+      "source": "关联通行密钥",
+      "translation": "关联通行密钥",
+      "description": "账户关联通行密钥",
+      "placeholders": {},
+      "locations": ["credentials_page.dart", "link_choice.dart"]
+    },
+    "ssh.links.add": {
+      "source": "关联 SSH 密钥",
+      "translation": "关联 SSH 密钥",
+      "description": "账户关联 SSH 密钥",
+      "placeholders": {},
+      "locations": ["credentials_page.dart", "link_choice.dart"]
+    },
+    "links.choose": {
+      "source": "选择要关联的记录",
+      "translation": "选择要关联的记录",
+      "description": "关联下拉框",
+      "placeholders": {},
+      "locations": ["link_choice.dart", "mfa_bindings_editor.dart"]
+    },
+    "links.choose.empty": {
+      "source": "没有可关联的记录",
+      "translation": "没有可关联的记录",
+      "description": "关联下拉框为空",
+      "placeholders": {},
+      "locations": ["link_choice.dart", "mfa_bindings_editor.dart"]
+    },
+    "links.search": {
+      "source": "搜索名称、账号、站点或公钥",
+      "translation": "搜索名称、账号、站点或公钥",
+      "description": "关联选择窗口的搜索提示",
+      "placeholders": {},
+      "locations": ["link_choice.dart"]
+    },
+    "links.selectedCount": {
+      "source": "已选择 {count} 项",
+      "translation": "已选择 {count} 项",
+      "description": "关联选择窗口的已选数量",
+      "placeholders": {"count": "已选择的记录数量"},
+      "locations": ["link_choice.dart"]
+    },
+    "links.noMatches": {
+      "source": "没有匹配的记录",
+      "translation": "没有匹配的记录",
+      "description": "关联搜索没有结果",
+      "placeholders": {},
+      "locations": ["link_choice.dart"]
+    },
+    "links.loadFailed": {
+      "source": "关联信息加载失败，原有关联保持不变",
+      "translation": "关联信息加载失败，原有关联保持不变",
+      "description": "读取关联失败时保留原数据",
+      "placeholders": {},
+      "locations": ["credentials_page.dart"]
+    },
     "passkey.links.manage": {
       "source": "管理通行密钥",
       "translation": "管理通行密钥",

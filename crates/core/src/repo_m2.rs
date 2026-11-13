@@ -161,7 +161,7 @@ pub fn insert_login_extended(
     linked_mfa_ids: Option<&[String]>,
     password_active_since_ms: Option<i64>,
 ) -> Result<LoginListRow> {
-    insert_login_extended_in_partition(conn, crate::partitions::PERSONAL, origin, username, password, display_name, connection_host, linked_totp_id, group_id, website_rules, linked_mfa_ids, password_active_since_ms, None)
+    insert_login_extended_in_partition(conn, crate::partitions::PERSONAL, origin, username, password, display_name, connection_host, linked_totp_id, group_id, website_rules, linked_mfa_ids, password_active_since_ms, None, None)
 }
 
 pub fn insert_login_extended_in_partition(
@@ -178,6 +178,7 @@ pub fn insert_login_extended_in_partition(
     linked_mfa_ids: Option<&[String]>,
     password_active_since_ms: Option<i64>,
     linked_ssh_key_ids: Option<&[String]>,
+    linked_passkey_ids: Option<&[String]>,
 ) -> Result<LoginListRow> {
     crate::partitions::require(conn, partition_id)?;
     let item_id = Uuid::new_v4().to_string();
@@ -224,6 +225,9 @@ pub fn insert_login_extended_in_partition(
     if let Some(ids) = linked_ssh_key_ids {
         crate::associations::replace_ssh_keys(&tx, &item_id, ids)?;
     }
+    if let Some(ids) = linked_passkey_ids {
+        crate::associations::replace_passkeys(&tx, &item_id, ids)?;
+    }
 
     let row = get_login_row(&tx, &cred_id)?;
     crate::mark_restore_dirty(&tx)?;
@@ -245,7 +249,7 @@ pub fn update_login_credential(
     new_password: Option<&str>,
     website_rules: Option<&[crate::UriRule]>,
 ) -> Result<LoginListRow> {
-    update_login_with_mfa(conn, credential_id, expected_revision, origin, username, display_name, connection_host, linked_totp_id, group_id, new_password, website_rules, None, None)
+    update_login_with_mfa(conn, credential_id, expected_revision, origin, username, display_name, connection_host, linked_totp_id, group_id, new_password, website_rules, None, None, None)
 }
 
 pub(crate) fn update_login_with_mfa(
@@ -262,6 +266,7 @@ pub(crate) fn update_login_with_mfa(
     website_rules: Option<&[crate::UriRule]>,
     linked_mfa_ids: Option<&[String]>,
     linked_ssh_key_ids: Option<&[String]>,
+    linked_passkey_ids: Option<&[String]>,
 ) -> Result<LoginListRow> {
     let tx = conn
         .unchecked_transaction()
@@ -306,6 +311,9 @@ pub(crate) fn update_login_with_mfa(
     crate::associations::note_username_cleared(&tx, credential_id, &old_username, username)?;
     if let Some(ids) = linked_ssh_key_ids {
         crate::associations::replace_ssh_keys(&tx, &item_id, ids)?;
+    }
+    if let Some(ids) = linked_passkey_ids {
+        crate::associations::replace_passkeys(&tx, &item_id, ids)?;
     }
 
     let row = get_login_row(&tx, credential_id)?;

@@ -247,6 +247,50 @@ pub(crate) fn replace_ssh_keys(conn: &Connection, account_item: &str, key_ids: &
     Ok(())
 }
 
+pub(crate) fn replace_passkeys(conn: &Connection, account_item: &str, credential_ids: &[String]) -> Result<()> {
+    require_table(conn)?;
+    if credential_ids.len() > 100 {
+        return Err(CoreError::limit("通行密钥关联过多"));
+    }
+    let account_partition = crate::partitions::item_partition(conn, account_item)?;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut targets = Vec::new();
+    for id in credential_ids {
+        if id.is_empty() || !seen.insert(id.clone()) {
+            return Err(CoreError::format("通行密钥关联重复或无效"));
+        }
+        let (item, partition, trashed): (String, String, i64) = conn
+            .query_row(
+                "SELECT p.item_id, i.partition_id, i.trashed FROM passkey_credentials p JOIN items i ON i.id=p.item_id WHERE p.credential_id=?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?
+            .ok_or_else(|| CoreError::format("关联的通行密钥已不存在"))?;
+        if trashed != 0 || partition != account_partition {
+            return Err(CoreError::format("关联的通行密钥必须位于同一分区"));
+        }
+        let owner: Option<String> = conn.query_row(
+            "SELECT account_item_id FROM credential_links WHERE target_item_id=?1 AND kind='passkey'",
+            [&item],
+            |row| row.get(0),
+        ).optional()?;
+        if owner.is_some_and(|owner| owner != account_item) {
+            return Err(CoreError::format("这条通行密钥已经关联其他账户，请先更换关联账户"));
+        }
+        targets.push(item);
+    }
+    conn.execute("DELETE FROM credential_links WHERE account_item_id=?1 AND kind='passkey'", [account_item])?;
+    let now = crate::repo::now_ms();
+    for item in &targets {
+        conn.execute(
+            "INSERT INTO credential_links (account_item_id, target_item_id, kind, created_at_ms) VALUES (?1, ?2, 'passkey', ?3)",
+            params![account_item, item, now],
+        )?;
+    }
+    Ok(())
+}
+
 fn disable_associated_selection(conn: &Connection, login_id: &str, column: &str, target_id: &str, reason: &str) -> Result<()> {
     if !matches!(column, "linked_totp_id" | "linked_ssh_key_id") {
         return Err(CoreError::format("连接引用无效"));

@@ -46,6 +46,7 @@ function showError(result) {
     host_outdated: "本机组件已更新，请重新连接；保存、更新等操作不会自动重复。",
     agent_timeout: "App 响应超时，请检查 App 后重试；刚才的写入操作不会自动重复。",
     agent_unavailable: "App 连接已中断，请点击「连接与验证」重试。",
+    app_unreachable: "CredPivot 没有打开。请先启动 Mac App，再点击「连接与验证」。",
     peer_denied: "本机连接尚未授权，请在 App 的浏览器设置中检查 Native Host 配置。",
     no_login_fields: "当前页面未找到账号或密码输入框，请进入登录页面后重试。",
     no_otp_field: "当前页面未找到验证码输入框，请进入 MFA 验证页面后重试。",
@@ -54,7 +55,8 @@ function showError(result) {
     "partitions.errors.notFound": "所选分区不存在，请重新读取表单后再保存。",
   };
   const gated = result?.needs_gate || ['extension_gate_required','extension_gate_cancelled','extension_gate_not_started','extension_gate_paused','locked'].includes(code);
-  if (gated || result?.lastNativeError) {
+  const disconnected = ['app_unreachable','agent_unavailable'].includes(code);
+  if (gated || disconnected || result?.lastNativeError) {
     ready = false;
     candidates = [];
     selectedId = "";
@@ -62,7 +64,7 @@ function showError(result) {
     renderMfas();
     clearCapturedForm();
     renderAccounts();
-    $("connectionState").textContent = gated ? "需要验证" : "连接中断";
+    $("connectionState").textContent = code === 'app_unreachable' ? "App 未运行" : gated ? "需要验证" : "连接中断";
     $("connectionState").dataset.state = "warning";
     $("connect").textContent = "连接与验证";
   }

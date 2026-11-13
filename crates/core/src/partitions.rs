@@ -248,13 +248,30 @@ pub fn preview_with_group(conn: &Connection, selected: &[String], target: &str, 
         COALESCE((SELECT username FROM login_credentials WHERE item_id=i.id),(SELECT account FROM totp_credentials WHERE item_id=i.id),'') AS account
         FROM items i JOIN partitions p ON p.id=i.partition_id LEFT JOIN credential_groups g ON g.id=i.group_id ORDER BY i.id",[])?;
     let relations = edges(conn)?;
+    let recovery_edges = if conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('recovery_code_items') WHERE name='mfa_item_id'",
+        [], |row| row.get::<_, i64>(0))? == 0 { Vec::new() } else {
+        rows(conn, "SELECT item_id, mfa_item_id FROM recovery_code_items WHERE mfa_item_id IS NOT NULL AND mfa_item_id<>''", [])?
+            .into_iter().filter_map(|row| Some((row["item_id"].as_str()?.to_string(), row["mfa_item_id"].as_str()?.to_string()))).collect::<Vec<_>>()
+    };
     let mut adjacency: BTreeMap<String,BTreeSet<String>> = BTreeMap::new();
     for (a,b) in &relations { adjacency.entry(a.clone()).or_default().insert(b.clone()); adjacency.entry(b.clone()).or_default().insert(a.clone()); }
     let known: BTreeSet<_> = items.iter().filter_map(|r|r["id"].as_str()).collect();
     if selected.iter().any(|id|!known.contains(id.as_str())) { return Err(error("notFound")); }
     let selected_set: BTreeSet<_> = selected.iter().cloned().collect();
-    let moved: Vec<_> = items.iter().filter(|r| selected_set.contains(r["id"].as_str().unwrap_or("")) && r["partition_id"]!=target).cloned().collect();
-    let moved_ids: BTreeSet<String> = moved.iter().filter_map(|r| r["id"].as_str().map(str::to_string)).collect();
+    let mut moved_ids: BTreeSet<String> = items.iter().filter(|r| selected_set.contains(r["id"].as_str().unwrap_or("")) && r["partition_id"]!=target)
+        .filter_map(|r| r["id"].as_str().map(str::to_string)).collect();
+    // 恢复码跟着 MFA 走。只勾 MFA 时也要带走，否则提交前的同分区校验会回滚。
+    loop {
+        let extra: Vec<String> = recovery_edges.iter().flat_map(|(recovery, mfa)| {
+            if moved_ids.contains(mfa) && !moved_ids.contains(recovery) { vec![recovery.clone()] }
+            else if moved_ids.contains(recovery) && !moved_ids.contains(mfa) { vec![mfa.clone()] }
+            else { Vec::new() }
+        }).filter(|id| items.iter().any(|row| row["id"].as_str()==Some(id) && row["partition_id"]!=target)).collect();
+        if extra.is_empty() { break; }
+        moved_ids.extend(extra);
+    }
+    let moved: Vec<_> = items.iter().filter(|r| moved_ids.contains(r["id"].as_str().unwrap_or(""))).cloned().collect();
     let mut dependency_ids = BTreeSet::new();
     for id in &moved_ids {
         if let Some(links) = adjacency.get(id) {
