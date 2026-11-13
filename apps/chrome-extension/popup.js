@@ -14,6 +14,7 @@ let hasMoreMfas = false;
 let allMfaMatches = false;
 let selectionSource = "";
 let captured = null;
+let saveMode = "new";
 let ready = false;
 let busy = false;
 let stopWaiting = false;
@@ -38,6 +39,10 @@ function setStatus(message, state = "idle") {
   $("errorDetails").hidden = true;
   $("errorDetails").open = false;
   $("errorDetail").textContent = "";
+  if (!$("savePage").hidden && state === "error") {
+    $("retryCapture").hidden = false;
+    $("status").scrollIntoView({block: "nearest"});
+  }
 }
 
 function showError(result) {
@@ -69,6 +74,7 @@ function showError(result) {
     mfaCandidates = []; selectedTotpId = ""; hasMoreMfas = false; allMfaMatches = false; mfaGeneration++;
     renderMfas();
     clearCapturedForm();
+    setSavePage(false);
     renderAccounts();
     $("connectionState").textContent = code === 'app_unreachable' ? "App 未运行" : gated ? "需要验证" : "连接中断";
     $("connectionState").dataset.state = "warning";
@@ -85,7 +91,7 @@ function showError(result) {
 function updateControls() {
   const row = selectedAccount();
   accountEl.title = row?.username || "选择登录账号";
-  $("connect").disabled = busy;
+  $("connect").disabled = busy || !$("savePage").hidden;
   accountEl.disabled = busy || !ready || !candidates.length;
   $("accountSearch").disabled = busy || !ready;
   $("fillLogin").disabled = busy || !ready || !row || row.password_fill_allowed === false;
@@ -99,16 +105,27 @@ function updateControls() {
   $("otherMfas").hidden = !ready || !hasMoreMfas || allMfaMatches;
   $("capture").disabled = busy || !ready || !targetOrigin;
   const partitionReady = Boolean($("savePartition").value);
+  const updating = saveMode === "update";
+  const updateAccount = passwordAccounts().find((item) => item.id === $("saveAccount").value);
   $("saveUsername").disabled = busy || !captured;
+  $("saveUsername").placeholder = updating ? "留空时保留所选账号的用户名" : "";
   $("saveDisplayName").disabled = busy || !captured;
   $("savePartition").disabled = busy || !captured || !$("savePartition").options.length;
-  $("saveNew").disabled = busy || !ready || !captured || !partitionReady;
-  $("update").disabled = busy || !ready || !row || row.password_fill_allowed === false || !captured;
-  if (captured) {
-    $("saveTarget").textContent = row && row.password_fill_allowed !== false
-      ? `更新将写入「${row.partition_name || "当前分区"}」的 ${row.display_name || row.username || "所选账号"}，不修改名称和分区。`
-      : "未选择已有账号，只能保存为新账号。";
-  }
+  $("saveAccount").disabled = busy || !captured || !passwordAccounts().length;
+  $("saveSubmit").disabled = busy || !ready || !captured || (updating ? !updateAccount : !partitionReady);
+  $("saveSubmit").textContent = updating ? "更新账号" : "保存账号";
+  $("saveMode").disabled = busy || !captured || !passwordAccounts().length;
+  $("saveMode").textContent = updating ? "改为保存新账号" : "更新已有账号…";
+  $("saveTitle").textContent = !$("saveResult").hidden ? "保存结果" : updating ? "更新账号" : "保存账号";
+  $("saveNewFields").hidden = updating;
+  $("saveAccountField").hidden = !updating;
+  $("saveTarget").hidden = !updating;
+  $("saveTarget").textContent = updateAccount
+    ? `将更新「${updateAccount.partition_name || "当前分区"}」中此账号的用户名和密码，名称和分区保持不变。请先确认新密码已在网站生效。`
+    : "请选择要更新的账号，并确认新密码已在网站生效。";
+  $("saveBack").disabled = busy;
+  $("saveDone").disabled = busy;
+  $("retryCapture").disabled = busy || !ready;
   $("fillLoginHint").textContent = row?.password_fill_allowed === false ? "此账号仅用于选择 MFA" : row ? `使用 ${row.username || "无用户名账号"}` : "先选择登录账号";
   const mfa = mfaCandidates.find((m) => m.id === selectedTotpId);
   $("fillOtpHint").textContent = mfa ? `${mfa.issuer || "MFA"} · ${mfa.account || "无账号标签"}` : "选择当前网站的 MFA";
@@ -126,19 +143,36 @@ function setBusy(value) {
   updateControls();
 }
 
+function setSavePage(open) {
+  $("homeView").hidden = open;
+  $("savePage").hidden = !open;
+  $("popupFooter").hidden = open;
+  (open ? $("saveFeedback") : $("homeFeedback")).append($("feedback"));
+  window.scrollTo(0, 0);
+  if (open) $("saveTitle").focus();
+  updateControls();
+}
+
 function clearCapturedForm() {
   if (captured) {
     captured.password = "";
     captured.username = "";
   }
   captured = null;
+  saveMode = "new";
   $("saveForm").hidden = true;
+  $("saveResult").hidden = true;
+  $("retryCapture").hidden = true;
   $("captureInfo").textContent = "";
   $("saveOrigin").textContent = "";
   $("saveUsername").value = "";
   $("saveDisplayName").value = "";
   $("savePartition").replaceChildren();
+  $("saveAccount").replaceChildren();
   $("saveTarget").textContent = "";
+  $("savedOrigin").textContent = "";
+  $("savedUsername").textContent = "";
+  $("savedPartition").textContent = "";
   updateControls();
 }
 
@@ -147,7 +181,7 @@ function showCapturedForm(value, partitions) {
   try { host = new URL(value.origin).host; } catch { /* 保留 origin。 */ }
   $("saveOrigin").textContent = value.origin;
   $("saveOrigin").title = value.origin;
-  $("captureInfo").textContent = "密码已读取，不在面板中显示";
+  $("captureInfo").textContent = "✓ 已读取网页中的密码，不在面板中显示";
   $("saveUsername").value = value.username || "";
   $("saveDisplayName").value = host;
   const select = $("savePartition");
@@ -161,6 +195,20 @@ function showCapturedForm(value, partitions) {
   }
   const preferred = partitions?.default_partition_id;
   if ([...select.options].some((option) => option.value === preferred)) select.value = preferred;
+  const accounts = $("saveAccount");
+  accounts.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "请选择要更新的账号";
+  placeholder.disabled = true;
+  accounts.append(placeholder);
+  for (const row of passwordAccounts()) {
+    const option = document.createElement("option");
+    option.value = row.id;
+    option.textContent = `${row.partition_name ? `[${row.partition_name}] ` : ""}${row.display_name ? `${row.display_name} · ` : ""}${row.username || "（无用户名）"}`;
+    accounts.append(option);
+  }
+  accounts.value = "";
   $("saveForm").hidden = false;
   updateControls();
 }
@@ -270,6 +318,7 @@ async function handshake(verify = false) {
   candidates = [];
   mfaCandidates = []; selectedTotpId = ""; hasMoreMfas = false; allMfaMatches = false; mfaGeneration++; renderMfas();
   clearCapturedForm();
+  setSavePage(false);
   renderAccounts();
   setBusy(true);
   $("connectionState").textContent = "连接中…";
@@ -414,9 +463,11 @@ $("stopWaiting").addEventListener("click", () => {
   setStatus("正在停止等待…", "pending");
 });
 
-$("capture").addEventListener("click", async () => {
+async function captureCurrentPage() {
   if (busy || !ready) return;
   clearCapturedForm();
+  setSavePage(true);
+  $("retryCapture").hidden = false;
   setBusy(true);
   setStatus("正在读取当前登录表单…", "pending");
   try {
@@ -432,14 +483,16 @@ $("capture").addEventListener("click", async () => {
       return;
     }
     showCapturedForm(value, listed?.ok ? listed.payload : null);
-    setStatus(listed?.ok ? "表单已读取。填写名称和分区后可保存为新账号，或更新当前所选账号。" : (listed?.message || "表单已读取，但分区列表加载失败，暂时不能保存为新账号。"), listed?.ok ? "idle" : "warning");
+    $("retryCapture").hidden = Boolean(listed?.ok);
+    setStatus(listed?.ok ? "表单已读取，请确认以下信息后保存。" : (listed?.message || "表单已读取，但分区列表加载失败，请重新读取网页后保存，或选择更新已有账号。"), listed?.ok ? "idle" : "warning");
   } catch (e) { showError({ error: e.message }); }
   finally { setBusy(false); }
-});
+}
 
-async function saveCaptured(update) {
+async function saveCaptured() {
   if (busy || !ready || !captured) return;
-  const account = passwordAccounts().find((row) => row.id === selectedId);
+  const update = saveMode === "update";
+  const account = passwordAccounts().find((row) => row.id === $("saveAccount").value);
   if (update && !account) return;
   const value = captured;
   const typedName = $("saveUsername").value.trim();
@@ -460,15 +513,59 @@ async function saveCaptured(update) {
     if (!response?.ok) { showError(response); return; }
     const saved = response.payload?.credential;
     const ignored = !update && (saved?.partition_id !== partitionId || (saved?.display_name ?? "") !== displayName);
-    if (await refreshAccounts()) {
-      setStatus(ignored ? "账号已保存，但当前本机组件没有按所选分区或名称写入。请更新 App 中的 Native Host 后重新连接。" : update ? "所选账号已更新。" : "新账号已保存。", ignored ? "warning" : "success");
-    }
+    const origin = value.origin;
+    const savedUsername = saved?.username ?? username;
+    const partitionName = update ? account.partition_name || "当前分区"
+      : [...$("savePartition").options].find((option) => option.value === saved?.partition_id)?.textContent || "请在 App 中确认";
+    // 写入成功后先清除密码并展示结果，返回主页时再刷新账号列表。
+    clearCapturedForm();
+    $("savedOrigin").textContent = origin;
+    $("savedUsername").textContent = savedUsername || "（无用户名）";
+    $("savedPartition").textContent = partitionName;
+    $("saveResultTitle").textContent = update ? "账号已更新" : "账号已保存";
+    $("saveResult").hidden = false;
+    setStatus(ignored ? "账号已保存，但当前本机组件没有按所选分区或名称写入。请更新 App 中的 Native Host 后重新连接。" : "可在插件或 App 中使用此账号。", ignored ? "warning" : "success");
+    window.scrollTo(0, 0);
+    $("saveResultTitle").focus();
   } catch (e) { showError({ error: e.message }); }
-  finally { clearCapturedForm(); setBusy(false); }
+  finally { setBusy(false); }
 }
 
-$("saveNew").addEventListener("click", () => saveCaptured(false));
-$("update").addEventListener("click", () => saveCaptured(true));
+async function leaveSavePage() {
+  if (busy) return;
+  const saved = !$("saveResult").hidden;
+  clearCapturedForm();
+  setSavePage(false);
+  if (!saved) {
+    setStatus("已取消保存。");
+    $("capture").focus();
+    return;
+  }
+  setBusy(true);
+  setStatus("正在刷新账号列表…", "pending");
+  try {
+    if (await refreshAccounts()) setStatus("账号列表已刷新。", "success");
+  } catch (error) { showError({error: error.message}); }
+  finally { setBusy(false); $("capture").focus(); }
+}
+
+$("capture").addEventListener("click", captureCurrentPage);
+$("retryCapture").addEventListener("click", captureCurrentPage);
+$("saveForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  void saveCaptured();
+});
+$("saveMode").addEventListener("click", () => {
+  if (busy || !captured) return;
+  saveMode = saveMode === "update" ? "new" : "update";
+  updateControls();
+  setStatus(saveMode === "update" ? "请选择要更新的账号，再确认用户名和密码。" : "请确认名称和分区后保存为新账号。");
+  (saveMode === "update" ? $("saveAccount") : $("saveUsername")).focus();
+});
+$("saveAccount").addEventListener("change", updateControls);
+$("savePartition").addEventListener("change", updateControls);
+$("saveBack").addEventListener("click", leaveSavePage);
+$("saveDone").addEventListener("click", leaveSavePage);
 
 async function refreshPasskeyState() {
   if (!targetOrigin?.startsWith("https://")) {
@@ -551,7 +648,7 @@ $("cancelMfa").addEventListener("click", async () => {
 });
 document.addEventListener("paste", (event) => {
   const image = [...(event.clipboardData?.items || [])].find((item) => item.kind === "file" && item.type.startsWith("image/"));
-  if (image && ready && !busy) { event.preventDefault(); void addMfaFile(image.getAsFile()); }
+  if (image && ready && !busy && $("savePage").hidden) { event.preventDefault(); void addMfaFile(image.getAsFile()); }
 });
 
 $("passkeyToggle").addEventListener("click", async () => {

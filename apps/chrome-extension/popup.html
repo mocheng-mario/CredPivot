@@ -17,7 +17,7 @@
         <button id="connect" class="text-button" disabled>连接与验证</button>
       </div>
     </header>
-    <main>
+    <main id="homeView">
       <section class="display-panel" aria-label="当前网站">
         <div class="section-heading"><h2 id="accountTitle">当前网站</h2><span id="accountCount">加载中</span></div>
         <div id="site" class="site-name">读取网页…</div>
@@ -39,9 +39,13 @@
           <button id="otherMfas" class="text-button" hidden>查找其他匹配的 MFA</button>
           <p id="otpNote" class="muted">精确来源优先，其次通配符和正则；多个匹配项可自行选择。</p>
         </div>
-        <div id="status" role="status" aria-live="polite" data-state="pending">正在连接本机保险库…</div>
-        <button id="stopWaiting" class="text-button" hidden>取消本次验证</button>
-        <details id="errorDetails" class="error-details" hidden><summary>技术信息</summary><pre id="errorDetail"></pre></details>
+        <div id="homeFeedback">
+          <div id="feedback">
+            <div id="status" role="status" aria-live="polite" data-state="pending">正在连接本机保险库…</div>
+            <button id="stopWaiting" class="text-button" hidden>取消本次验证</button>
+            <details id="errorDetails" class="error-details" hidden><summary>技术信息</summary><pre id="errorDetail"></pre></details>
+          </div>
+        </div>
       </section>
       <section class="function-panel" aria-label="操作">
         <h2 class="section-label">操作</h2>
@@ -58,22 +62,9 @@
           </button>
           <button id="capture" class="action-button" disabled>
             <span class="action-icon save-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 4h9l3 3v13H6z"/><path d="M14 4v4h4M8 13h8M8 17h5"/></svg></span>
-            <span class="action-copy"><strong>保存当前网页</strong><small>读取已填写的登录表单</small></span>
+            <span class="action-copy"><strong>添加当前网站账号</strong><small>读取网页中的账号与密码，再确认保存</small></span>
             <span class="chevron" aria-hidden="true">›</span>
           </button>
-        </div>
-        <div id="saveForm" class="save-form" hidden>
-          <p class="muted">更新前请确认新密码已在网站生效。名称和分区只在保存为新账号时写入。</p>
-          <p class="save-origin"><span>网站</span><strong id="saveOrigin"></strong></p>
-          <p id="captureInfo" class="capture-info"></p>
-          <label>用户名<input id="saveUsername" type="text" autocomplete="off" maxlength="500" /></label>
-          <label>名称<input id="saveDisplayName" type="text" autocomplete="off" maxlength="200" placeholder="可留空" /></label>
-          <label>分区<select id="savePartition"></select></label>
-          <p id="saveTarget" class="muted"></p>
-          <div class="save-actions">
-            <button id="saveNew" class="secondary-button" disabled>保存为新账号</button>
-            <button id="update" class="secondary-button" disabled>更新所选账号</button>
-          </div>
         </div>
         <div class="save-actions mfa-add-actions">
           <button id="scanMfa" class="secondary-button" disabled>识别页面二维码</button>
@@ -102,7 +93,40 @@
         </details>
       </details>
     </main>
-    <footer><span>仅填充，不会自动提交表单</span><span id="ver"></span></footer>
+    <main id="savePage" hidden>
+      <div class="save-page-heading">
+        <button id="saveBack" class="text-button">‹ 返回</button>
+        <h2 id="saveTitle" tabindex="-1">保存账号</h2>
+      </div>
+      <section class="function-panel" aria-labelledby="saveTitle">
+        <div id="saveFeedback"></div>
+        <form id="saveForm" class="save-form" hidden>
+          <p class="save-origin"><span>网站</span><strong id="saveOrigin"></strong></p>
+          <label id="saveAccountField" hidden>要更新的账号<select id="saveAccount" aria-describedby="saveTarget"></select></label>
+          <label>用户名<input id="saveUsername" type="text" autocomplete="off" maxlength="500" /></label>
+          <div id="saveNewFields" class="save-new-fields">
+            <label>名称<input id="saveDisplayName" type="text" autocomplete="off" maxlength="200" placeholder="可留空" /></label>
+            <label>分区<select id="savePartition"></select></label>
+          </div>
+          <p id="captureInfo" class="capture-info"></p>
+          <p id="saveTarget" class="muted" hidden></p>
+          <button id="saveSubmit" type="submit" class="primary-button" disabled>保存账号</button>
+          <button id="saveMode" type="button" class="text-button" disabled>更新已有账号…</button>
+        </form>
+        <button id="retryCapture" class="secondary-button" hidden>重新读取网页</button>
+        <div id="saveResult" class="save-result" hidden>
+          <span class="save-result-icon" aria-hidden="true">✓</span>
+          <h3 id="saveResultTitle" tabindex="-1">账号已保存</h3>
+          <dl class="save-summary">
+            <div><dt>网站</dt><dd id="savedOrigin"></dd></div>
+            <div><dt>用户名</dt><dd id="savedUsername"></dd></div>
+            <div><dt>分区</dt><dd id="savedPartition"></dd></div>
+          </dl>
+          <button id="saveDone" class="primary-button">完成</button>
+        </div>
+      </section>
+    </main>
+    <footer id="popupFooter"><span>仅填充，不会自动提交表单</span><span id="ver"></span></footer>
     <script type="module" src="popup.js"></script>
   </body>
 </html>

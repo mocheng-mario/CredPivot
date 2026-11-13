@@ -23,6 +23,8 @@ rustc-ice-*.txt
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 .idea/
 
+.cursor/
+
 **/.DS_Store
 
 # Flutter
@@ -67,3 +69,5 @@ apps/macos/lib/build_stamp.dart
 
 # review
 .review
+
+AGMENT.md
