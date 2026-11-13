@@ -453,29 +453,43 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
         passkeys = (response['items'] as List? ?? []).map((row) => Map<String, dynamic>.from(row as Map)).toList();
       } catch (_) { passkeysUnavailable = true; }
       final sites = await AgentBridge.passkeySites();
-      if (!mounted || generation != _refreshGeneration) return;
-      final selectedId = _selected?['id'];
-      _items = items;
-      _groups = groups;
-      _totps = totps;
-      _sshKeys = sshKeys;
-      _passkeys = passkeys;
-      _passkeySites = sites;
-      _passkeysUnavailable = passkeysUnavailable;
-      // 刷新后使用当前版本，避免连续编辑仍携带上一次的 revision。
-      _selected = null;
-      for (final row in _items) {
-        if (row['id'] == selectedId) {
-          _selected = row;
-          break;
-        }
+      if (!mounted || generation != _refreshGeneration) {
+        if (mounted && generation == _refreshGeneration) setState(() => _busy = false);
+        return;
       }
-      _accountLinksUnavailable = catalogsUnavailable;
-      _filterGroupId = dropdownValueIfPresent(_filterGroupId, _groups);
-      _status = '';
+      final selectedId = _selected?['id']?.toString();
+      setState(() {
+        _items = items;
+        _groups = groups;
+        _totps = totps;
+        _sshKeys = sshKeys;
+        _passkeys = passkeys;
+        _passkeySites = sites;
+        _passkeysUnavailable = passkeysUnavailable;
+        // 刷新后使用当前版本，避免连续编辑仍携带上一次的 revision。
+        _selected = null;
+        for (final row in _items) {
+          if (row['id']?.toString() == selectedId) {
+            _selected = row;
+            break;
+          }
+        }
+        if (_selected == null && widget.initialSelection != null && selectedId != null) {
+          _selected = widget.initialSelection;
+        }
+        _accountLinksUnavailable = catalogsUnavailable;
+        _filterGroupId = dropdownValueIfPresent(_filterGroupId, _groups);
+        _status = '';
+        _busy = false;
+      });
     } on AgentException catch (e) {
-      if (generation == _refreshGeneration) _status = AgentBridge.friendlyMessage(e);
-    } finally {
+      if (mounted && generation == _refreshGeneration) {
+        setState(() {
+          _status = AgentBridge.friendlyMessage(e);
+          _busy = false;
+        });
+      }
+    } catch (_) {
       if (mounted && generation == _refreshGeneration) setState(() => _busy = false);
     }
   }
@@ -566,8 +580,10 @@ class _LoginPasswordPanelState extends State<_LoginPasswordPanel> {
         .where((row) =>
             _filterGroupId == null || row['group_id'] == _filterGroupId)
         .toList();
+    final selectedLoginId = _selected?['id']?.toString();
     final linkedPasskeys = _passkeys.where((passkey) =>
-        (passkey['linked_logins'] as List? ?? []).any((login) => login['id'] == _selected?['id'])).toList();
+        (passkey['linked_logins'] as List? ?? []).any((login) =>
+            login is Map && login['id']?.toString() == selectedLoginId)).toList();
     final mfaIds = (_selected?['linked_mfa_ids'] as List? ?? []).map((id) => id.toString()).toSet();
     final sshIds = (_selected?['linked_ssh_key_ids'] as List? ?? []).map((id) => id.toString()).toSet();
     final linkedMfas = _totps.where((mfa) => mfaIds.contains(mfa['id']?.toString())).toList();

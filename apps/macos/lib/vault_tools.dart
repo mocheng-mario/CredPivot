@@ -294,8 +294,8 @@ class _ItemDetailsDialog extends StatefulWidget {
 }
 
 class _ItemDetailsDialogState extends State<_ItemDetailsDialog> {
-  late final Map<String, dynamic> details =
-      Map<String, dynamic>.from(widget.data['details'] as Map);
+  late final Map<String, dynamic> details = Map<String, dynamic>.from(
+      widget.data['details'] is Map ? widget.data['details'] as Map : const {});
   late final title =
       TextEditingController(text: widget.row['title']?.toString() ?? '');
   late final notes =

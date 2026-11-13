@@ -133,18 +133,19 @@ class CredentialPanel extends StatelessWidget {
 }
 
 /// 复用原面板的编辑、验证和刷新流程，弹层状态与列表筛选互不干扰。
+/// Android 上 ModalBottomSheet 在 Tab 内会出现仅有蒙层、正文高度为 0 的情况，改用全屏页。
 Future<void> showCredentialDetailSheet(BuildContext context, Widget child) =>
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      showDragHandle: true,
-      builder: (context) => FractionallySizedBox(
-        heightFactor: .94,
-        child: Column(children: [
-          const Align(alignment: Alignment.centerRight, child: CloseButton()),
-          Expanded(child: child),
-        ]),
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (pageContext) => Scaffold(
+          backgroundColor: Theme.of(pageContext).colorScheme.surface,
+          appBar: AppBar(
+            automaticallyImplyLeading: false,
+            scrolledUnderElevation: 0,
+            actions: const [CloseButton()],
+          ),
+          body: child,
+        ),
       ),
     );
 
@@ -305,7 +306,7 @@ class CredentialDetails extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              SizedBox(width: 96, child: LText(field.key,
+              SizedBox(width: 96, child: Text(field.key,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.muted))),
               const SizedBox(width: 12),
               Expanded(child: _value(context, field)),
