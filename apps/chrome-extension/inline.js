@@ -68,7 +68,9 @@ function render(response) {
   }
   $('account').value = response.account_id || '';
   $('more').hidden = !response.more;
-  status(response.mode === 'otp' ? '选择本次使用的 MFA；验证码仅在点击后读取。' : '选择要填充的账号。');
+  status(response.mode === 'otp' ? response.manual_account_selection
+    ? '没有匹配的账户，可手动选择本次登录账号，再选择其关联 MFA。'
+    : '选择本次使用的 MFA；验证码仅在点击后读取。' : '选择要填充的账号。');
   renderList();
 }
 async function perform(type, values = {}) {

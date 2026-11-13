@@ -134,6 +134,7 @@ pub enum VaultAction {
     MfaRecoverySave { item_id: String, codes: Vec<String> },
     LoginDeletePreview { item_id: String },
     LoginDeleteApply { item_id: String, #[serde(default)] also: Vec<String> },
+    ServerProfilePassword { id: String },
     SshImport {
         label: String,
         pem: String,
@@ -575,8 +576,8 @@ fn items_batch(conn: &Connection, operation: &str, partition: &str,
         if current != *revision || item_partition != partition { return Err(CoreError::Conflict); }
         items.push((id, kind));
     }
-    // 同批选择服务器与 SSH 密钥时，先删除引用方，仍有未选中的引用时沿用原有保护。
-    items.sort_by_key(|(_, kind)| kind == "ssh_key");
+    // 恢复码先于 MFA，避免被 MFA 级联删除后再次删除；SSH 密钥仍放在引用方之后。
+    items.sort_by_key(|(_, kind)| match kind.as_str() { "totp" => 1, "ssh_key" => 2, _ => 0 });
     if operation == "restore" {
         for (id, _) in &items {
             restore_item_row(&tx, id, &expected[*id])?;
@@ -1097,6 +1098,10 @@ fn manage_local(conn: &Connection, action: VaultAction) -> Result<Value> {
             crate::repo_m2::mfa_recovery_status(&tx, &item_id)?
         }
         MfaRecoverySave { item_id, codes } => crate::repo_m2::save_mfa_recovery(&tx, &item_id, &codes)?,
+        ServerProfilePassword { id } => {
+            changed = false;
+            json!({"password":crate::server_profiles::connection_password(&tx, &id)?})
+        }
         LoginDeletePreview { item_id } => {
             changed = false;
             crate::associations::login_delete_preview(&tx, &item_id)?

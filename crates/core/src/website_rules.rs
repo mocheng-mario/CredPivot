@@ -243,6 +243,30 @@ fn match_rank(rule: &UriRule) -> Option<u8> {
     }
 }
 
+/// 验证码页单独提供账户候选；手动选择不授予这个账户在当前网站填充密码的权限。
+pub fn browser_mfa_accounts(conn: &Connection, origin: &str) -> Result<Value> {
+    let page = website_url(origin)?;
+    let mut matching_mfas = std::collections::BTreeSet::new();
+    for row in crate::repo_m2::list_totp_credentials(conn)? {
+        if row.website_rules.iter().any(|rule| rule_matches(rule, &page).unwrap_or(false)) {
+            matching_mfas.insert(row.id);
+        }
+    }
+    let mut candidates = Vec::new();
+    let mut others = Vec::new();
+    for login in crate::browser_login_candidates(conn)? {
+        let matches_origin = credential_matches_origin(conn, &login.id, origin)?;
+        let matches_mfa = login.linked_mfa_ids.iter().any(|id| matching_mfas.contains(id));
+        let row = json!({"id":login.id,"origin":login.origin,"username":login.username,
+            "display_name":login.display_name,"current_revision":login.current_revision,
+            "password_fill_allowed":matches_origin});
+        if matches_origin || matches_mfa { candidates.push(row); } else { others.push(row); }
+    }
+    let manual = candidates.is_empty() && !others.is_empty();
+    if manual { candidates = others; }
+    Ok(json!({"candidates":candidates,"manual_account_selection":manual}))
+}
+
 /// 精确优先，命中后不再编译后续层级的表达式；元数据及规则由一次查询读取。
 /// 只有用户展开其他匹配时才评估其余层级和未关联的 MFA。
 pub fn browser_mfa_candidates(conn: &Connection, origin: &str, credential_id: Option<&str>, partition: Option<&str>) -> Result<Value> {

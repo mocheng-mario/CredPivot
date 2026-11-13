@@ -21,11 +21,14 @@ package_browser() {
   local browser="$1"
   [[ -f "$SOURCE/manifest.json" ]] || { echo "扩展清单不存在" >&2; exit 1; }
   local ext_version stage archive
-  ext_version="$(/usr/bin/plutil -extract version raw -o - "$SOURCE/manifest.json")"
   stage="$TEMP_DIR/stage-$browser"
   rm -rf "$stage"
   mkdir -p "$stage"
   COPYFILE_DISABLE=1 cp -R "$SOURCE/." "$stage/"
+  if [[ "$browser" == firefox ]]; then
+    cp "$ROOT/apps/firefox-extension/manifest.json" "$stage/manifest.json"
+  fi
+  ext_version="$(/usr/bin/plutil -extract version raw -o - "$stage/manifest.json")"
   find "$stage" -name '.DS_Store' -delete
   find "$stage" -name '._*' -delete
   rm -f "$stage/native-messaging-host-m0.json"

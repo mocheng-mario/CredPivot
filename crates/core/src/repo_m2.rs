@@ -907,15 +907,14 @@ pub fn insert_browser_totp(
     };
     let id = insert_totp_with_rules_in_tx(&tx, &partition, issuer, account, input, None, website_rules)?;
     if let Some(login) = login {
-        let mut details = crate::credential_management::details_for(&tx, &login.item_id)?;
-        if details.linked_mfa_ids.len() >= 100 { return Err(CoreError::limit("MFA 关联过多")); }
-        details.linked_mfa_ids.push(id.clone());
-        crate::website_rules::save_linked_mfas(&tx, &login.item_id, &details.linked_mfa_ids)?;
-        let single = if details.linked_mfa_ids.len() == 1 { Some(id.as_str()) } else { None };
+        let mut linked_mfa_ids = login.linked_mfa_ids;
+        if linked_mfa_ids.len() >= 100 { return Err(CoreError::limit("MFA 关联过多")); }
+        linked_mfa_ids.push(id.clone());
+        crate::website_rules::save_linked_mfas(&tx, &login.item_id, &linked_mfa_ids)?;
         let revision = new_revision();
         let timestamp = now_ms();
-        tx.execute("UPDATE login_credentials SET linked_totp_id=COALESCE(linked_totp_id,?1),current_revision=?2,updated_at_ms=?3 WHERE id=?4",
-            params![single,revision,timestamp,linked_login_id])?;
+        tx.execute("UPDATE login_credentials SET linked_totp_id=NULL,current_revision=?1,updated_at_ms=?2 WHERE id=?3",
+            params![revision,timestamp,linked_login_id])?;
         tx.execute("UPDATE items SET current_revision=?1,updated_at_ms=?2 WHERE id=?3",params![revision,timestamp,login.item_id])?;
     }
     tx.commit()?;

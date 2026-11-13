@@ -84,7 +84,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
         return row[field]?.toString();
       }
     }
-    return tr('server.linkLabel.text');
+    return '${tr('server.linkLabel.text')} ($id)';
   }
 
   String? _linkedLoginDisplayName(String? loginId) {
@@ -94,7 +94,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
         return _loginPickerLabel(row);
       }
     }
-    return tr('server.linkLabel.text');
+    return '${tr('server.linkLabel.text')} ($loginId)';
   }
 
   String? _resolveTotpIdForServer(Map<String, dynamic> row) {
@@ -187,8 +187,9 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
     final totpId = _resolveTotpIdForServer(row);
     final port = row['port'] is int ? row['port'] as int : int.tryParse('${row['port']}') ?? 22;
     String sessionId;
+    String? identityFile;
     try {
-      sessionId = await AgentBridge.sshSessionPrepare(
+      final prepared = await AgentBridge.sshSessionPrepare(
         host: host,
         port: port,
         user: username,
@@ -196,6 +197,8 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
         totpId: totpId,
         serverProfileId: row['id']?.toString(),
       );
+      sessionId = prepared['session_id'] as String;
+      identityFile = prepared['identity_file'] as String?;
       await AgentBridge.materializeSshAskpass();
     } on AgentException catch (e) {
       setState(() => _status = AgentBridge.friendlyMessage(e));
@@ -206,6 +209,7 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
       port: port,
       username: username,
       sessionId: sessionId,
+      identityFile: identityFile,
     );
     if (err != null && err.isNotEmpty) {
       setState(() => _status = err);
@@ -258,21 +262,18 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
   }
 
   Future<void> _copyPassword() async {
+    final row = _selected;
+    if (row == null) return;
     if (_selected?['unavailable'] == true) {
       setState(() => _status = _selected?['unavailable_reason']?.toString().isNotEmpty == true
           ? _selected!['unavailable_reason'].toString()
           : '这条连接已停用，需要重新确认后才能使用');
       return;
     }
-    final loginId = dropdownValueIfPresent(_selected?['linked_login_id'] as String?, _logins);
-    if (loginId == null || loginId.isEmpty) {
-      setState(() => _status = tr('server.copyPassword.text'));
-      return;
-    }
     try {
       final session = await AgentBridge.clipboardSession();
       if (!mounted || !await requireTouchId(context, reason: tr('server.copyPassword.reason'))) return;
-      final detail = await AgentBridge.getCredential(loginId);
+      final detail = await AgentBridge.manage({'action': 'server_profile_password', 'id': row['id']});
       await AgentBridge.copyConcealed(detail['password'] as String? ?? '', session: session);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -438,12 +439,11 @@ class _ServerLoginPanelState extends State<ServerLoginPanel> {
                     tr('server.fields.host'): _selected!['host']?.toString() ?? '',
                     tr('server.fields.port'): _selected!['port']?.toString() ?? '',
                     tr('server.fields.account'): _linkedLoginDisplayName(
-                            _selected!['linked_login_id'] as String?) ??
+                            (_selected!['linked_login_id'] ?? _selected!['stale_linked_login_id']) as String?) ??
                         _selected!['manual_username']?.toString() ??
                         '',
-                    'MFA': _resolveTotpIdForServer(_selected!) == null
-                        ? tr('common.notLinked')
-                        : tr('server.build.text.item7'),
+                    'MFA': _linkLabel((_selected!['linked_totp_id'] ?? _selected!['stale_linked_totp_id']) as String?, _totps, 'issuer') ?? tr('common.notLinked'),
+                    'SSH 密钥': _linkLabel((_selected!['linked_ssh_key_id'] ?? _selected!['stale_linked_ssh_key_id']) as String?, _sshKeys, 'label') ?? tr('common.notLinked'),
                   },
                   copyableFields: {tr('server.fields.host')},
                 ),
@@ -547,17 +547,22 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
     final portCtl = TextEditingController(text: '${existing?['port'] ?? 22}');
     final manualUserCtl = TextEditingController(text: existing?['manual_username']?.toString() ?? '');
     final manualSecretCtl = TextEditingController();
-    final rawLogin = existing?['linked_login_id'] as String?;
-    final rawTotp = existing?['linked_totp_id'] as String?;
-    final rawSsh = existing?['linked_ssh_key_id'] as String?;
-    var linkedLogin = dropdownValueIfPresent(rawLogin, logins);
-    var linkedTotp = dropdownValueIfPresent(rawTotp, totps);
-    var linkedSsh = dropdownValueIfPresent(rawSsh, sshKeys);
+    final rawLogin = (existing?['linked_login_id'] ?? existing?['stale_linked_login_id']) as String?;
+    final rawTotp = (existing?['linked_totp_id'] ?? existing?['stale_linked_totp_id']) as String?;
+    final rawSsh = (existing?['linked_ssh_key_id'] ?? existing?['stale_linked_ssh_key_id']) as String?;
+    var linkedLogin = rawLogin?.isEmpty == true ? null : rawLogin;
+    var linkedTotp = rawTotp?.isEmpty == true ? null : rawTotp;
+    var linkedSsh = rawSsh?.isEmpty == true ? null : rawSsh;
     var groupId = dropdownValueIfPresent(existing?['group_id'] as String?, groups);
-    final hadStaleLink = isEdit &&
-        (staleLinkWasCleared(rawLogin, linkedLogin) ||
-            staleLinkWasCleared(rawTotp, linkedTotp) ||
-            staleLinkWasCleared(rawSsh, linkedSsh));
+    final hadStaleLink = existing?['unavailable'] == true;
+
+    bool selectable(String? id, List<Map<String, dynamic>> pool, String field) {
+      if (id == null || id.isEmpty) return true;
+      if (!pool.any((row) => row['id'] == id)) return false;
+      if (linkedLogin == null || linkedLogin!.isEmpty) return true;
+      final login = logins.where((row) => row['id'] == linkedLogin);
+      return login.isNotEmpty && ((login.first[field] as List?) ?? const []).contains(id);
+    }
 
     String snapshot() => jsonEncode([labelCtl.text,hostCtl.text,portCtl.text,manualUserCtl.text,manualSecretCtl.text,linkedLogin,linkedTotp,linkedSsh,groupId]);
     final initialSnapshot = snapshot();
@@ -620,15 +625,11 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
         setLocal(() => formError = tr('server.save.text'));
         return;
       }
-      bool belongs(String? id, String field) {
-        if (id == null || id.isEmpty) return true;
-        if (noLinkedLogin) return true;
-        final login = logins.where((row) => row['id'] == linkedLogin);
-        if (login.isEmpty) return false;
-        return ((login.first[field] as List?) ?? const []).map((item) => item.toString()).contains(id);
+      if ((!noLinkedLogin && !logins.any((row) => row['id'] == linkedLogin)) ||
+          !selectable(linkedTotp, totps, 'linked_mfa_ids') || !selectable(linkedSsh, sshKeys, 'linked_ssh_key_ids')) {
+        setLocal(() => formError = '旧关联已不可用，请重新选择同一分区内仍然有效的账户、MFA 或 SSH 密钥');
+        return;
       }
-      if (!belongs(linkedTotp, 'linked_mfa_ids')) linkedTotp = null;
-      if (!belongs(linkedSsh, 'linked_ssh_key_ids')) linkedSsh = null;
       setLocal(() { saving = true; formError = ''; });
       try {
         if (!await confirmConnectionWarnings(ctx)) return;
@@ -659,7 +660,7 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
           closing = true;
           Navigator.pop(ctx, true);
           if (hadStaleLink && context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: LText('server.save.text.item2')));
+            const SnackBar(content: Text('连接已重新确认，旧引用已按本次选择更新')));
         }
       } catch (e) {
         if (ctx.mounted && !closing) setLocal(() => formError = e is AgentException ? AgentBridge.friendlyMessage(e) : tr('common.saveFailed'));
@@ -683,6 +684,12 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
                   Text(existing?['unavailable_reason']?.toString().isNotEmpty == true
                       ? existing!['unavailable_reason'].toString()
                       : '这条连接已停用，重新选择并保存后才能使用'),
+                if (hadStaleLink) Text([
+                  if (rawLogin?.isNotEmpty == true) '原账户：$rawLogin',
+                  if (rawTotp?.isNotEmpty == true) '原 MFA：$rawTotp',
+                  if (rawSsh?.isNotEmpty == true) '原 SSH 密钥：$rawSsh',
+                  '旧引用仅供查看；无效项需要重新选择或清除。',
+                ].join('\n')),
                 AppFieldRow(label: tr('common.name'), child: TextField(controller: labelCtl, decoration: InputDecoration())),
                 AppFieldRow(label: tr('common.group'), child: DropdownButtonFormField<String?>(
                   isExpanded: true,
@@ -712,6 +719,8 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
                   decoration: InputDecoration(),
                   items: [
                     const DropdownMenuItem(value: null, child: LText('server.save.text.item7')),
+                    if (linkedLogin != null && !logins.any((row) => row['id'] == linkedLogin))
+                      DropdownMenuItem(value: linkedLogin, enabled: false, child: Text('旧账户：$linkedLogin（需重新选择）')),
                     ...logins.map(
                       (c) => DropdownMenuItem(
                         value: c['id'] as String,
@@ -744,21 +753,13 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
                 ],
                 AppFieldRow(label: tr('server.save.text.item11'), help: tr('server.save.text.item12'), child: DropdownButtonFormField<String?>(
                   isExpanded: true,
-                  value: totps.where((t) {
-                    if (linkedLogin == null || linkedLogin!.isEmpty) return t['id'] == linkedTotp;
-                    final login = logins.where((row) => row['id'] == linkedLogin);
-                    final ids = login.isEmpty ? const <String>[] : ((login.first['linked_mfa_ids'] as List?) ?? const []).map((e) => e.toString());
-                    return t['id'] == linkedTotp && ids.contains(t['id']);
-                  }).isEmpty ? null : linkedTotp,
+                  value: linkedTotp,
                   decoration: InputDecoration(),
                   items: [
                     const DropdownMenuItem(value: null, child: LText('server.save.text.item13')),
-                    ...totps.where((t) {
-                      if (linkedLogin == null || linkedLogin!.isEmpty) return true;
-                      final login = logins.where((row) => row['id'] == linkedLogin);
-                      final ids = login.isEmpty ? const <String>[] : ((login.first['linked_mfa_ids'] as List?) ?? const []).map((e) => e.toString());
-                      return ids.contains(t['id']);
-                    }).map(
+                    if (!selectable(linkedTotp, totps, 'linked_mfa_ids'))
+                      DropdownMenuItem(value: linkedTotp, enabled: false, child: Text('旧 MFA：$linkedTotp（需重新选择）')),
+                    ...totps.where((t) => selectable(t['id'] as String?, totps, 'linked_mfa_ids')).map(
                       (t) => DropdownMenuItem(
                         value: t['id'] as String,
                         child: LText(
@@ -773,21 +774,13 @@ Future<bool> showServerProfileEditor(BuildContext context, {Map<String, dynamic>
                 )),
                 AppFieldRow(label: tr('server.save.text.item14'), child: DropdownButtonFormField<String?>(
                   isExpanded: true,
-                  value: sshKeys.where((s) {
-                    if (linkedLogin == null || linkedLogin!.isEmpty) return s['id'] == linkedSsh;
-                    final login = logins.where((row) => row['id'] == linkedLogin);
-                    final ids = login.isEmpty ? const <String>[] : ((login.first['linked_ssh_key_ids'] as List?) ?? const []).map((e) => e.toString());
-                    return s['id'] == linkedSsh && ids.contains(s['id']);
-                  }).isEmpty ? null : linkedSsh,
+                  value: linkedSsh,
                   decoration: InputDecoration(),
                   items: [
                     const DropdownMenuItem(value: null, child: LText('server.save.text.item13')),
-                    ...sshKeys.where((s) {
-                      if (linkedLogin == null || linkedLogin!.isEmpty) return true;
-                      final login = logins.where((row) => row['id'] == linkedLogin);
-                      final ids = login.isEmpty ? const <String>[] : ((login.first['linked_ssh_key_ids'] as List?) ?? const []).map((e) => e.toString());
-                      return ids.contains(s['id']);
-                    }).map(
+                    if (!selectable(linkedSsh, sshKeys, 'linked_ssh_key_ids'))
+                      DropdownMenuItem(value: linkedSsh, enabled: false, child: Text('旧 SSH 密钥：$linkedSsh（需重新选择）')),
+                    ...sshKeys.where((s) => selectable(s['id'] as String?, sshKeys, 'linked_ssh_key_ids')).map(
                       (s) => DropdownMenuItem(
                         value: s['id'] as String,
                         child: Text(

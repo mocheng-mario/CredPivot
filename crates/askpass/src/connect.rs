@@ -1,4 +1,4 @@
-use credpivot_agent::{agent_socket_path, call_agent, runtime_dir, AgentRequest, AgentResponse};
+use credpivot_agent::{agent_socket_path, call_agent, runtime_dir, ssh_agent_socket_path, AgentRequest, AgentResponse};
 use std::{io::IsTerminal, os::unix::process::CommandExt, process::Command, time::{Duration, Instant}};
 
 fn main() {
@@ -70,9 +70,14 @@ fn run() -> Result<(), String> {
     let user = payload["user"].as_str().ok_or("App 返回的账号无效")?;
     let port = payload["port"].as_u64().filter(|port| *port > 0 && *port <= 65535).ok_or("App 返回的端口无效")?;
     eprintln!("正在连接 {user}@{host}:{port}…");
-    let error = Command::new("/usr/bin/expect").arg(expect)
+    let mut command = Command::new("/usr/bin/expect");
+    command.arg(expect)
         .args(["--user", user, "--host", host, "--port", &port.to_string(), "--session-id", session, "--askpass"])
-        .arg(askpass).exec();
+        .arg(askpass);
+    if let Some(identity) = payload["identity_file"].as_str().filter(|path| !path.is_empty()) {
+        command.args(["--identity-file", identity, "--identity-agent"]).arg(ssh_agent_socket_path());
+    }
+    let error = command.exec();
     Err(format!("无法启动 SSH：{error}"))
 }
 

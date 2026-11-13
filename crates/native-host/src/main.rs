@@ -289,6 +289,9 @@ fn map_extension_to_agent(
                 .unwrap_or("")
                 .to_string(),
         }),
+        "mfa.accounts_for_origin" => Ok(AgentRequest::BrowserMfaAccounts {
+            origin: envelope.get("origin").and_then(Value::as_str).unwrap_or("").into(),
+        }),
         "mfa.suggest_for_origin" => Ok(AgentRequest::BrowserMfaSuggest {
             include_other_matches: envelope.get("include_other_matches").and_then(Value::as_bool).unwrap_or(false),
             credential_id: envelope.get("credential_id").and_then(Value::as_str).unwrap_or("").into(),

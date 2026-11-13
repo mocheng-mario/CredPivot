@@ -741,8 +741,18 @@ fn related_conflicts(
     }
     for (key, record) in &result.records {
         let mut targets = Vec::new();
-        for rows in record.tables.values() {
+        for link in record.tables.get("credential_links").into_iter().flatten() {
+            if let Some(target) = link["target_item_id"].as_str() {
+                targets.push(format!("item:{target}"));
+            }
+        }
+        for (table, rows) in &record.tables {
+            // 停用连接的旧引用只供查看，允许目标缺失或已迁到其他分区。
+            if table == "server_stale_auth" { continue; }
             for row in rows {
+                if let Some(target) = row["mfa_item_id"].as_str().filter(|id| !id.is_empty()) {
+                    targets.push(format!("item:{target}"));
+                }
                 if let Some(partition)=row["partition_id"].as_str() { targets.push(format!("partition:{partition}")); }
                 if let Some(group) = row["group_id"].as_str().filter(|g| !g.is_empty()) {
                     targets.push(format!("group:{group}"));
@@ -782,6 +792,57 @@ fn related_conflicts(
                         || remote.records.contains_key(candidate))
                         && !conflicts.contains(candidate)
                     {
+                        conflicts.push(candidate.clone());
+                    }
+                }
+            }
+        }
+    }
+    // 关联随账户合并；恢复码独立保存，这些独占目标都可能被两端同时占用。
+    let mut link_owners = BTreeMap::<String, BTreeSet<String>>::new();
+    for (key, record) in &result.records {
+        for link in record.tables.get("credential_links").into_iter().flatten() {
+            if matches!(link["kind"].as_str(), Some("mfa" | "passkey")) {
+                if let Some(target) = link["target_item_id"].as_str() {
+                    link_owners.entry(target.into()).or_default().insert(key.clone());
+                }
+            }
+        }
+        for recovery in record.tables.get("recovery_code_items").into_iter().flatten() {
+            if let Some(target) = recovery["mfa_item_id"].as_str().filter(|id| !id.is_empty()) {
+                link_owners.entry(format!("recovery:{target}")).or_default().insert(key.clone());
+            }
+        }
+    }
+    for keys in link_owners.values().filter(|keys| keys.len() > 1) {
+        for key in keys {
+            if !conflicts.contains(key) { conflicts.push(key.clone()); }
+        }
+    }
+    // 两端分别解除账户关联和新增连接时，单条记录都合法，合并后仍需检查认证关系。
+    for (key, record) in &result.records {
+        if record.tables.get("items").and_then(|rows| rows.first()).is_some_and(|row| row["trashed"].as_i64() != Some(0)) {
+            continue;
+        }
+        for profile in record.tables.get("server_login_profiles").into_iter().flatten() {
+            let account_key = profile["linked_login_id"].as_str().and_then(|id| owners.get(id));
+            let account = account_key.and_then(|key| result.records.get(key));
+            let active = account.and_then(|record| record.tables.get("items")).and_then(|rows| rows.first())
+                .is_some_and(|row| row["trashed"].as_i64() == Some(0));
+            let mut invalid_targets = Vec::new();
+            if let Some(account_key) = account_key.filter(|_| !active) { invalid_targets.push(account_key.clone()); }
+            for (field, kind) in [("linked_totp_id", "mfa"), ("linked_ssh_key_id", "ssh_key")] {
+                let Some(target) = profile[field].as_str().and_then(|id| owners.get(id)) else { continue; };
+                let linked = account_key.is_none() || account.into_iter().flat_map(|record| record.tables.get("credential_links")).flatten()
+                    .any(|link| link["kind"].as_str() == Some(kind)
+                        && link["target_item_id"].as_str().is_some_and(|id| target == &format!("item:{id}")));
+                let target_active = result.records.get(target).and_then(|record| record.tables.get("items"))
+                    .and_then(|rows| rows.first()).is_some_and(|row| row["trashed"].as_i64() == Some(0));
+                if !linked || !target_active { invalid_targets.push(target.clone()); }
+            }
+            if !invalid_targets.is_empty() {
+                for candidate in std::iter::once(key).chain(account_key).chain(invalid_targets.iter()) {
+                    if (local.records.contains_key(candidate) || remote.records.contains_key(candidate)) && !conflicts.contains(candidate) {
                         conflicts.push(candidate.clone());
                     }
                 }
@@ -1531,6 +1592,27 @@ fn validate_relations(conn: &Connection, doc: &Document) -> Result<()> {
     if let Some(id) = invalid_group {
         let key = format!("item:{id}");
         return Err(record_error(&key, doc.records.get(&key), CoreError::format("sync.errors.relatedGroup")));
+    }
+    let invalid_auth: Option<String> = conn.query_row(
+        "SELECT s.item_id FROM server_login_profiles s JOIN items i ON i.id=s.item_id
+         WHERE i.trashed=0 AND (
+           (s.linked_login_id IS NOT NULL AND s.linked_login_id<>'' AND
+             NOT EXISTS(SELECT 1 FROM login_credentials l JOIN items a ON a.id=l.item_id WHERE l.id=s.linked_login_id AND a.trashed=0))
+           OR (s.linked_totp_id IS NOT NULL AND s.linked_totp_id<>'' AND NOT EXISTS(
+             SELECT 1 FROM totp_credentials t JOIN items m ON m.id=t.item_id
+             WHERE t.id=s.linked_totp_id AND m.trashed=0 AND (s.linked_login_id IS NULL OR s.linked_login_id=''
+               OR EXISTS(SELECT 1 FROM credential_links k JOIN login_credentials l ON l.item_id=k.account_item_id
+                 WHERE l.id=s.linked_login_id AND k.target_item_id=t.item_id AND k.kind='mfa'))))
+           OR (s.linked_ssh_key_id IS NOT NULL AND s.linked_ssh_key_id<>'' AND NOT EXISTS(
+             SELECT 1 FROM ssh_keys t JOIN items m ON m.id=t.item_id
+             WHERE t.id=s.linked_ssh_key_id AND m.trashed=0 AND (s.linked_login_id IS NULL OR s.linked_login_id=''
+               OR EXISTS(SELECT 1 FROM credential_links k JOIN login_credentials l ON l.item_id=k.account_item_id
+                 WHERE l.id=s.linked_login_id AND k.target_item_id=t.item_id AND k.kind='ssh_key'))))) LIMIT 1",
+        [], |row| row.get(0),
+    ).optional()?;
+    if let Some(id) = invalid_auth {
+        let key = format!("item:{id}");
+        return Err(record_error(&key, doc.records.get(&key), CoreError::format("sync.errors.relatedCredential")));
     }
     for (table, columns) in [
         (

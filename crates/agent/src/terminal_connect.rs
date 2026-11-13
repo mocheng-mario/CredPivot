@@ -44,6 +44,23 @@ pub(crate) struct SessionSource {
 }
 
 impl SessionSource {
+    pub(crate) fn identity_file(&self, vault: &VaultSession) -> std::result::Result<Option<std::path::PathBuf>, String> {
+        identity_file(vault, self.target.ssh_key_id.as_deref())
+    }
+
+    pub(crate) fn from_request(
+        vault: &VaultSession, connection_id: &str, host: &str, port: u16, user: &str,
+        login_id: &str, totp_id: Option<&str>,
+    ) -> std::result::Result<Self, String> {
+        let current = target(vault, connection_id)?;
+        if current.host != host.trim() || current.port != port || current.user.trim() != user.trim()
+            || current.login_id != login_id.trim() || current.totp_id.as_deref() != totp_id
+        { return Err("连接配置已变化，请重新发起连接".into()); }
+        let vault_id = credpivot_core::read_vault_json(&vault.vault_dir)
+            .map_err(|_| "无法读取当前保险库标识")?.vault_id;
+        Ok(Self { vault_id, connection_id: connection_id.into(), target: current })
+    }
+
     pub(crate) fn validate(&self, vault: &VaultSession) -> std::result::Result<(), String> {
         if !vault_matches(vault, &self.vault_id) { return Err("保险库已切换，连接会话已失效".into()); }
         let current = target(vault, &self.connection_id)?;
@@ -125,6 +142,32 @@ fn target(vault: &VaultSession, id: &str) -> std::result::Result<Target, String>
         login_id, totp_id, ssh_key_id, partition_id, connection_revision: row.current_revision })
 }
 
+fn identity_file(vault: &VaultSession, key_id: Option<&str>) -> std::result::Result<Option<std::path::PathBuf>, String> {
+    use std::{fs, io::Write, os::unix::fs::{OpenOptionsExt, PermissionsExt}};
+    let Some(key_id) = key_id else { return Ok(None) };
+    uuid::Uuid::parse_str(key_id).map_err(|_| "SSH 密钥标识无效")?;
+    let key = vault.db.as_ref().ok_or("保险库未就绪")?.list_ssh().map_err(|e| e.to_string())?
+        .into_iter().find(|key| key.id == key_id).ok_or("所选 SSH 密钥已不可用")?;
+    let directory = crate::paths::runtime_dir().join("ssh-public");
+    fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
+    let reference = directory.join(format!("{key_id}.pub"));
+    let temporary = directory.join(format!(".{}.tmp", uuid::Uuid::new_v4()));
+    // 只落盘公钥引用，OpenSSH 的签名仍交给本机 Agent。
+    let written = (|| -> std::io::Result<()> {
+        let mut file = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)?;
+        writeln!(file, "{}", key.public_openssh)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temporary, &reference)
+    })();
+    if let Err(error) = written {
+        let _ = fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+    Ok(Some(reference))
+}
+
 pub(crate) fn pending(vault: &mut VaultSession) -> Vec<Value> {
     vault.terminal_connections.retain(|_, request| request.created.elapsed() < REQUEST_TTL && !request.reply.is_closed());
     let ids: Vec<_> = vault.terminal_connections.keys().cloned().collect();
@@ -172,6 +215,7 @@ pub(crate) async fn resolve(st: &mut IpcState, id: &str, approved: bool) -> Agen
         if !vault.unlocked || !vault.authorize_sensitive_operation() { return Err("身份验证已失效，请重新执行连接命令".into()); }
         let current = target(&vault, &request.connection_id)?;
         if !request.target.as_ref().is_some_and(|shown| shown.matches(&current)) { return Err("连接配置已变化，请重新执行连接命令".into()); }
+        let identity_file = identity_file(&vault, current.ssh_key_id.as_deref())?;
         let session_id = crate::ssh_session::prepare_session(&mut st.pending_ssh_sessions,
             &current.host, current.port, &current.user, &current.login_id, current.totp_id.clone(), "");
         // 服务器连接只使用明确选中的 MFA，不继承账户上的其他验证器。
@@ -182,7 +226,8 @@ pub(crate) async fn resolve(st: &mut IpcState, id: &str, approved: bool) -> Agen
             });
         }
         vault.touch_activity();
-        Ok(json!({"session_id": session_id, "host": current.host, "port": current.port, "user": current.user}))
+        Ok(json!({"session_id": session_id, "host": current.host, "port": current.port, "user": current.user,
+            "identity_file": identity_file}))
     })();
     let session_id = result.as_ref().ok().and_then(|value| value["session_id"].as_str()).map(str::to_owned);
     if request.reply.send(result).is_err() {

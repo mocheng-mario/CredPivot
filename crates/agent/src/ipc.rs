@@ -134,7 +134,7 @@ fn native_host_request_forbidden(req: &AgentRequest) -> bool {
     !matches!(req, AgentRequest::Ping | AgentRequest::Status | AgentRequest::ExtensionConnect { .. }
         | AgentRequest::ExtensionGateCancel { .. }
         | AgentRequest::CredentialSave { .. } | AgentRequest::CredentialSuggest { .. }
-        | AgentRequest::BrowserPartitions
+        | AgentRequest::BrowserPartitions | AgentRequest::BrowserMfaAccounts { .. }
         | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::BrowserTotpCode { .. } | AgentRequest::BrowserMfaSuggest { .. }
         | AgentRequest::CredentialFillPrepare { .. } | AgentRequest::CredentialFillConsume { .. }
         | AgentRequest::PasskeyBegin { .. } | AgentRequest::PasskeyPoll { .. } | AgentRequest::PasskeyCancel { .. }
@@ -150,7 +150,7 @@ fn req_requires_extension_gate(req: &AgentRequest) -> bool {
             | AgentRequest::PasskeyBegin { .. } | AgentRequest::PasskeyPoll { .. }
             | AgentRequest::BrowserMfaBegin { .. } | AgentRequest::BrowserMfaPoll { .. }
             | AgentRequest::BrowserCredentialUpdate { .. } | AgentRequest::BrowserTotpCode { .. } | AgentRequest::BrowserMfaSuggest { .. }
-            | AgentRequest::BrowserPartitions
+            | AgentRequest::BrowserPartitions | AgentRequest::BrowserMfaAccounts { .. }
             | AgentRequest::CredentialSuggest { .. }
             | AgentRequest::CredentialFillPrepare { .. }
             | AgentRequest::CredentialFillConsume { .. }
@@ -1215,6 +1215,17 @@ async fn handle_request_inner(
                 Ok(payload)=>{v.touch_activity();AgentResponse::ok(payload)},Err(_)=>AgentResponse::err("vault","MFA 读取失败"),
             }
         }
+        AgentRequest::BrowserMfaAccounts { origin } => {
+            let mut v = st.vault.lock().await;
+            if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
+            let Some(db) = v.db.as_ref() else { return AgentResponse::err("locked", "database not attached"); };
+            let result = credpivot_core::browser_mfa_accounts(db.conn(), &origin);
+            v.touch_activity();
+            match result {
+                Ok(payload) => AgentResponse::ok(payload),
+                Err(error) => AgentResponse::err("vault", error.to_string()),
+            }
+        }
         AgentRequest::CredentialSuggest { origin } => {
             let mut v = st.vault.lock().await;
             if !v.unlocked {
@@ -1608,19 +1619,18 @@ async fn handle_request_inner(
             {
                 return AgentResponse::err("bad_args", "host, user and a credential source are required");
             }
-            let mut manual_secret = String::new();
-            if !server_profile_id.trim().is_empty() {
-                let Some(db) = v.db.as_ref() else { return AgentResponse::err("locked", "vault locked"); };
-                match credpivot_core::connection_auth(db.conn(), server_profile_id.trim()) {
-                    Ok((true, _, _)) => return AgentResponse::err("vault", "这条连接已停用，需要重新确认后才能使用"),
-                    Ok((false, secret, _)) => manual_secret = secret,
-                    Err(e) => return AgentResponse::err("vault", e.to_string()),
+            let totp = totp_id.filter(|s| !s.trim().is_empty());
+            let source = if server_profile_id.trim().is_empty() { None } else {
+                match crate::terminal_connect::SessionSource::from_request(
+                    &v, server_profile_id.trim(), &host, port, &user, &login_credential_id, totp.as_deref(),
+                ) {
+                    Ok(source) => Some(source),
+                    Err(message) => return AgentResponse::err("vault", message),
                 }
-            }
+            };
             if !login_credential_id.trim().is_empty() && v.get_credential(&login_credential_id).is_err() {
                 return AgentResponse::err("not_found", "login credential not found");
             }
-            let totp = totp_id.filter(|s| !s.trim().is_empty());
             if let Some(totp)=&totp {
                 let Some(db)=v.db.as_ref() else { return AgentResponse::err("locked","vault locked"); };
                 let same = if login_credential_id.trim().is_empty() {
@@ -1632,6 +1642,13 @@ async fn handle_request_inner(
                     return AgentResponse::err("forbidden","partitions.errors.crossLink");
                 }
             }
+            let identity_file = match source.as_ref() {
+                Some(source) => match source.identity_file(&v) {
+                    Ok(path) => path,
+                    Err(message) => return AgentResponse::err("vault", message),
+                },
+                None => None,
+            };
             let session_id = prepare_session(
                 &mut st.pending_ssh_sessions,
                 &host,
@@ -1639,11 +1656,18 @@ async fn handle_request_inner(
                 &user,
                 &login_credential_id,
                 totp,
-                if login_credential_id.trim().is_empty() { &manual_secret } else { "" },
+                "",
             );
+            if let Some(source) = source {
+                if let Some(grant) = st.pending_ssh_sessions.get_mut(&session_id) {
+                    grant.allow_account_mfa_fallback = false;
+                    grant.connection_source = Some(source);
+                }
+            }
             AgentResponse::ok(json!({
                 "session_id": session_id,
                 "expires_in_ms": SSH_SESSION_TTL_MS,
+                "identity_file": identity_file,
             }))
         }
         AgentRequest::SshAskpass {

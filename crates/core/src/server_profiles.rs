@@ -293,6 +293,19 @@ fn checked_auth(
     Ok((manual_username.trim().to_string(), secret.to_string()))
 }
 
+pub(crate) fn connection_password(conn: &Connection, profile_id: &str) -> Result<String> {
+    let profile = list_server_profiles(conn)?.into_iter().find(|row| row.id == profile_id)
+        .ok_or_else(|| CoreError::format("连接不存在"))?;
+    let (unavailable, manual_secret, _) = connection_auth(conn, profile_id)?;
+    if unavailable { return Err(CoreError::format("连接已停用，请先重新配置")); }
+    let partition = crate::partitions::item_partition(conn, &profile.item_id)?;
+    let (_, secret) = checked_auth(conn, &partition, &profile.manual_username, Some(&manual_secret),
+        profile.linked_login_id.as_deref(), profile.linked_totp_id.as_deref(), profile.linked_ssh_key_id.as_deref())?;
+    if let Some(login) = profile.linked_login_id.as_deref().filter(|id| !id.is_empty()) {
+        Ok(crate::get_login_secret(conn, login)?.password)
+    } else { Ok(secret) }
+}
+
 /// 读取连接是否停用，以及独立模式下自己保存的密码。密码只交给调用方，不写入日志。
 pub fn connection_auth(conn: &Connection, profile_id: &str) -> Result<(bool, String, bool)> {
     let secret: String = conn.query_row(

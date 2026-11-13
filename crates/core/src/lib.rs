@@ -89,7 +89,7 @@ mod associations;
 pub use associations::replace_account_ssh_keys;
 mod credential_management;
 mod website_rules;
-pub use website_rules::{browser_mfa_allowed, browser_mfa_candidates, mfa_matches_origin, credential_matches_origin, credential_website_rules};
+pub use website_rules::{browser_mfa_accounts, browser_mfa_allowed, browser_mfa_candidates, mfa_matches_origin, credential_matches_origin, credential_website_rules};
 pub use credential_management::UriRule;
 pub use credential_management::{VaultAction, manage_credentials, export_logical_json, update_login_from_browser, credential_origins, browser_login_candidates, record_credential_use};
 mod ssh_transfer;

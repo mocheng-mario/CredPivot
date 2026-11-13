@@ -122,6 +122,7 @@ class AgentBridge {
       'recovery_codes_list', 'recovery_codes_create', 'credential_group_list', 'credential_group_create', 'passkey_list'};
     final action = body['action'];
     final scoped = !allPartitions && (scopedTypes.contains(body['type']) ||
+        (body['type'] == 'browser_mfa_resolve' && body['approved'] == true) ||
         (body['type'] == 'vault_manage' && action is Map &&
             {'item_search', 'trash_list', 'note_create', 'ssh_import'}.contains(action['action'])));
     final wire = scoped ? {'type': 'partition_request', 'partition_id': partitionId ?? activePartitionId, 'request': body} : body;
@@ -548,7 +549,7 @@ class AgentBridge {
   }
 
   /// Agent 登记 SSH 会话（密码留在 Vault，由 askpass 按提示领取）。
-  static Future<String> sshSessionPrepare({
+  static Future<Map<String, dynamic>> sshSessionPrepare({
     required String host,
     required int port,
     required String user,
@@ -570,7 +571,7 @@ class AgentBridge {
     if (id == null || id.isEmpty) {
       throw AgentException('ssh_session', tr('agent.sshSessionPrepare.text'));
     }
-    return id;
+    return payload;
   }
 
   static Future<String?> openSshWithAskpass({
@@ -578,12 +579,14 @@ class AgentBridge {
     required int port,
     required String username,
     required String sessionId,
+    String? identityFile,
   }) async {
     return await _channel.invokeMethod<String>('openSshWithAskpass', {
       'host': host,
       'port': port,
       'username': username,
       'sessionId': sessionId,
+      if (identityFile != null) 'identityFile': identityFile,
     });
   }
 

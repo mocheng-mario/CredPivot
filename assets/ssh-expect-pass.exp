@@ -1,5 +1,5 @@
 #!/usr/bin/expect -f
-# credpivot-expect-version: 2
+# credpivot-expect-version: 3
 # CredPivot SSH 自动认证（PTY + Agent 会话取密，不落盘明文密码）
 
 set username ""
@@ -7,6 +7,8 @@ set hostname ""
 set port ""
 set session_id ""
 set askpass_bin ""
+set identity_file ""
+set identity_agent ""
 
 # Expect 默认会把 SIGINT/SIGTERM 当作成功退出；终端取消应返回对应的失败状态。
 trap {exit [expr {128 + [trap -number]}]} {SIGINT SIGTERM SIGHUP}
@@ -36,7 +38,7 @@ proc manual_interaction {} {
 proc usage {} {
     global argv0
     puts "Usage:"
-    puts "  $argv0 --user USER --host HOST --session-id ID --askpass PATH [--port PORT]"
+    puts "  $argv0 --user USER --host HOST --session-id ID --askpass PATH \[--port PORT\] \[--identity-file PATH --identity-agent PATH\]"
 }
 
 for {set i 0} {$i < [llength $argv]} {incr i} {
@@ -47,6 +49,8 @@ for {set i 0} {$i < [llength $argv]} {incr i} {
         "--port" { incr i; set port [lindex $argv $i] }
         "--session-id" { incr i; set session_id [lindex $argv $i] }
         "--askpass" { incr i; set askpass_bin [lindex $argv $i] }
+        "--identity-file" { incr i; set identity_file [lindex $argv $i] }
+        "--identity-agent" { incr i; set identity_agent [lindex $argv $i] }
         default {
             puts "Unknown argument: $key"
             usage
@@ -64,6 +68,11 @@ if {$username eq "" || $hostname eq "" || $session_id eq "" || $askpass_bin eq "
 if {$port ne "" && ![string is integer -strict $port]} {
     puts "Invalid port: $port"
     usage
+    exit 1
+}
+
+if {($identity_file eq "") != ($identity_agent eq "")} {
+    puts "Missing SSH identity file or agent."
     exit 1
 }
 
@@ -90,28 +99,36 @@ set max_password_tries 4
 
 log_user 1
 
-if {$port eq ""} {
-    spawn ssh -tt \
-        -o StrictHostKeyChecking=accept-new \
-        -o UserKnownHostsFile=$env(HOME)/.ssh/known_hosts \
-        -o PubkeyAuthentication=no \
-        -o PasswordAuthentication=yes \
-        -o KbdInteractiveAuthentication=yes \
-        -o PreferredAuthentications=keyboard-interactive,password \
-        -o NumberOfPasswordPrompts=$max_password_tries \
-        "$username@$hostname"
+set ssh_args [list -tt \
+    -o StrictHostKeyChecking=accept-new \
+    -o UserKnownHostsFile=$env(HOME)/.ssh/known_hosts \
+    -o PasswordAuthentication=yes \
+    -o KbdInteractiveAuthentication=yes \
+    -o NumberOfPasswordPrompts=$max_password_tries]
+if {$identity_file ne ""} {
+    lappend ssh_args -o PubkeyAuthentication=yes \
+        -o PreferredAuthentications=publickey,keyboard-interactive,password \
+        -o IdentityAgent=$identity_agent -o IdentitiesOnly=yes \
+        -o ControlPath=none -o ControlMaster=no -i $identity_file
 } else {
-    spawn ssh -tt \
-        -o StrictHostKeyChecking=accept-new \
-        -o UserKnownHostsFile=$env(HOME)/.ssh/known_hosts \
-        -o PubkeyAuthentication=no \
-        -o PasswordAuthentication=yes \
-        -o KbdInteractiveAuthentication=yes \
-        -o PreferredAuthentications=keyboard-interactive,password \
-        -o NumberOfPasswordPrompts=$max_password_tries \
-        -p "$port" \
-        "$username@$hostname"
+    lappend ssh_args -o PubkeyAuthentication=no -o PreferredAuthentications=keyboard-interactive,password
 }
+if {$port ne ""} { lappend ssh_args -p $port }
+lappend ssh_args "$username@$hostname"
+if {$identity_file ne ""} {
+    if {[catch {exec /usr/bin/ssh -G {*}$ssh_args 2>/dev/null} config]} {
+        send_user "CredPivot: 无法检查 SSH 身份配置。\r\n"
+        exit 1
+    }
+    # IdentityFile 会累加，不能把目标配置里的其他身份一起用于此连接。
+    foreach line [split $config "\n"] {
+        if {[regexp {^identityfile (.*)$} $line _ path] && $path ne "none" && $path ne $identity_file} {
+            send_user "CredPivot: SSH 配置叠加了其他 IdentityFile，请移除该目标的重复身份配置后重试。\r\n"
+            exit 1
+        }
+    }
+}
+spawn /usr/bin/ssh {*}$ssh_args
 
 proc send_password {} {
     global password_tries max_password_tries

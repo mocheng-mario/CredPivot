@@ -48,11 +48,12 @@ async function clearMetadataCache() {
 // 严格白名单：即便响应将来增加字段，也不能把密码、密钥或验证码写入扩展存储。
 function metadataPayload(payload, mfa) {
   const fields = mfa ? ["id", "issuer", "account", "linked", "match_rank", "partition_id", "partition_name"] :
-    ["id", "origin", "username", "display_name", "current_revision", "partition_id", "partition_name"];
+    ["id", "origin", "username", "display_name", "current_revision", "partition_id", "partition_name", "password_fill_allowed"];
   return {
     candidates: (payload.candidates ?? []).map((row) => Object.fromEntries(
       fields.filter((field) => Object.hasOwn(row, field)).map((field) => [field, row[field]]))),
-    ...(mfa ? {can_check_other_matches: Boolean(payload.can_check_other_matches), all_matches: Boolean(payload.all_matches)} : {}),
+    ...(mfa ? {can_check_other_matches: Boolean(payload.can_check_other_matches), all_matches: Boolean(payload.all_matches)} :
+      {manual_account_selection: Boolean(payload.manual_account_selection)}),
   };
 }
 
@@ -287,7 +288,7 @@ async function sendNative(message) {
     ...(verification ? {verification_started_ms:verificationStartedMs} : {})};
   // 验证握手会唤起系统弹窗，响应丢失后也不能自动重放。
   const retryable = ["status", "agent.status", "passkey.sites_report",
-    "credential.suggest_for_origin", "mfa.suggest_for_origin"].includes(message.action);
+    "credential.suggest_for_origin", "mfa.accounts_for_origin", "mfa.suggest_for_origin"].includes(message.action);
   for (let attempt = 0; ; attempt++) {
     try {
       const response = await sendNativeOnce(request);
@@ -457,7 +458,7 @@ async function checkInlineAuthorisation(record) {
 }
 async function inlineMetadata(record, accountId) {
   await checkInline(record);
-  const response = await suggestMetadata({action:'credential.suggest_for_origin',origin:record.origin});
+  const response = await suggestMetadata({action:record.mode === 'otp' ? 'mfa.accounts_for_origin' : 'credential.suggest_for_origin',origin:record.origin});
   if (!response?.ok) throw inlineSafeError(response);
   const accounts = metadataPayload(response.payload || {},false).candidates;
   if (accountId !== undefined && accountId !== '' && !accounts.some((row) => row.id === accountId)) {
@@ -472,7 +473,7 @@ async function inlineMetadata(record, accountId) {
   const independent = Object.hasOwn(stored,key) && remembered === '';
   const selected = accountId ?? (record.accountChosen ? record.accountId : independent ? '' :
     accounts.find((row) => row.id === record.accountId)?.id || accounts.find((row) => row.id === remembered)?.id ||
-    (accounts.length === 1 ? accounts[0].id : ''));
+    (record.mode === 'login' && accounts.length === 1 ? accounts[0].id : ''));
   if (accountId !== undefined) record.accountChosen = true;
   record.accountChoiceKnown = record.accountChosen || independent || accounts.some((row) => row.id === remembered);
   record.accountId = selected; record.accounts = accounts;
@@ -495,6 +496,7 @@ async function inlineMetadata(record, accountId) {
   }
   await checkInline(record);
   return {ok:true,origin:record.origin,mode:record.mode,accounts,candidates:record.candidates,
+    manual_account_selection:response.payload?.manual_account_selection === true,
     account_id:record.accountId,selected_id:record.mode === 'login' ? record.accountId : record.selectedMfa,more:record.more};
 }
 async function fillInline(record, id) {
@@ -862,7 +864,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: false, code: "bad_origin", message: "无法确定页面 origin" });
           return;
         }
-        const resp = await suggestMetadata({action: "credential.suggest_for_origin", origin});
+        const resp = await suggestMetadata({action: "mfa.accounts_for_origin", origin});
         if (resp?.ok) {
           const key = selectedAccountKey(msg.tab_id, origin);
           const stored = await chrome.storage.session.get(key);

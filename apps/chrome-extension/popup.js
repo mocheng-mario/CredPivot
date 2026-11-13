@@ -5,6 +5,7 @@ const accountEl = $("account");
 let targetTab = null;
 let targetOrigin = null;
 let candidates = [];
+let manualAccountSelection = false;
 let selectedId = "";
 let mfaCandidates = [];
 let selectedTotpId = "";
@@ -25,6 +26,10 @@ $("ver").textContent = `v${chrome.runtime.getManifest().version}`;
 
 function selectedAccount() {
   return candidates.find((row) => row.id === selectedId);
+}
+
+function passwordAccounts() {
+  return candidates.filter((row) => row.password_fill_allowed !== false);
 }
 
 function setStatus(message, state = "idle") {
@@ -83,7 +88,7 @@ function updateControls() {
   $("connect").disabled = busy;
   accountEl.disabled = busy || !ready || !candidates.length;
   $("accountSearch").disabled = busy || !ready;
-  $("fillLogin").disabled = busy || !ready || !row;
+  $("fillLogin").disabled = busy || !ready || !row || row.password_fill_allowed === false;
   $("fillOtp").disabled = busy || !ready || !mfaCandidates.some((m) => m.id === selectedTotpId);
   $("otp").disabled = busy || !ready || !mfaCandidates.length || (mfaCandidates.length === 1 && Boolean(selectedTotpId));
   $("otherMfas").disabled = busy || !ready;
@@ -98,20 +103,21 @@ function updateControls() {
   $("saveDisplayName").disabled = busy || !captured;
   $("savePartition").disabled = busy || !captured || !$("savePartition").options.length;
   $("saveNew").disabled = busy || !ready || !captured || !partitionReady;
-  $("update").disabled = busy || !ready || !row || !captured;
+  $("update").disabled = busy || !ready || !row || row.password_fill_allowed === false || !captured;
   if (captured) {
-    $("saveTarget").textContent = row
+    $("saveTarget").textContent = row && row.password_fill_allowed !== false
       ? `更新将写入「${row.partition_name || "当前分区"}」的 ${row.display_name || row.username || "所选账号"}，不修改名称和分区。`
       : "未选择已有账号，只能保存为新账号。";
   }
-  $("fillLoginHint").textContent = row ? `使用 ${row.username || "无用户名账号"}` : "先选择登录账号";
+  $("fillLoginHint").textContent = row?.password_fill_allowed === false ? "此账号仅用于选择 MFA" : row ? `使用 ${row.username || "无用户名账号"}` : "先选择登录账号";
   const mfa = mfaCandidates.find((m) => m.id === selectedTotpId);
   $("fillOtpHint").textContent = mfa ? `${mfa.issuer || "MFA"} · ${mfa.account || "无账号标签"}` : "选择当前网站的 MFA";
   const linkedCount = mfaCandidates.filter((m) => m.linked).length;
   $("mfa").hidden = !row;
   $("mfa").textContent = linkedCount ? `${linkedCount} 个可用 MFA` : "无网站 MFA 关联";
   $("mfa").dataset.available = String(linkedCount > 0);
-  $("selectionNote").textContent = !row ? "没有登录记录也可在下方选择独立 MFA。" : selectionSource === "remembered" ? "已恢复此标签页使用的账号，MFA 按当前网站匹配。" : "切换账号会重新匹配适用的 MFA。";
+  $("selectionNote").textContent = manualAccountSelection ? "没有匹配的账户，可手动选择本次登录账号以查找其关联 MFA；密码仍按网站规则限制。" :
+    !row ? "请选择本次登录账号，也可在下方选择独立 MFA。" : selectionSource === "remembered" ? "已恢复此标签页使用的账号，MFA 按当前网站匹配。" : "切换账号会重新匹配适用的 MFA。";
   document.body.setAttribute("aria-busy", String(busy));
 }
 
@@ -176,7 +182,7 @@ function renderAccounts() {
     const option = document.createElement("option");
     option.value = row.id;
     const filtered = !matches.includes(row) ? " · 当前已选" : "";
-    option.textContent = `${row.partition_name ? `[${row.partition_name}] ` : ""}${row.username || "（无用户名）"}${filtered}`;
+    option.textContent = `${row.partition_name ? `[${row.partition_name}] ` : ""}${row.display_name ? `${row.display_name} · ` : ""}${row.username || "（无用户名）"}${row.password_fill_allowed === false ? " · 仅 MFA" : ""}${filtered}`;
     accountEl.append(option);
   }
   accountEl.value = selected ? selectedId : "";
@@ -246,11 +252,12 @@ async function refreshAccounts() {
   if (!response?.ok) { ready = false; showError(response); return false; }
   await getTargetTab();
   candidates = response.payload?.candidates ?? [];
+  manualAccountSelection = response.payload?.manual_account_selection === true;
   const previous = candidates.find((row) => row.id === selectedId);
   const remembered = candidates.find((row) => row.id === response.payload?.selected_credential_id);
   const independent = (selectionSource === "manual" && selectedId === "") ||
     (response.payload?.account_selection_set === true && response.payload?.selected_credential_id === "");
-  selectedId = independent ? "" : previous?.id || remembered?.id || (candidates.length === 1 ? candidates[0].id : "");
+  selectedId = independent ? "" : previous?.id || remembered?.id || "";
   selectionSource = !previous && remembered ? "remembered" : selectionSource;
   renderAccounts();
   return await refreshMfas();
@@ -319,7 +326,7 @@ async function handshake(verify = false) {
     $("connectionState").textContent = "已连接 · 已验证";
     $("connectionState").dataset.state = "success";
     $("connect").textContent = "刷新连接";
-    setStatus(!candidates.length ? (mfaCandidates.length ? "此网站有独立 MFA，可直接选择并填充验证码。" : "此网站暂无账号或 MFA，请在 App 中配置匹配网站。") : selectedAccount() ? "账号已就绪，选择下方按钮填充。" : "此网站有多个账号，请先选择要使用的账号。");
+    setStatus(!candidates.length ? (mfaCandidates.length ? "此网站有独立 MFA，可直接选择并填充验证码。" : "此网站暂无账号或 MFA，请在 App 中配置匹配网站。") : selectedAccount() ? "账号已就绪，选择下方按钮填充。" : "请先选择本次使用的账号，或选择独立 MFA。");
   } catch (e) {
     ready = false;
     candidates = [];
@@ -378,7 +385,7 @@ $("otp").addEventListener("change", async () => {
 
 async function fill(mode) {
   const account = selectedAccount();
-  if (busy || !ready || (mode === "login" ? !account : !selectedTotpId)) return;
+  if (busy || !ready || (mode === "login" ? !account || account.password_fill_allowed === false : !selectedTotpId)) return;
   setBusy(true);
   setStatus(mode === "otp" ? "正在获取并填充 MFA；验证码即将过期时会等待下一组…" : "正在填充账号与密码…", "pending");
   try {
@@ -432,7 +439,7 @@ $("capture").addEventListener("click", async () => {
 
 async function saveCaptured(update) {
   if (busy || !ready || !captured) return;
-  const account = selectedAccount();
+  const account = passwordAccounts().find((row) => row.id === selectedId);
   if (update && !account) return;
   const value = captured;
   const typedName = $("saveUsername").value.trim();

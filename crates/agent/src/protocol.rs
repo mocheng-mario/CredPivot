@@ -121,6 +121,7 @@ pub enum AgentRequest {
     AppCredentialPasswordUpdate { credential_id: String, expected_revision: String, username: String, password: String },
     BrowserTotpCode { #[serde(default)] credential_id: String, origin: String, #[serde(default)] totp_id: String },
     BrowserMfaSuggest { origin: String, #[serde(default)] credential_id: String, #[serde(default)] include_other_matches: bool },
+    BrowserMfaAccounts { origin: String },
     CredentialSuggest {
         origin: String,
     },
@@ -384,6 +385,7 @@ impl AgentRequest {
             Self::BrowserCredentialUpdate { .. } => "browser_credential_update",
             Self::AppCredentialPasswordUpdate { .. } => "app_credential_password_update",
             Self::BrowserMfaSuggest { .. } => "browser_mfa_suggest",
+            Self::BrowserMfaAccounts { .. } => "browser_mfa_accounts",
             Self::BrowserTotpCode { .. } => "browser_totp_code",
             Self::CredentialSuggest { .. } => "credential_suggest",
             Self::CredentialFillPrepare { .. } => "credential_fill_prepare",

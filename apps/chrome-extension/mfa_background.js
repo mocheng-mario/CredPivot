@@ -127,7 +127,13 @@ export async function cancelMfa(tabId, sendNative) {
   request.cancelled = true;
   // 地址变化和收尾可能同时取消，只发一次，避免后一次把已经完成的结果清掉。
   if (!request.cancelTask) {
-    request.cancelTask = sendNative({action: "mfa.cancel", mfa_request_id: request.id});
+    request.cancelTask = (async () => {
+      try {
+        return await sendNative({action: "mfa.cancel", mfa_request_id: request.id});
+      } finally {
+        if (request.gateRequestId) await sendNative({action: "extension.cancel", gate_request_id: request.gateRequestId}).catch(() => {});
+      }
+    })();
   }
   return request.cancelTask;
 }
@@ -140,14 +146,22 @@ export async function cancelMfaIfOriginChanged(tabId, url, sendNative) {
 
 export async function addMfa(tabId, image, sendNative, verify, clearCache) {
   if (pending.has(tabId)) return {ok: false, code: "mfa_pending", message: "此页面已有 MFA 添加请求，请在 App 中处理或取消。"};
-  const request = {id: crypto.randomUUID(), cancelled: false, origin: ""};
+  const request = {id: crypto.randomUUID(), gateRequestId: crypto.randomUUID(), cancelled: false, origin: ""};
   pending.set(tabId, request);
   let completed = false;
   let promoted = null;
   try {
     const tab = await currentPage(tabId);
     request.origin = pageOrigin(tab.url);
-    let gate = await verify(crypto.randomUUID(), false);
+    let gate = await verify(request.gateRequestId, false, async () => {
+      if (request.cancelled) throw new Error("已取消添加 MFA。");
+      await currentPage(tabId, request.origin);
+    });
+    // 取消可能早于握手写入待验证标记，握手返回后再清理一次对应请求。
+    if (request.cancelled) {
+      await sendNative({action: "extension.cancel", gate_request_id: request.gateRequestId});
+      return {ok: false, message: "已取消添加 MFA。"};
+    }
     if (gate?.code === 'extension_gate_required') {
       const deadline = Date.now() + 120_000;
       while (!request.cancelled && Date.now() < deadline) {
@@ -202,6 +216,7 @@ export async function addMfa(tabId, image, sendNative, verify, clearCache) {
     return {ok: false, message: error.message || "二维码识别未完成，请重试。"};
   } finally {
     image = null;
+    try { await sendNative({action: "extension.cancel", gate_request_id: request.gateRequestId}); } catch (_) {}
     if (!completed) {
       try {
         const cancelled = await cancelMfa(tabId, sendNative);

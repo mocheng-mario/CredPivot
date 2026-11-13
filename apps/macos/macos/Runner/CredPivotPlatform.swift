@@ -2325,7 +2325,8 @@ final class CredPivotPlatform: NSObject {
         host: host,
         port: port,
         user: username,
-        sessionId: sessionId
+        sessionId: sessionId,
+        identityFile: args["identityFile"] as? String
       ) {
         result(err)
       } else {
@@ -3983,7 +3984,7 @@ enum SshAskpassLauncher {
     }
     let srcData = try Data(contentsOf: URL(fileURLWithPath: src))
     let srcText = String(data: srcData, encoding: .utf8) ?? ""
-    if !srcText.contains("credpivot-expect-version: 2") {
+    if !srcText.contains("credpivot-expect-version: 3") {
       throw NSError(
         domain: "CredPivot",
         code: 3,
@@ -4005,7 +4006,8 @@ enum SshAskpassLauncher {
     host: String,
     port: Int,
     user: String,
-    sessionId: String
+    sessionId: String,
+    identityFile: String? = nil
   ) -> String? {
     let askpassPath: String
     let expectPath: String
@@ -4030,6 +4032,9 @@ enum SshAskpassLauncher {
     ]
     if port != 22 {
       args.append(contentsOf: ["--port", String(port)])
+    }
+    if let identityFile, !identityFile.isEmpty {
+      args.append(contentsOf: ["--identity-file", identityFile, "--identity-agent", credPivotDir.appendingPathComponent("ssh.sock").path])
     }
     if let err = TerminalLauncher.launchShellCommandLine(
       appPath: appPath,
