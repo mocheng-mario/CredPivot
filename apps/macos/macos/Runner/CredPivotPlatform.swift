@@ -1572,7 +1572,11 @@ final class CredPivotPlatform: NSObject {
         DispatchQueue.main.async {
           self.showingSshAuthorization = false
           if NSApp.isActive, previousApp?.bundleIdentifier != Bundle.main.bundleIdentifier {
-            previousApp?.activate(options: [.activateIgnoringOtherApps])
+            if #available(macOS 14.0, *) {
+              previousApp?.activate()
+            } else {
+              previousApp?.activate(options: [.activateIgnoringOtherApps])
+            }
           }
         }
       }

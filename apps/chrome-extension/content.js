@@ -14,7 +14,7 @@
   const listeners = [];
   let lastInput = null, contextInput = null, anchor = null, panel = null, token = null;
   let hidden = false, opening = false, delivering = false, generation = 0, frame = 0;
-  let host = null, shadow = null, badge = null, notice = null, observer = null, panelTimer = null, noticeTimer = null;
+  let host = null, shadow = null, badge = null, tooltip = null, observer = null, panelTimer = null;
   let inlineFailure = '';
   let regionTask = null, regionFinish = null;
 
@@ -126,14 +126,14 @@
   function closePanel(cancel = true) {
     generation++; opening = false;
     clearTimeout(panelTimer); panelTimer = null;
-    clearTimeout(noticeTimer); if (notice) notice.hidden = true;
+    hideTooltip();
     const current = token; token = null;
     panel?.remove(); panel = null;
     if (cancel && current) void runtimeMessage({type:'inline_cancel', token:current, document_id:documentId}).catch(() => {});
   }
   function hideBadge() {
     if (badge) badge.hidden = true;
-    clearTimeout(noticeTimer); if (notice) notice.hidden = true;
+    hideTooltip();
     anchor = null;
     observer?.disconnect();
   }
@@ -161,13 +161,7 @@
         inlineFailure = '页面样式阻止了填充入口显示，请使用工具栏填充';
       }
     }
-    if (notice && !notice.hidden) {
-      const width = Math.min(320, innerWidth - 16);
-      notice.style.width = `${width}px`;
-      notice.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - width - 8))}px`;
-      notice.style.top = `${Math.max(8, Math.min(rect.bottom + 34, innerHeight - notice.offsetHeight - 8))}px`;
-      notice.style.visibility = outside ? 'hidden' : 'visible';
-    }
+    if (tooltip && !tooltip.hidden) positionTooltip();
     if (panel) {
       const width = Math.max(220, Math.min(360, innerWidth - 16));
       const height = Math.max(150, Math.min(360, innerHeight - 24));
@@ -193,7 +187,7 @@
     host.style.setProperty('inset','0','important');
     host.style.setProperty('pointer-events','none','important');
     shadow = host.attachShadow({mode:'closed'});
-    const styles = 'button{position:fixed;width:26px;height:26px;border:1px solid #d8dafa;border-radius:8px;background:#565dd9;color:white;font:600 10px system-ui;box-shadow:0 2px 8px #0002;cursor:pointer;pointer-events:auto}button:focus-visible{outline:2px solid #565dd9;outline-offset:2px}button[hidden],iframe[hidden],.notice[hidden]{display:none}iframe{position:fixed;border:1px solid #dce0eb;border-radius:12px;background:white;box-shadow:0 8px 32px #0003;pointer-events:auto}.notice{position:fixed;box-sizing:border-box;padding:10px 12px;border:1px solid #efc3a6;border-radius:10px;background:#fff8ef;color:#663d12;font:13px/1.5 system-ui;overflow-wrap:anywhere;box-shadow:0 4px 16px #0002;pointer-events:none}';
+    const styles = 'button{position:fixed;width:26px;height:26px;border:1px solid #d8dafa;border-radius:8px;background:#565dd9;color:white;font:600 10px system-ui;box-shadow:0 2px 8px #0002;cursor:pointer;pointer-events:auto}button[data-error="true"]{background:#c2410c;border-color:#ea580c}button:focus-visible{outline:2px solid #565dd9;outline-offset:2px}button[hidden],iframe[hidden],.tooltip[hidden]{display:none}iframe{position:fixed;border:1px solid #dce0eb;border-radius:12px;background:white;box-shadow:0 8px 32px #0003;pointer-events:auto}.tooltip{position:fixed;box-sizing:border-box;max-width:min(320px,calc(100vw - 16px));padding:8px 10px;border:1px solid #efc3a6;border-radius:8px;background:#fff8ef;color:#663d12;font:12px/1.45 system-ui;overflow-wrap:anywhere;box-shadow:0 4px 16px #0002;pointer-events:none;z-index:1}';
     try {
       const sheet = new CSSStyleSheet(); sheet.replaceSync(styles); shadow.adoptedStyleSheets = [sheet];
     } catch (_) {
@@ -203,6 +197,10 @@
     badge = document.createElement('button'); badge.textContent = 'CP'; badge.type = 'button'; badge.hidden = true;
     badge.setAttribute('aria-label','使用 CredPivot 填充'); badge.title = 'CredPivot：填充账号或验证码';
     badge.addEventListener('mousedown', (event) => event.preventDefault());
+    badge.addEventListener('mouseenter', () => { if (inlineFailure) showTooltip(); });
+    badge.addEventListener('mouseleave', hideTooltip);
+    badge.addEventListener('focus', () => { if (inlineFailure) showTooltip(); });
+    badge.addEventListener('blur', hideTooltip);
     badge.addEventListener('click', (event) => {
       if (!event.isTrusted || !anchor) return;
       if (panel || opening) closePanel();
@@ -215,22 +213,49 @@
         void open(current);
       }
     });
-    notice = document.createElement('div'); notice.className = 'notice'; notice.hidden = true;
-    notice.setAttribute('role','alert');
-    shadow.append(badge,notice); document.documentElement.append(host);
+    tooltip = document.createElement('div'); tooltip.className = 'tooltip'; tooltip.hidden = true;
+    tooltip.setAttribute('role','tooltip');
+    shadow.append(badge, tooltip); document.documentElement.append(host);
     observer ??= new MutationObserver(schedulePosition);
+  }
+  function positionTooltip() {
+    if (!tooltip || tooltip.hidden || !badge) return;
+    const width = Math.min(320, innerWidth - 16);
+    tooltip.style.width = `${width}px`;
+    const left = parseFloat(badge.style.left) || 0;
+    const top = parseFloat(badge.style.top) || 0;
+    const tooltipLeft = left + 32 + width > innerWidth - 8 ? Math.max(8, left - width - 6) : left + 32;
+    tooltip.style.left = `${tooltipLeft}px`;
+    tooltip.style.top = `${Math.max(8, Math.min(top, innerHeight - tooltip.offsetHeight - 8))}px`;
+  }
+  function showTooltip() {
+    if (!badge || !tooltip || !inlineFailure || panel) return;
+    tooltip.textContent = inlineFailure;
+    tooltip.hidden = false;
+    positionTooltip();
+  }
+  function hideTooltip() {
+    if (tooltip) tooltip.hidden = true;
+  }
+  function clearInlineError() {
+    inlineFailure = '';
+    hideTooltip();
+    if (!badge) return;
+    badge.removeAttribute('data-error');
+    badge.textContent = 'CP';
+    badge.title = panel ? 'CredPivot：点击关闭填充面板' : 'CredPivot：填充账号或验证码';
+    badge.setAttribute('aria-label', '使用 CredPivot 填充');
   }
   function showFailure(message) {
     const raw = String(message || '页面填充面板未能打开，请再次点击图标或使用工具栏填充');
     inlineFailure = /Extension context invalidated|Receiving end does not exist|message port closed/i.test(raw)
       ? '插件连接已失效，请重新点击图标；若仍失败，请刷新网页后重试。' : raw;
-    if (!badge || !notice) return;
-    badge.textContent = '!'; badge.title = inlineFailure;
+    if (!badge) return;
+    hideTooltip();
+    badge.textContent = '!';
+    badge.dataset.error = 'true';
+    badge.title = '';
     badge.setAttribute('aria-label',`CredPivot：${inlineFailure}`);
-    // 面板内已经显示同一原因时不再覆盖候选与验证按钮。
-    notice.textContent = inlineFailure; notice.hidden = Boolean(panel);
-    clearTimeout(noticeTimer);
-    noticeTimer = setTimeout(() => { notice.hidden = true; },10000);
     position();
   }
   function showBadge(target) {
@@ -252,8 +277,8 @@
     let openTimer;
     try {
       ensureHost(); anchor = target;
-      inlineFailure = '';
-      badge.textContent = 'CP'; badge.title = 'CredPivot：正在打开填充面板';
+      clearInlineError();
+      badge.title = 'CredPivot：正在打开填充面板';
       badge.setAttribute('aria-label','使用 CredPivot 填充');
       const pending = runtimeMessage({type:'inline_open', document_id:documentId, target_id:target.id});
       // 只给创建面板的非敏感请求限时；不重放取密请求，也不截断用户的指纹验证。
@@ -269,7 +294,7 @@
         return {ok:false};
       }
       if (!response?.ok) throw new Error(response?.message || '连接失败，请再次点击图标重试');
-      inlineFailure = '';
+      clearInlineError();
       token = response.token;
       panel = document.createElement('iframe');
       panel.title = 'CredPivot 填充'; panel.referrerPolicy = 'no-referrer';
@@ -418,8 +443,8 @@
       clearTimeout(panelTimer); panelTimer = null;
       if (msg.message) showFailure(msg.message);
       else {
-        inlineFailure = ''; clearTimeout(noticeTimer); if (notice) notice.hidden = true;
-        badge.textContent = 'CP'; badge.title = 'CredPivot：点击关闭填充面板';
+        clearInlineError();
+        badge.title = 'CredPivot：点击关闭填充面板';
         badge.setAttribute('aria-label','使用 CredPivot 填充');
       }
       respond({ok:true}); return;
