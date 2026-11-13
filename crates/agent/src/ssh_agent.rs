@@ -48,6 +48,10 @@ pub(crate) struct GitContext {
     #[serde(skip)]
     #[cfg(not(target_os = "android"))]
     pub authorization_generation: u64,
+    pub trusted_repository: bool,
+    #[serde(skip)]
+    #[cfg(not(target_os = "android"))]
+    pub manually_signed: Arc<std::sync::atomic::AtomicBool>,
     pub selection_source: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matched_rule: Option<String>,
@@ -124,7 +128,7 @@ fn grant_session_authorization(v: &mut VaultSession, key_id: &str, scope: &str, 
 }
 
 #[cfg(not(target_os = "android"))]
-fn signing_policy(v: &VaultSession, id: &str) -> Result<(String, String)> {
+pub(crate) fn signing_policy(v: &VaultSession, id: &str) -> Result<(String, String)> {
     let db = v.db.as_ref().ok_or(AgentError::Locked)?;
     // 授权信息只需要公有元数据，不再次读取私钥 seed。
     let key = db.list_ssh().map_err(|e|AgentError::Vault(e.to_string()))?
@@ -148,10 +152,21 @@ async fn authorized_sign(stream: &mut tokio::net::UnixStream, vault: &Arc<Mutex<
         v.ssh_authorization.expire();
         if v.ssh_authorization.approved_once.remove(&(key_id.clone(),scope.into())).is_some_and(|(_,saved)|saved==policy) {
             let result=sign_request(&v,msg,&key_id)?;
+            if result.get(4)==Some(&SSH_AGENT_SIGN_RESPONSE) {
+                if let Some(git)=git { git.manually_signed.store(true,std::sync::atomic::Ordering::Relaxed); }
+            }
             if policy=="session" && result.get(4)==Some(&SSH_AGENT_SIGN_RESPONSE) {
                 grant_session_authorization(&mut v,&key_id,scope,git);
             }
             v.touch_activity(); return Ok(result);
+        }
+        if policy == "session" && git.is_some_and(|git| {
+            v.ssh_authorization.generation == git.authorization_generation
+                && crate::git_ssh::trusted_key(&v,&git.authorization_scope).is_some_and(|(id,fingerprint)| {
+                    id == key_id && fingerprint == crate::git_ssh::blob_fingerprint(&blob)
+                })
+        }) {
+            v.touch_activity(); return sign_request(&v,msg,&key_id);
         }
         if git_reuse_seconds>0 && git.is_some_and(|g|!g.authorization_scope.is_empty()
             && v.ssh_authorization.git_grants.contains_key(&(key_id.clone(),g.authorization_scope.clone()))) {
@@ -187,6 +202,9 @@ async fn authorized_sign(stream: &mut tokio::net::UnixStream, vault: &Arc<Mutex<
         || requested_identity(&v,msg,selected)?.as_ref() != Some(&(key_id.clone(),expected_key))
         || signing_policy(&v,&key_id)?.1 != policy { return Ok(failure_packet()); }
     let result = sign_request(&v,msg,&key_id)?;
+    if result.get(4)==Some(&SSH_AGENT_SIGN_RESPONSE) {
+        if let Some(git)=git { git.manually_signed.store(true,std::sync::atomic::Ordering::Relaxed); }
+    }
     if policy == "session" && result.get(4)==Some(&SSH_AGENT_SIGN_RESPONSE) {
         grant_session_authorization(&mut v,&key_id,scope,git);
     }

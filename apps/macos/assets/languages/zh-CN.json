@@ -5,6 +5,97 @@
   "name": "简体中文",
   "source_locale": "zh-CN",
   "messages": {
+    "ssh.git.trust.custom": {
+      "source": "自定义填写 / 编辑信任列表",
+      "translation": "自定义填写 / 编辑信任列表",
+      "description": "手动维护两个入口共用的信任列表",
+      "placeholders": {},
+      "locations": ["settings_page.dart"]
+    },
+    "ssh.git.trust.choose": {
+      "source": "从 SSH 密钥的 Git 使用范围选择",
+      "translation": "从 SSH 密钥的 Git 使用范围选择",
+      "description": "信任列表的 SSH 使用范围选择入口",
+      "placeholders": {},
+      "locations": ["settings_page.dart"]
+    },
+    "ssh.git.trust.chooseTitle": {
+      "source": "选择 Git 信任范围",
+      "translation": "选择 Git 信任范围",
+      "description": "选择器标题",
+      "placeholders": {},
+      "locations": ["ssh_git_ui.dart"]
+    },
+    "ssh.git.trust.chooseHelp": {
+      "source": "列出所有未删除 SSH 密钥中配置的 Git 使用范围。可按范围或密钥名称搜索，重复范围只显示一次。选中后沿用原范围，例如组织路径覆盖其下仓库；每个实际仓库与密钥首次仍需人工授权。选择后加入草稿，保存配置后生效。",
+      "translation": "列出所有未删除 SSH 密钥中配置的 Git 使用范围。可按范围或密钥名称搜索，重复范围只显示一次。选中后沿用原范围，例如组织路径覆盖其下仓库；每个实际仓库与密钥首次仍需人工授权。选择后加入草稿，保存配置后生效。",
+      "description": "候选来源与添加行为",
+      "placeholders": {},
+      "locations": ["ssh_git_ui.dart"]
+    },
+    "ssh.git.trust.alreadyAdded": {
+      "source": "已在信任列表",
+      "translation": "已在信任列表",
+      "description": "避免从选择器重复添加",
+      "placeholders": {},
+      "locations": ["ssh_git_ui.dart"]
+    },
+    "ssh.git.trust.noOrigins": {
+      "source": "SSH 密钥尚未配置 Git 使用范围",
+      "translation": "SSH 密钥尚未配置 Git 使用范围",
+      "description": "没有可选范围时的提示",
+      "placeholders": {},
+      "locations": ["ssh_git_ui.dart"]
+    },
+    "ssh.git.trust.addSelected": {
+      "source": "加入信任列表",
+      "translation": "加入信任列表",
+      "description": "添加所选使用范围",
+      "placeholders": {},
+      "locations": ["ssh_git_ui.dart"]
+    },
+    "ssh.git.trust.pendingCount": {
+      "source": "待加入 {count} 个范围",
+      "translation": "待加入 {count} 个范围",
+      "description": "仅计入本次新选范围，已加入的范围不重复计数",
+      "placeholders": {"count": "范围数量"},
+      "locations": ["ssh_git_ui.dart"]
+    },
+    "ssh.git.trust.loadFailed": {
+      "source": "读取 SSH 的 Git 使用范围失败，请解锁保险库后重试",
+      "translation": "读取 SSH 的 Git 使用范围失败，请解锁保险库后重试",
+      "description": "读取候选失败",
+      "placeholders": {},
+      "locations": ["settings_page.dart"]
+    },
+    "ssh.git.trust.setting": {
+      "source": "Git 远端仓库信任列表",
+      "translation": "Git 远端仓库信任列表",
+      "description": "本机自动授权的 Git 远端仓库",
+      "placeholders": {},
+      "locations": ["settings_page.dart"]
+    },
+    "ssh.git.trust.help": {
+      "source": "每行一个目标，最多 100 个不同目标。带 SSH 用户的完整地址精确匹配仓库；从 SSH 选择的使用范围沿用原规则。两个入口统一去重，不同用户、端口与匹配范围分别保留。每个实际仓库与密钥首次仍需人工授权并成功完成 Git 操作；选择密钥时需勾选记住此仓库。之后可自动授权，锁库时仍需指纹或主密码解锁。仅对“限时复用授权”策略生效。本机配置，不参与同步。",
+      "translation": "每行一个目标，最多 100 个不同目标。带 SSH 用户的完整地址精确匹配仓库；从 SSH 选择的使用范围沿用原规则。两个入口统一去重，不同用户、端口与匹配范围分别保留。每个实际仓库与密钥首次仍需人工授权并成功完成 Git 操作；选择密钥时需勾选记住此仓库。之后可自动授权，锁库时仍需指纹或主密码解锁。仅对“限时复用授权”策略生效。本机配置，不参与同步。",
+      "description": "Git 信任范围与首次授权规则",
+      "placeholders": {},
+      "locations": ["settings_page.dart"]
+    },
+    "ssh.git.trust.hint": {
+      "source": "git@example.com:team/project.git\nssh://git@example.com:2222/team/project.git",
+      "translation": "git@example.com:team/project.git\nssh://git@example.com:2222/team/project.git",
+      "description": "支持的远端仓库地址格式",
+      "placeholders": {},
+      "locations": ["settings_page.dart"]
+    },
+    "ssh.git.trust.unlockReason": {
+      "source": "解锁保险库以允许 Git 连接已信任仓库：{repository}",
+      "translation": "解锁保险库以允许 Git 连接已信任仓库：{repository}",
+      "description": "已授权信任仓库仅保留系统身份验证",
+      "placeholders": {"repository": "仓库地址"},
+      "locations": ["CredPivotPlatform.swift"]
+    },
     "server.terminal.copy": {
       "source": "复制终端连接命令",
       "translation": "复制终端连接命令",

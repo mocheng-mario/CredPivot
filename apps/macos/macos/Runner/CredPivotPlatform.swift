@@ -1656,6 +1656,16 @@ final class CredPivotPlatform: NSObject {
     NSApp.activate(ignoringOtherApps: true)
     let alert = NSAlert()
     let policy = request["policy"] as? String ?? "confirm"
+    if policy == "unlock", request["trusted_repository"] as? Bool == true {
+      let repository = request["repository"] as? String ?? ""
+      TouchIdGate.shared.authenticateSensitiveOperation(
+        reason: NativePresentation.tr("ssh.git.trust.unlockReason", arguments: ["repository": repository])
+      ) { [weak self] ok in
+        _ = LocalVaultUnlock.request(["type": "ssh_authorization_resolve", "request_id": id, "approved": ok])
+        self?.showingSshAuthorization = false
+      }
+      return
+    }
     let candidates = request["candidates"] as? [[String: Any]] ?? []
     let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 520, height: 28), pullsDown: false)
     let remember = NSButton(checkboxWithTitle: NativePresentation.tr("ssh.git.remember"), target: nil, action: nil)

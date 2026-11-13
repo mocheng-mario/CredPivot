@@ -51,6 +51,56 @@ pub fn normalize_rules(rules: &[String]) -> Result<Vec<String>> {
     Ok(seen.into_iter().collect())
 }
 
+fn trusted_repository_target(input: &str) -> Result<(Option<String>, String)> {
+    let input = input.trim();
+    let remote = normalize_rule(input)?;
+    let user = if input.starts_with("ssh://") {
+        url::Url::parse(input).map_err(|_| invalid())?.username().to_owned()
+    } else {
+        input.split_once('@').map_or("", |(user, _)| user).to_owned()
+    };
+    if user.is_empty() {
+        if input.contains('@') { return Err(invalid()); }
+        return Ok((None, remote));
+    }
+    if user.len() > 128
+        || !user.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)) {
+        return Err(invalid());
+    }
+    Ok((Some(user), remote))
+}
+
+/// 带 SSH 用户的完整地址保持精确匹配，不扩展为组织范围。
+pub fn normalize_trusted_repository(input: &str) -> Result<String> {
+    let (user, remote) = trusted_repository_target(input)?;
+    let user = user.ok_or_else(invalid)?;
+    Ok(format!("{user}@{remote}"))
+}
+
+pub fn normalize_trusted_repositories(values: &[String]) -> Result<Vec<String>> {
+    if values.len() > 1000 { return Err(invalid()); }
+    let mut seen = BTreeSet::new();
+    let mut repositories = Vec::new();
+    for value in values {
+        let value = value.trim();
+        let target = trusted_repository_target(value)?;
+        if seen.insert(target.clone()) {
+            repositories.push(if target.0.is_some() { value.to_owned() } else { target.1 });
+        }
+    }
+    if repositories.len() > 100 { return Err(invalid()); }
+    Ok(repositories)
+}
+
+pub fn trusted_repository_matches(value: &str, identity: &str) -> bool {
+    let Ok((user, remote)) = trusted_repository_target(value) else { return false; };
+    match user {
+        Some(user) => identity == format!("{user}@{remote}"),
+        // SSH 使用范围不含用户；首次授权仍由 Agent 按实际用户、仓库和密钥分别记录。
+        None => identity.split_once('@').is_some_and(|(_, target)| match_score(&remote, target) > 0),
+    }
+}
+
 impl GitTarget {
     pub fn normalized(&self) -> Result<String> {
         if self.user.is_empty() || self.user.len()>128 || !self.user.bytes().all(|b|b.is_ascii_alphanumeric() || b"._-".contains(&b))

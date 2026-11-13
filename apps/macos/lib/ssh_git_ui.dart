@@ -9,6 +9,58 @@ import 'touch_id_gate.dart';
 
 List<String> sshGitRules(TextEditingController controller) => controller.text.split('\n').map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
 
+Future<List<String>> normalizeGitTrustRepositories(List<String> repositories) async {
+  final result = await AgentBridge.manage({'action': 'ssh_git_trust_normalize', 'repositories': repositories});
+  return (result['repositories'] as List).cast<String>();
+}
+
+Future<List<String>?> chooseSshGitTrustRules(BuildContext context, List<String> repositories) async {
+  final normalized = await AgentBridge.manage({'action': 'ssh_git_trust_normalize', 'repositories': repositories});
+  final existing = (normalized['rules'] as List).cast<String>().toSet();
+  final result = await AgentBridge.manage({'action': 'ssh_git_trust_candidates'});
+  if (!context.mounted) return null;
+  final candidates = (result['items'] as List).map((item) => Map<String, dynamic>.from(item as Map)).toList();
+  final selected = <String>{};
+  var query = '';
+  return showDialog<List<String>>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(builder: (ctx, update) {
+      final visible = candidates.where((item) => '${item['rule']} ${(item['labels'] as List).join(' ')}'.toLowerCase().contains(query)).toList();
+      return AlertDialog(
+        title: const LText('ssh.git.trust.chooseTitle'),
+        content: SizedBox(width: appEditDialogWidth(ctx), height: MediaQuery.sizeOf(ctx).height * .5,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const LText('ssh.git.trust.chooseHelp'),
+            const SizedBox(height: 12),
+            TextField(decoration: InputDecoration(hintText: tr('links.search'), prefixIcon: const Icon(Icons.search)),
+              onChanged: (value) => update(() => query = value.trim().toLowerCase())),
+            const SizedBox(height: 8),
+            LText('ssh.git.trust.pendingCount', args: {'count': selected.length}),
+            Expanded(child: visible.isEmpty
+              ? Center(child: LText(candidates.isEmpty ? 'ssh.git.trust.noOrigins' : 'links.noMatches'))
+              : ListView.builder(itemCount: visible.length, itemBuilder: (_, index) {
+                  final item = visible[index];
+                  final rule = item['rule'] as String;
+                  final added = existing.contains(rule);
+                  return CheckboxListTile(contentPadding: EdgeInsets.zero,
+                    value: added || selected.contains(rule),
+                    title: Text(rule),
+                    subtitle: Text([if (added) tr('ssh.git.trust.alreadyAdded'), (item['labels'] as List).join('、')].join('\n')),
+                    onChanged: added ? null : (checked) => update(() {
+                      if (checked == true) { selected.add(rule); } else { selected.remove(rule); }
+                    }),
+                  );
+                })),
+          ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const LText('common.cancel')),
+          FilledButton(onPressed: selected.isEmpty ? null : () => Navigator.pop(ctx, selected.toList()), child: const LText('ssh.git.trust.addSelected')),
+        ],
+      );
+    }),
+  );
+}
+
 class SshGitRulesField extends StatefulWidget {
   const SshGitRulesField({super.key, required this.controller, this.enabled = true});
   final TextEditingController controller;

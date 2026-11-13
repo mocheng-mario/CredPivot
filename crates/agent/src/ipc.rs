@@ -816,7 +816,11 @@ async fn handle_request_inner(
                 Err(_) => AgentResponse::err("settings_backup", "配置备份失败，未恢复默认值"),
             }
         }
-        AgentRequest::AppSettingsSet { settings } => {
+        AgentRequest::AppSettingsSet { mut settings } => {
+            settings.git_ssh_trusted_repositories = match credpivot_core::ssh_git::normalize_trusted_repositories(&settings.git_ssh_trusted_repositories) {
+                Ok(repositories) => repositories,
+                Err(_) => return AgentResponse::err("bad_settings", "Git 信任列表地址无效，或超过 100 个不同目标"),
+            };
             if let Err(e) = settings.validate() { return AgentResponse::err("bad_settings", e.to_string()); }
             let old = credpivot_core::effective_app_settings();
             if old.vault_directory != settings.vault_directory {
@@ -1434,6 +1438,10 @@ async fn handle_request_inner(
             let mut v = st.vault.lock().await;
             if !v.unlocked { return AgentResponse::err("locked", "vault locked"); }
             let revoke_ssh=matches!(&action,credpivot_core::VaultAction::SshGitForget {..} | credpivot_core::VaultAction::SshGitRechoose {..});
+            #[cfg(not(target_os = "android"))]
+            if let credpivot_core::VaultAction::SshGitForget {scope} | credpivot_core::VaultAction::SshGitRechoose {scope} = &action {
+                if let Err(error)=crate::git_ssh::forget_trust(&v,scope) { return AgentResponse::err("vault",error.to_string()); }
+            }
             if !action.is_passive() { v.touch_activity(); }
             // 导入和永久删除前保留可恢复快照，且失败时不执行危险操作。
             if matches!(&action, credpivot_core::VaultAction::BitwardenImport { .. } | credpivot_core::VaultAction::GoogleImport { .. } | credpivot_core::VaultAction::TrashPurge { .. } | credpivot_core::VaultAction::PartitionMoveApply {..} | credpivot_core::VaultAction::LoginMergeApply {..}) {

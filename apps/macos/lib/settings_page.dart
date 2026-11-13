@@ -36,6 +36,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final _numbers = <String, TextEditingController>{};
   final _terminal = TextEditingController();
   final _extensionId = TextEditingController();
+  final _trustedGitRepositories = TextEditingController();
   final _search = TextEditingController();
   final _settingsScroll = ScrollController();
   final _sectionKeys = {for (final id in _sections.keys) id: GlobalKey()};
@@ -55,9 +56,10 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _saving = false;
   bool _restoringDefaults = false;
   bool _updatingSsh = false;
+  bool _choosingGitTrust = false;
   bool _dirty = false;
   bool get _busy => widget.busy || _loading || _saving ||
-      _restoringDefaults || _updatingSsh;
+      _restoringDefaults || _updatingSsh || _choosingGitTrust;
   bool get _loginNeedsApply =>
       _login['supported'] == true &&
       _draft['launch_at_login'] is bool &&
@@ -91,6 +93,10 @@ class _SettingsPageState extends State<SettingsPage> {
 
   // 只索引配置名称、说明和配置键，不把用户填写的值加入搜索。
   static const _sections = {
+    'startup': (title: 'settings.build.title.item7', icon: Icons.desktop_mac_outlined, terms: [
+      'settings.build.text.item40', 'settings.build.text.item41', 'settings.build.text.item42',
+      'settings.build.text.item43', 'settings.build.text.item44', 'launch_at_login',
+    ]),
     'security': (title: 'settings.build.title.item2', icon: Icons.lock_outline_rounded, terms: [
       'settings.build.description', 'settings.security.autoUnlockOnWake', 'settings.security.autoUnlockOnWakeHelp',
       'settings.build.text.item6', 'settings.build.text.item7', 'settings.build.text.item8', 'settings.build.text.item9',
@@ -103,6 +109,7 @@ class _SettingsPageState extends State<SettingsPage> {
       'settings.build.text.item18', 'settings.build.text.item19', 'settings.build.text.item20',
       'settings.build.text.item21', 'settings.build.text.item22', 'ssh.git.authorization.reuseSetting',
       'ssh.git.authorization.reuseHelp', 'ssh_sign_policy', 'git_ssh_auth_seconds',
+      'ssh.git.trust.setting', 'ssh.git.trust.help', 'git_ssh_trusted_repositories',
     ]),
     'general': (title: 'settings.build.title.item4', icon: Icons.tune_rounded, terms: [
       'settings.build.text.item23', 'settings.build.text.item24', 'settings.build.text.item25', 'settings.build.text.item26',
@@ -125,10 +132,6 @@ class _SettingsPageState extends State<SettingsPage> {
     ]),
     'vault': (title: 'settings.build.title.item6', icon: Icons.folder_outlined, terms: [
       'settings.build.text.item38', 'settings.build.text.item39', 'vault_directory',
-    ]),
-    'startup': (title: 'settings.build.title.item7', icon: Icons.desktop_mac_outlined, terms: [
-      'settings.build.text.item40', 'settings.build.text.item41', 'settings.build.text.item42',
-      'settings.build.text.item43', 'settings.build.text.item44', 'launch_at_login',
     ]),
     'terminal': (title: 'settings.build.title.item8', icon: Icons.terminal_rounded, terms: [
       'settings.build.description.item3', 'settings.build.text.item46', 'settings.build.text.item47',
@@ -277,6 +280,7 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     _terminal.dispose();
     _extensionId.dispose();
+    _trustedGitRepositories.dispose();
     _search.dispose();
     _settingsScroll.dispose();
     super.dispose();
@@ -304,6 +308,7 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     _terminal.text = settings['terminal_app_path']?.toString() ?? '';
     _extensionId.text = settings['chrome_extension_id']?.toString() ?? '';
+    _trustedGitRepositories.text = (settings['git_ssh_trusted_repositories'] as List? ?? []).join('\n');
     // 未设置保持空值。当成 false 再保存，会在用户改其他设置时注销登录项。
     _draft['launch_at_login'] = settings['launch_at_login'] is bool ? settings['launch_at_login'] : null;
   }
@@ -455,6 +460,26 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _chooseGitTrust() async {
+    if (_busy) return;
+    setState(() { _choosingGitTrust = true; _message = ''; });
+    try {
+      final current = sshGitRules(_trustedGitRepositories);
+      final selected = await chooseSshGitTrustRules(context, current);
+      if (!mounted || selected == null) return;
+      final merged = await normalizeGitTrustRepositories([...current, ...selected]);
+      if (!mounted) return;
+      setState(() {
+        _trustedGitRepositories.text = merged.join('\n');
+        _dirty = true;
+      });
+    } catch (error) {
+      if (mounted) setState(() => _message = error is AgentException ? error.message : tr('ssh.git.trust.loadFailed'));
+    } finally {
+      if (mounted) setState(() => _choosingGitTrust = false);
+    }
+  }
+
   Future<void> _save() async {
     if (_busy || _form.currentState == null) return;
     final invalid = _form.currentState!.validateGranularly();
@@ -481,6 +506,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _message = '';
     });
     try {
+      final trustedRepositories = sshGitRules(_trustedGitRepositories);
       final current = await AgentBridge.fetchAppSettings();
       if (!mounted) return;
       Map<String, dynamic> general(Map<String, dynamic> value) => Map<String, dynamic>.from(value)..removeWhere((key, _) => key.startsWith('shortcut_'));
@@ -519,6 +545,7 @@ class _SettingsPageState extends State<SettingsPage> {
             : value;
       }
       next['terminal_app_path'] = _terminal.text.trim();
+      next['git_ssh_trusted_repositories'] = trustedRepositories;
       final extensionId = _extensionId.text.trim();
       final storedExtensionId = current['settings']['chrome_extension_id'];
       final storedText = storedExtensionId is String ? storedExtensionId.trim() : '';
@@ -602,6 +629,35 @@ class _SettingsPageState extends State<SettingsPage> {
           AppPanel(
             title: tr('settings.build.title'),
             child: SelectableText(_backupPath)),
+                _section('startup', AppPanel(
+                    title: tr('settings.build.title.item7'),
+                    icon: Icons.desktop_mac_outlined,
+                    child: appFieldRows([
+                      AppFieldRow(label: tr('settings.build.text.item40'),
+                        child: Row(children: [
+                          Switch(
+                            value: _draft['launch_at_login'] == true,
+                            onChanged: _login['supported'] == true
+                                ? (value) => setState(() {
+                                      _draft['launch_at_login'] = value;
+                                      _dirty = true;
+                                    })
+                                : null,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(child: LText(
+                            _login['supported'] != true
+                                ? 'settings.build.text.item41'
+                                : _login['requires_approval'] == true
+                                    ? 'settings.build.text.item42'
+                                    : _login['enabled'] == true
+                                        ? 'settings.build.text.item43'
+                                        : 'settings.build.text.item44',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          )),
+                        ]),
+                      ),
+                    ]))),
                 _section('security', AppPanel(
                     title: tr('settings.build.title.item2'),
                     subtitle: tr('settings.build.description'),
@@ -655,6 +711,25 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                       _number('git_ssh_auth_seconds', tr('ssh.git.authorization.reuseSetting'),
                           tr('ssh.git.authorization.reuseHelp'), tr('common.units.minutes'), 0, 30),
+                      AppFieldRow(label: tr('ssh.git.trust.setting'),
+                        help: tr('ssh.git.trust.help'),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          LText('ssh.git.trust.custom'),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _trustedGitRepositories,
+                            minLines: 3, maxLines: 6,
+                            decoration: InputDecoration(hintText: tr('ssh.git.trust.hint')),
+                            onChanged: (_) => setState(() => _dirty = true),
+                          ),
+                          const SizedBox(height: 8),
+                          Align(alignment: Alignment.centerLeft, child: OutlinedButton.icon(
+                            onPressed: _busy ? null : _chooseGitTrust,
+                            icon: const Icon(Icons.playlist_add_check),
+                            label: const LText('ssh.git.trust.choose'),
+                          )),
+                        ]),
+                      ),
                     ]))),
                 _section('general', AppPanel(
                     title: tr('settings.build.title.item4'),
@@ -790,35 +865,6 @@ class _SettingsPageState extends State<SettingsPage> {
                             ]),
                           ],
                         ),
-                      ),
-                    ]))),
-                _section('startup', AppPanel(
-                    title: tr('settings.build.title.item7'),
-                    icon: Icons.desktop_mac_outlined,
-                    child: appFieldRows([
-                      AppFieldRow(label: tr('settings.build.text.item40'),
-                        child: Row(children: [
-                          Switch(
-                            value: _draft['launch_at_login'] == true,
-                            onChanged: _login['supported'] == true
-                                ? (value) => setState(() {
-                                      _draft['launch_at_login'] = value;
-                                      _dirty = true;
-                                    })
-                                : null,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(child: LText(
-                            _login['supported'] != true
-                                ? 'settings.build.text.item41'
-                                : _login['requires_approval'] == true
-                                    ? 'settings.build.text.item42'
-                                    : _login['enabled'] == true
-                                        ? 'settings.build.text.item43'
-                                        : 'settings.build.text.item44',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          )),
-                        ]),
                       ),
                     ]))),
                 _section('terminal', AppPanel(

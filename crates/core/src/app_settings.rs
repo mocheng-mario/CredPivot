@@ -24,6 +24,7 @@ pub struct AppSettings {
     pub password_reminder_days: u32,
     pub ssh_sign_policy: String,
     pub git_ssh_auth_seconds: u64,
+    pub git_ssh_trusted_repositories: Vec<String>,
     pub shortcut_search: String,
     pub shortcut_lock: String,
     pub shortcut_new: String,
@@ -59,6 +60,7 @@ impl Default for AppSettings {
             password_reminder_days: 90,
             ssh_sign_policy: "session".into(),
             git_ssh_auth_seconds: 300,
+            git_ssh_trusted_repositories: Vec::new(),
             shortcut_search: "command+k".into(),
             shortcut_lock: "command+l".into(),
             shortcut_new: "command+n".into(),
@@ -82,6 +84,10 @@ impl Default for AppSettings {
 
 impl AppSettings {
     pub fn validate(&self) -> io::Result<()> {
+        if crate::ssh_git::normalize_trusted_repositories(&self.git_ssh_trusted_repositories).is_err() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput,
+                "Git 信任列表最多 100 个不同目标，需填写有效的 SSH 仓库地址或 Git 使用范围"));
+        }
         let shortcuts = [&self.shortcut_search, &self.shortcut_lock, &self.shortcut_new];
         let mut seen = std::collections::HashSet::new();
         let valid = shortcuts.iter().all(|v| {
@@ -147,12 +153,19 @@ impl AppSettings {
     pub fn security_differs(&self, other: &Self) -> bool {
         self.ssh_sign_policy != other.ssh_sign_policy
             || self.git_ssh_auth_seconds != other.git_ssh_auth_seconds
+            || self.git_ssh_trusted_repositories != other.git_ssh_trusted_repositories
             || self.vault_idle_seconds != other.vault_idle_seconds
             || self.sensitive_auth_seconds != other.sensitive_auth_seconds
             || self.browser_idle_seconds != other.browser_idle_seconds
             || self.clipboard_clear_seconds != other.clipboard_clear_seconds
             || self.master_password_days != other.master_password_days
             || self.master_password_idle_hours != other.master_password_idle_hours
+    }
+
+    pub fn trusts_git_repository(&self, identity: &str) -> bool {
+        self.git_ssh_trusted_repositories.iter().any(|value| {
+            crate::ssh_git::trusted_repository_matches(value, identity)
+        })
     }
 }
 
@@ -227,6 +240,9 @@ pub fn backup_app_settings() -> io::Result<Option<PathBuf>> {
 }
 
 pub fn write_app_settings(settings: &AppSettings) -> io::Result<()> {
+    let mut settings = settings.clone();
+    settings.git_ssh_trusted_repositories = crate::ssh_git::normalize_trusted_repositories(&settings.git_ssh_trusted_repositories)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Git 信任列表无效"))?;
     settings.validate()?;
     let _guard = SETTINGS_WRITE_LOCK
         .lock()
@@ -253,7 +269,7 @@ pub fn write_app_settings(settings: &AppSettings) -> io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         file.set_permissions(fs::Permissions::from_mode(0o600))?;
     }
-    let bytes = serde_json::to_vec_pretty(settings).map_err(io::Error::other)?;
+    let bytes = serde_json::to_vec_pretty(&settings).map_err(io::Error::other)?;
     file.write_all(&bytes)?;
     file.write_all(b"\n")?;
     file.sync_all()?;

@@ -9,7 +9,10 @@ use tokio::{io::{AsyncReadExt,AsyncWriteExt},net::{UnixListener,UnixStream},sync
 pub(crate) const SELECT_PREFIX: &[u8]=b"\x1bcredpivot-git-select\0";
 fn failure() -> AgentError { AgentError::Protocol("ssh.git.failed".into()) }
 fn fingerprint(public: &str) -> Result<String> {
-    Ok(format!("SHA256:{}",base64::engine::general_purpose::STANDARD_NO_PAD.encode(Sha256::digest(ssh_agent::public_blob(public)?))))
+    Ok(blob_fingerprint(&ssh_agent::public_blob(public)?))
+}
+pub(crate) fn blob_fingerprint(blob: &[u8]) -> String {
+    format!("SHA256:{}",base64::engine::general_purpose::STANDARD_NO_PAD.encode(Sha256::digest(blob)))
 }
 fn scopes(target: &GitTarget) -> Result<(String,String)> {
     let remote=target.identity().map_err(|_|failure())?;
@@ -17,6 +20,43 @@ fn scopes(target: &GitTarget) -> Result<(String,String)> {
         format!("git-ssh:remote:{}",hex_digest(remote.as_bytes()))))
 }
 fn hex_digest(data: &[u8]) -> String { Sha256::digest(data).iter().map(|b|format!("{b:02x}")).collect() }
+
+fn trust_path(v: &VaultSession, identity: &str) -> Result<std::path::PathBuf> {
+    let config=credpivot_core::read_vault_json(&v.vault_dir).map_err(|_|failure())?;
+    Ok(crate::paths::runtime_dir().join("git-trust").join(hex_digest(format!("{}\0{identity}",config.vault_id).as_bytes())))
+}
+
+// 库外文件只用于锁库时省去解锁确认；自动签名必须读取加密库内的首次授权记录。
+pub(crate) fn trusted_key(v: &VaultSession, identity: &str) -> Option<(String,String)> {
+    if !credpivot_core::effective_app_settings().trusts_git_repository(identity) { return None; }
+    let data=if v.unlocked {
+        v.db.as_ref()?.conn().query_row("SELECT value FROM sync_state WHERE key=?1",
+            [format!("git-ssh-trust:{}",hex_digest(identity.as_bytes()))],|r|r.get::<_,String>(0)).ok()?.into_bytes()
+    } else { std::fs::read(trust_path(v,identity).ok()?).ok()? };
+    if data.len()>16384 { return None; }
+    let value:Value=serde_json::from_slice(&data).ok()?;
+    if value["remote"].as_str()!=Some(identity) { return None; }
+    Some((value["key_id"].as_str()?.into(),value["fingerprint"].as_str()?.into()))
+}
+
+pub(crate) fn forget_trust(v: &VaultSession, scope: &str) -> Result<()> {
+    if !scope.starts_with("git-ssh:") || scope.len()>160 { return Err(failure()); }
+    let db=v.db.as_ref().ok_or(AgentError::Locked)?;
+    let value=db.conn().query_row("SELECT (SELECT value FROM sync_state WHERE key=?1)",
+        [scope],|r|r.get::<_,Option<String>>(0)).map_err(|_|failure())?;
+    if let Some(value)=value {
+        let value:Value=serde_json::from_str(&value).map_err(|_|failure())?;
+        let remote=value["remote"].as_str().ok_or_else(failure)?;
+        match std::fs::remove_file(trust_path(v,remote)?) {
+            Ok(())=>{},
+            Err(error) if error.kind()==std::io::ErrorKind::NotFound=>{},
+            Err(error)=>return Err(error.into()),
+        }
+        db.conn().execute("DELETE FROM sync_state WHERE key=?1",
+            [format!("git-ssh-trust:{}",hex_digest(remote.as_bytes()))]).map_err(|_|failure())?;
+    }
+    Ok(())
+}
 
 async fn choose(stream: &mut UnixStream, vault: &Arc<Mutex<VaultSession>>, target: &GitTarget) -> Result<(String,Option<String>,bool,GitContext)> {
     let remote=target.normalized().map_err(|_|failure())?;
@@ -42,8 +82,24 @@ async fn choose(stream: &mut UnixStream, vault: &Arc<Mutex<VaultSession>>, targe
                     }
                     return Ok((key.id.clone(),None,false,GitContext {
                         repository:remote,authorization_scope,authorization_generation:v.ssh_authorization.generation,
+                        trusted_repository:false,manually_signed:Default::default(),
                         selection_source:if scope==&local_scope {"local_memory"} else {"remote_memory"},matched_rule:None,
                     }));
+                }
+            }
+        }
+        if !reselect {
+            if let Some((id,expected))=trusted_key(&v,&authorization_scope) {
+                if let Some(key)=keys.iter().find(|key|key.id==id) {
+                    if fingerprint(&key.public_openssh)?==expected {
+                        let scope=if target.workspace.is_empty() {&remote_scope} else {&local_scope};
+                        let value=json!({"key_id":key.id,"remote":authorization_scope,"workspace":target.workspace}).to_string();
+                        db.conn().execute("INSERT OR REPLACE INTO sync_state(key,value) VALUES (?1,?2)",[scope.as_str(),value.as_str()]).map_err(|_|failure())?;
+                        return Ok((key.id.clone(),None,false,GitContext {
+                            repository:remote,authorization_scope,authorization_generation:v.ssh_authorization.generation,
+                            trusted_repository:false,manually_signed:Default::default(),selection_source:"remote_memory",matched_rule:None,
+                        }));
+                    }
                 }
             }
         }
@@ -63,6 +119,7 @@ async fn choose(stream: &mut UnixStream, vault: &Arc<Mutex<VaultSession>>, targe
         if best>0 && !reselect { candidates.retain(|c|c["score"].as_u64()==Some(best as u64)); }
         if best>0 && !reselect && candidates.len()==1 { return Ok((candidates[0]["id"].as_str().ok_or_else(failure)?.into(),None,false,GitContext {
             repository:remote,authorization_scope,authorization_generation:v.ssh_authorization.generation,
+            trusted_repository:false,manually_signed:Default::default(),
             selection_source:"rule",matched_rule:candidates[0]["rule"].as_str().map(str::to_owned),
         })); }
         if candidates.is_empty() || candidates.len()>500 || v.ssh_authorization.pending.len()>=8 { return Err(failure()); }
@@ -71,6 +128,7 @@ async fn choose(stream: &mut UnixStream, vault: &Arc<Mutex<VaultSession>>, targe
         v.ssh_authorization.pending.insert(id.clone(),PendingAuthorization {
             id:id.clone(),key_label:String::new(),fingerprint:String::new(),caller:"Git SSH".into(),policy:"git_select".into(),
             git:Some(GitContext {repository:remote.clone(),authorization_scope:authorization_scope.clone(),authorization_generation:generation,
+                trusted_repository:false,manually_signed:Default::default(),
                 selection_source:if reselect {"reselect"} else if best>0 {"multiple_rules"} else {"no_rule"},matched_rule:None}),
             candidates:candidates.clone(),created:Instant::now(),reply,
             reuse_seconds:Some(credpivot_core::effective_app_settings().git_ssh_auth_seconds),
@@ -93,6 +151,7 @@ async fn choose(stream: &mut UnixStream, vault: &Arc<Mutex<VaultSession>>, targe
     v.touch_activity();
     Ok((key.id,Some(candidate["policy"].as_str().ok_or_else(failure)?.into()),selected.remember,GitContext {
         repository:remote,authorization_scope,authorization_generation:generation,selection_source:"manual",matched_rule:candidate["rule"].as_str().map(str::to_owned),
+        trusted_repository:false,manually_signed:Default::default(),
     }))
 }
 
@@ -100,8 +159,14 @@ pub(crate) async fn serve_selection(stream: &mut UnixStream, vault: Arc<Mutex<Va
     crate::peer_auth::authorize_git_ssh_peer(pid.ok_or_else(failure)?)?;
     if body.len()>16384 { return Err(failure()); }
     let target:GitTarget=serde_json::from_slice(body).map_err(|_|failure())?; target.normalized().map_err(|_|failure())?;
+    let trusted_repository={
+        let mut v=vault.lock().await;
+        if v.idle_expired() { v.lock(); }
+        trusted_key(&v,&target.identity().map_err(|_|failure())?).is_some()
+    };
     if !vault.lock().await.unlocked {
         let git=GitContext {repository:target.normalized().map_err(|_|failure())?,authorization_scope:target.identity().map_err(|_|failure())?,
+            trusted_repository,manually_signed:Default::default(),
             authorization_generation:0,selection_source:"pending",matched_rule:None};
         let _=ssh_agent::authorized_identities(stream,&vault,"CredPivot Git SSH",None,Some(&git)).await?;
     }
@@ -141,15 +206,31 @@ pub(crate) async fn serve_selection(stream: &mut UnixStream, vault: Arc<Mutex<Va
             _=connections.join_next(), if !connections.is_empty()=>{},
         }};
         connections.abort_all();
-        if succeeded && remember {
+        if succeeded {
             let v=vault.lock().await;
             // 传输期间的“忘记/重新选择”仍须生效，旧任务不能在结束时写回已撤销的记忆。
             if v.unlocked && v.ssh_authorization.generation==git.authorization_generation {
                 if let Some(db)=v.db.as_ref() {
-                    if db.list_ssh().map_err(|_|failure())?.iter().any(|k|k.id==key_id && k.public_openssh==public) {
+                    let establish_trust=git.manually_signed.load(std::sync::atomic::Ordering::Relaxed)
+                        && (git.selection_source!="manual" || remember)
+                        && credpivot_core::effective_app_settings().trusts_git_repository(&git.authorization_scope)
+                        && ssh_agent::signing_policy(&v,&key_id)?.1=="session";
+                    if (remember || establish_trust) && db.list_ssh().map_err(|_|failure())?.iter().any(|k|k.id==key_id && k.public_openssh==public) {
                         let (local,remote)=scopes(&target)?; let scope=if target.workspace.is_empty() {remote} else {local};
                         let value=json!({"key_id":key_id,"remote":target.identity().map_err(|_|failure())?,"workspace":target.workspace}).to_string();
                         db.conn().execute("INSERT OR REPLACE INTO sync_state(key,value) VALUES (?1,?2)",[scope.as_str(),value.as_str()]).map_err(|_|failure())?;
+                        if establish_trust {
+                            let path=trust_path(&v,&git.authorization_scope)?;
+                            let directory=path.parent().ok_or_else(failure)?;
+                            std::fs::create_dir_all(directory)?;
+                            #[cfg(unix)] { use std::os::unix::fs::PermissionsExt; std::fs::set_permissions(directory,std::fs::Permissions::from_mode(0o700))?; }
+                            let record=serde_json::to_vec(&json!({"remote":git.authorization_scope,"key_id":key_id,"fingerprint":fingerprint(&public)?})).map_err(|_|failure())?;
+                            let record_text=std::str::from_utf8(&record).map_err(|_|failure())?;
+                            let trust_scope=format!("git-ssh-trust:{}",hex_digest(git.authorization_scope.as_bytes()));
+                            db.conn().execute("INSERT OR REPLACE INTO sync_state(key,value) VALUES (?1,?2)",
+                                [trust_scope.as_str(),record_text]).map_err(|_|failure())?;
+                            credpivot_core::write_file_atomic(&path,&record).map_err(|_|failure())?;
+                        }
                     }
                 }
             }

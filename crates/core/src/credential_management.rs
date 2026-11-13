@@ -30,6 +30,8 @@ pub enum VaultAction {
     PartitionMoveApply { item_ids: Vec<String>, target_partition_id: String, fingerprint: String, #[serde(default)] target_group_name: Option<String>, #[serde(default)] target_group_id: Option<String> },
     GroupRename { id: String, name: String, expected_updated_at_ms: i64, #[serde(default)] scope: Option<String> },
     SshGitRulesTest { rules: Vec<String>, #[serde(default)] target: Option<String> },
+    SshGitTrustCandidates,
+    SshGitTrustNormalize { repositories: Vec<String> },
     SshGitBindings,
     SshGitForget { scope: String },
     SshGitRechoose { scope: String },
@@ -183,6 +185,7 @@ impl VaultAction {
                 | Self::PartitionCreate { .. } | Self::PartitionRename { .. } | Self::PartitionReorder { .. }
                 | Self::GroupRename { .. }
                 | Self::SshGitRulesTest { .. } | Self::SshGitBindings
+                | Self::SshGitTrustCandidates | Self::SshGitTrustNormalize { .. }
                 | Self::LoginWebsiteRules { .. }
                 | Self::WebsiteRulesTest { .. }
                 | Self::TotpParse { .. }
@@ -196,7 +199,8 @@ impl VaultAction {
         )
     }
     pub fn is_passive(&self) -> bool {
-        matches!(self, Self::TotpStatus { passive: true, .. })
+        matches!(self, Self::TotpStatus { passive: true, .. }
+            | Self::SshGitTrustCandidates | Self::SshGitTrustNormalize { .. })
     }
 }
 
@@ -639,6 +643,23 @@ pub fn manage_credentials(conn: &Connection, action: VaultAction) -> Result<Valu
             let normalized=crate::ssh_git::normalize_rules(&rules)?;
             let target=target.as_deref().filter(|s|!s.trim().is_empty()).map(crate::ssh_git::normalize_rule).transpose()?;
             Ok(json!({"rules":normalized,"target":target,"matches":target.as_ref().map(|target|normalized.iter().any(|r|crate::ssh_git::match_score(r,target)>0))}))
+        }
+        SshGitTrustCandidates => {
+            let mut candidates=std::collections::BTreeMap::<String,Vec<String>>::new();
+            for key in crate::list_ssh_keys(conn)? {
+                for rule in details_for(conn,&key.item_id)?.ssh_git_rules {
+                    let rule=crate::ssh_git::normalize_rule(&rule)?;
+                    let labels=candidates.entry(rule).or_default();
+                    if !labels.contains(&key.label) { labels.push(key.label.clone()); }
+                }
+            }
+            Ok(json!({"items":candidates.into_iter().map(|(rule,labels)|json!({"rule":rule,"labels":labels})).collect::<Vec<_>>()}))
+        }
+        SshGitTrustNormalize {repositories} => {
+            let repositories=crate::ssh_git::normalize_trusted_repositories(&repositories)?;
+            let rules=repositories.iter().filter(|value|!value.contains('@'))
+                .map(|value|crate::ssh_git::normalize_rule(value)).collect::<Result<Vec<_>>>()?;
+            Ok(json!({"repositories":repositories,"rules":rules}))
         }
         SshGitBindings => {
             let entries=rows(conn,"SELECT key,value FROM sync_state WHERE key LIKE 'git-ssh:%' ORDER BY key",[])?;
