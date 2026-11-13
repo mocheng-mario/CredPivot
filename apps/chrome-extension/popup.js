@@ -120,6 +120,10 @@ function setBusy(value) {
 }
 
 function clearCapturedForm() {
+  if (captured) {
+    captured.password = "";
+    captured.username = "";
+  }
   captured = null;
   $("saveForm").hidden = true;
   $("captureInfo").textContent = "";

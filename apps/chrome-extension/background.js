@@ -632,6 +632,7 @@ async function handleInlineMessage(message, sender) {
     if (message.type === 'inline_more') record.includeOther = true;
     const previousAccount = record.accountId;
     const metadata = await inlineMetadata(record,message.type === 'inline_account' ? message.credential_id : undefined);
+    if (message.type === 'inline_account') await rememberSelectedAccount(record.tabId,record.origin,record.accountId);
     if (message.type === 'inline_fill') {
       if (record.mode === 'otp' && previousAccount !== record.accountId) throw inlineError('账号候选已改变，请重新读取候选并选择 MFA');
       const id = typeof message.candidate_id === 'string' ? message.candidate_id : '';

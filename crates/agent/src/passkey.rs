@@ -13,6 +13,7 @@ pub struct Pending {
     pub request: Request,
     pub session: Uuid,
     pub outcome: Option<Value>,
+    pub preferred_linked_login_id: Option<String>,
     created: Instant,
 }
 
@@ -28,13 +29,20 @@ impl PendingRequests {
         self.0.retain(|_, p| p.created.elapsed() < REQUEST_TTL);
     }
 
-    pub fn insert(&mut self, id: String, request: Request, session: Uuid) {
+    pub fn insert(
+        &mut self,
+        id: String,
+        request: Request,
+        session: Uuid,
+        preferred_linked_login_id: Option<String>,
+    ) {
         self.0.insert(
             id,
             Pending {
                 request,
                 session,
                 outcome: None,
+                preferred_linked_login_id,
                 created: Instant::now(),
             },
         );

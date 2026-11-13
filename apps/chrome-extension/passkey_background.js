@@ -6,7 +6,17 @@ const PAGE_SCRIPT = "credpivot-passkey-page";
 
 function rpIdMatchesHost(rpId, host) {
   if (rpId == null || rpId === "") return true;
+  // 此处只预筛选主机关系，Core 会用 PSL 拒绝公共后缀 RP。
   return host === rpId || (host.endsWith(`.${rpId}`) && host.length > rpId.length + 1);
+}
+
+async function sessionLinkedLoginId(tabId, origin) {
+  if (!tabId || !origin?.startsWith("https://")) return undefined;
+  const key = `selected_account:${tabId}:${origin}`;
+  const stored = await chrome.storage.session.get(key);
+  const id = stored[key];
+  // 显式保存的空串表示「独立账号」，不向 App 建议关联。
+  return typeof id === "string" && id ? id : undefined;
 }
 
 function siteEnabledInMap(sites, origin) {
@@ -14,20 +24,7 @@ function siteEnabledInMap(sites, origin) {
   return true;
 }
 
-async function injectPasskeyPageIntoOpenTabs(sites) {
-  const disabled = new Set(Object.entries(sites).filter(([, enabled]) => enabled === false).map(([origin]) => origin));
-  const tabs = await chrome.tabs.query({url: ["https://*/*"]});
-  await Promise.allSettled(tabs.map(async (tab) => {
-    if (!tab.id || !tab.url?.startsWith("https://")) return;
-    let origin;
-    try { origin = new URL(tab.url).origin; } catch (_) { return; }
-    if (disabled.has(origin)) return;
-    await chrome.scripting.executeScript({target: {tabId: tab.id, frameIds: [0]}, files: ["passkey_page.js"], world: "MAIN"});
-  }));
-}
-
-export async function syncPasskeyScripts(sites) {
-  if (!sites) sites = (await chrome.storage.local.get(ENABLED_SITES))[ENABLED_SITES] || {};
+export async function syncPasskeyScripts() {
   // 默认在所有 HTTPS 页面注入；仅用户手动关闭的站点在 handlePasskey 中回退浏览器。
   const matches = ["https://*/*"];
   const exists = (await chrome.scripting.getRegisteredContentScripts({ids:[PAGE_SCRIPT]})).length > 0;
@@ -45,7 +42,7 @@ export async function syncPasskeyScripts(sites) {
     delete script.persistAcrossSessions;
     await write(script);
   }
-  await injectPasskeyPageIntoOpenTabs(sites);
+  // 已打开的页面须刷新，确保拦截脚本和通信桥使用有效的扩展上下文。
 }
 
 export async function enablePasskeySiteIfUnset(origin) {
@@ -63,7 +60,7 @@ export async function setPasskeySiteState(origin, enabled) {
   const stored = await chrome.storage.local.get(ENABLED_SITES);
   const sites = stored[ENABLED_SITES] || {};
   sites[origin] = enabled === true;
-  await syncPasskeyScripts(sites);
+  await syncPasskeyScripts();
   await chrome.storage.local.set({[ENABLED_SITES]: sites});
   try { await afterSiteChange(); } catch (_) { /* 本机 App 未连接时保留浏览器里的开关。 */ }
   for (const request of active.values()) {
@@ -143,8 +140,12 @@ export async function handlePasskey(message, sender, sendNative, gateGeneration 
         }
       }
       sent = true;
-      const response = await sendNative(started ? {action:"passkey.poll",passkey_request_id:message.request_id,origin} :
-        {action:"passkey.begin",passkey_request_id:message.request_id,origin,kind:message.kind,options});
+      let beginPayload = {action:"passkey.begin",passkey_request_id:message.request_id,origin,kind:message.kind,options};
+      if (!started && message.kind === "create") {
+        const linked = await sessionLinkedLoginId(request.tabId, origin);
+        if (linked) beginPayload = {...beginPayload, suggested_linked_login_id: linked};
+      }
+      const response = await sendNative(started ? {action:"passkey.poll",passkey_request_id:message.request_id,origin} : beginPayload);
       await checkDocument(request);
       if (!response?.ok) {
         // 仅首次连接可等待解锁；操作中途失去授权立即失败，不静默重新签名。

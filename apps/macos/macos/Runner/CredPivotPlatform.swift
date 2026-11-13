@@ -1773,6 +1773,11 @@ final class CredPivotPlatform: NSObject {
       // 直接显示可取消的单选列表，避免下拉菜单的跟踪循环挡住确认窗操作。
       let contentHeight = CGFloat(labels.count) * 32
       let listHeight = min(contentHeight, 192)
+      let preferredLoginId = request["preferred_linked_login_id"] as? String ?? ""
+      var defaultTag = 0
+      if !preferredLoginId.isEmpty, let idx = accountIds.firstIndex(of: preferredLoginId), idx > 0 {
+        defaultTag = idx
+      }
       let choices = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: contentHeight))
       for (index, title) in labels.enumerated() {
         let button = NSButton(radioButtonWithTitle: title, target: self, action: #selector(selectPasskeyAccount(_:)))
@@ -1780,7 +1785,7 @@ final class CredPivotPlatform: NSObject {
         button.cell?.lineBreakMode = .byTruncatingTail
         button.toolTip = title
         button.tag = index
-        button.state = index == 0 ? .on : .off
+        button.state = index == defaultTag ? .on : .off
         choices.addSubview(button)
         accountButtons.append(button)
       }

@@ -44,12 +44,13 @@ fn invalid() -> CoreError {
     CoreError::format("无效或暂不支持的通行密钥请求")
 }
 
-/// WebAuthn：RP ID 须与页面主机相同，或为其后缀（如 `example.com` 配 `www.example.com`）。
+/// 父域 RP 必须可注册，不能使用 com、co.uk 或托管平台的公共后缀。
 fn rp_id_matches_host(rp_id: &str, host: &str) -> bool {
     host == rp_id
         || (host.len() > rp_id.len() + 1
             && host.as_bytes().get(host.len() - rp_id.len() - 1) == Some(&b'.')
-            && host.ends_with(rp_id))
+            && host.ends_with(rp_id)
+            && psl::domain(rp_id.as_bytes()).is_some())
 }
 
 fn bytes(value: &Value, max: usize) -> Result<Vec<u8>> {
@@ -65,7 +66,6 @@ fn bytes(value: &Value, max: usize) -> Result<Vec<u8>> {
 }
 
 impl Request {
-    /// 第一版仅接受同主机 RP，故无须猜测公共后缀，也不会把通配域名权限带入签名。
     pub fn parse(kind: &str, origin: &str, options: &Value) -> Result<Self> {
         let create = match kind {
             "create" => true,

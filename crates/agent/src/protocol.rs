@@ -60,7 +60,14 @@ pub enum AgentRequest {
     UnlockLocal { material: crate::vault_session::LocalUnlockMaterial },
     VerifyMasterPassword { password: String },
     SensitiveAuthGrant,
-    PasskeyBegin { request_id: String, kind: String, origin: String, options: Value },
+    PasskeyBegin {
+        request_id: String,
+        kind: String,
+        origin: String,
+        options: Value,
+        #[serde(default)]
+        suggested_linked_login_id: String,
+    },
     PasskeyPoll { request_id: String, origin: String },
     PasskeyCancel { request_id: String },
     PasskeyRequestsPending { #[serde(default)] status_only: bool },

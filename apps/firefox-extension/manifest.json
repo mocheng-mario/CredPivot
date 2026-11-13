@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CredPivot",
-  "version": "0.9.17",
+  "version": "0.9.18",
   "browser_specific_settings": {
     "gecko": {
       "id": "credpivot@credpivot.app",

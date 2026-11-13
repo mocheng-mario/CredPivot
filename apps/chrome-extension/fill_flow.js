@@ -1,5 +1,16 @@
 /** 在 service worker 中执行，popup 关闭后仍可完成填充。 */
 
+// JS 无法强制清零字符串堆内存；尽快断开对象引用并覆写可缩短明文暴露窗口。
+function scrubSecretPayload(value) {
+  if (!value || typeof value !== "object") return;
+  if (Object.hasOwn(value, "password")) value.password = "";
+  if (Object.hasOwn(value, "username")) value.username = "";
+  if (Object.hasOwn(value, "code")) value.code = "";
+  if (Object.hasOwn(value, "totp_code")) value.totp_code = "";
+  const nested = value.payload;
+  if (nested && typeof nested === "object" && nested !== value) scrubSecretPayload(nested);
+}
+
 function gateHint(resp) {
   if (!resp) return null;
   const code = resp.code ?? (resp.ok === false ? resp.code : null);
@@ -133,7 +144,10 @@ async function consumeLoginSecrets(tabId, ctx, credentialId, sendNative, binding
       error: { ok: false, error: consume?.message || consume?.code || "consume 失败", raw: consume },
     };
   }
-  return { secrets: consume.payload ?? consume };
+  const payload = consume.payload ?? consume;
+  const secrets = { username: payload.username, password: payload.password };
+  scrubSecretPayload(consume);
+  return { secrets };
 }
 
 export async function runFillLoginOnTab(tabId, sendNative, selectedId, binding) {
@@ -150,9 +164,11 @@ export async function runFillLoginOnTab(tabId, sendNative, selectedId, binding) 
 
   const consumed = await consumeLoginSecrets(tabId, ctx, suggested.credentialId, sendNative,binding);
   if (consumed.error) return consumed.error;
-  const secrets = consumed.secrets;
-  if (!secrets?.username && !secrets?.password) {
-    return { ok: false, error: "未拿到用户名或密码", raw: consumed };
+  let username = consumed.secrets?.username;
+  let password = consumed.secrets?.password;
+  if (!username && !password) {
+    scrubSecretPayload(consumed.secrets);
+    return { ok: false, error: "未拿到用户名或密码" };
   }
 
   let deliver;
@@ -170,23 +186,27 @@ export async function runFillLoginOnTab(tabId, sendNative, selectedId, binding) 
         origin: ctx.origin,
         url: ctx.url,
         target_id: ["username","password"].includes(ctx.targetKind) ? ctx.targetId : undefined,
-        username: secrets.username,
-        password: secrets.password,
+        username,
+        password,
       },
       { frameId: ctx.frameId ?? 0 }
     );
+    if (!deliver?.login_filled && !deliver?.filled) {
+      return {
+        ok: false,
+        error: deliver?.reason || "页面上未找到账号或密码输入框",
+        deliver,
+      };
+    }
+    return { ok: true, filled: true, origin: ctx.origin, login_filled: true, credential_id: suggested.credentialId,
+      partial: deliver.partial === true, username_filled: deliver.username_filled, password_filled: deliver.password_filled };
   } catch (e) {
     return { ok: false, error: "投递到页面失败", detail: String(e) };
+  } finally {
+    username = "";
+    password = "";
+    scrubSecretPayload(consumed.secrets);
   }
-  if (!deliver?.login_filled && !deliver?.filled) {
-    return {
-      ok: false,
-      error: deliver?.reason || "页面上未找到账号或密码输入框",
-      deliver,
-    };
-  }
-  return { ok: true, filled: true, origin: ctx.origin, login_filled: true, credential_id: suggested.credentialId,
-    partial: deliver.partial === true, username_filled: deliver.username_filled, password_filled: deliver.password_filled };
 }
 
 export async function runFillOtpFromVaultOnTab(tabId, sendNative, selectedId, totpId, binding) {
@@ -219,18 +239,19 @@ export async function runFillOtpFromVaultOnTab(tabId, sendNative, selectedId, to
       raw: codeResp,
     };
   }
-  const code = codeResp?.payload?.code;
+  let code = codeResp?.payload?.code;
   if (typeof code !== "string" || !code) {
+    scrubSecretPayload(codeResp);
     return { ok: false, error: "MFA 验证码为空" };
   }
+  scrubSecretPayload(codeResp);
 
-  let deliver;
   try {
     if (binding) {
       const current = await loadPageContext(tabId,origin,binding);
       if (current.error) return current.error;
     }
-    deliver = await chrome.tabs.sendMessage(
+    const deliver = await chrome.tabs.sendMessage(
       tabId,
       {
         type: "deliver_secret",
@@ -243,17 +264,19 @@ export async function runFillOtpFromVaultOnTab(tabId, sendNative, selectedId, to
       },
       { frameId: ctx.frameId ?? 0 }
     );
+    if (!deliver?.otp_filled && !deliver?.filled) {
+      return {
+        ok: false,
+        error: deliver?.reason || "页面上未找到 MFA 输入框",
+        deliver,
+      };
+    }
+    return { ok: true, filled: true, origin: ctx.origin, otp_filled: true, credential_id: selectedId || "", totp_id: totpId };
   } catch (e) {
     return { ok: false, error: "投递到页面失败", detail: String(e) };
+  } finally {
+    code = "";
   }
-  if (!deliver?.otp_filled && !deliver?.filled) {
-    return {
-      ok: false,
-      error: deliver?.reason || "页面上未找到 MFA 输入框",
-      deliver,
-    };
-  }
-  return { ok: true, filled: true, origin: ctx.origin, otp_filled: true, credential_id: selectedId || "", totp_id: totpId };
 }
 
 /** @deprecated 使用 runFillLoginOnTab + runFillOtpFromVaultOnTab */
@@ -269,21 +292,26 @@ export async function runOtpFillOnTab(tabId, totpCode, sendNative) {
   const origin = new URL(tab.url).origin;
   const { ctx, error } = await loadPageContext(tabId, origin);
   if (error) return error;
-  const deliver = await chrome.tabs.sendMessage(
-    tabId,
-    {
-      type: "deliver_secret",
-      mode: "otp",
-      document_id: ctx.documentId,
-      origin: ctx.origin,
-      url: ctx.url,
-      target_id: ctx.targetKind === "otp" ? ctx.targetId : undefined,
-      totp_code: totpCode,
-    },
-    { frameId: ctx.frameId ?? 0 }
-  );
-  if (!deliver?.otp_filled && !deliver?.filled) {
-    return { ok: false, error: deliver?.reason || "未找到 MFA 输入框" };
+  let code = totpCode;
+  try {
+    const deliver = await chrome.tabs.sendMessage(
+      tabId,
+      {
+        type: "deliver_secret",
+        mode: "otp",
+        document_id: ctx.documentId,
+        origin: ctx.origin,
+        url: ctx.url,
+        target_id: ctx.targetKind === "otp" ? ctx.targetId : undefined,
+        totp_code: code,
+      },
+      { frameId: ctx.frameId ?? 0 }
+    );
+    if (!deliver?.otp_filled && !deliver?.filled) {
+      return { ok: false, error: deliver?.reason || "未找到 MFA 输入框" };
+    }
+    return { ok: true };
+  } finally {
+    code = "";
   }
-  return { ok: true };
 }

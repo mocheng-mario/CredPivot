@@ -684,7 +684,7 @@ async fn handle_request_inner(
                 Err(error) => AgentResponse::err("vault", error.to_string()),
             }
         }
-        AgentRequest::PasskeyBegin { request_id, kind, origin, options } => {
+        AgentRequest::PasskeyBegin { request_id, kind, origin, options, suggested_linked_login_id } => {
             let Some(session) = peer.browser_session.filter(|_|peer.from_native_host) else { return AgentResponse::err("forbidden","browser only"); };
             if uuid::Uuid::parse_str(&request_id).is_err() { return AgentResponse::err("bad_args","invalid request id"); }
             let request = match credpivot_core::passkey::Request::parse(&kind,&origin,&options) {
@@ -702,7 +702,17 @@ async fn handle_request_inner(
             if v.passkey_requests.0.contains_key(&request_id) || v.passkey_requests.0.len() >= 8 {
                 return AgentResponse::err("busy","已有通行密钥请求正在处理");
             }
-            v.passkey_requests.insert(request_id,request,session);
+            let preferred = if request.create && !suggested_linked_login_id.is_empty() {
+                request.login_candidates(db.conn()).ok().and_then(|logins| {
+                    logins
+                        .iter()
+                        .any(|login| login.get("id").and_then(Value::as_str) == Some(suggested_linked_login_id.as_str()))
+                        .then(|| suggested_linked_login_id.clone())
+                })
+            } else {
+                None
+            };
+            v.passkey_requests.insert(request_id, request, session, preferred);
             v.touch_activity();
             AgentResponse::ok(json!({"state":"pending"}))
         }
@@ -748,7 +758,8 @@ async fn handle_request_inner(
                 Some(json!({"id":id,"create":p.request.create,
                     "origin":p.request.origin,"rp_id":p.request.rp_id,"username":p.request.username,
                     "display_name":p.request.display_name,"candidates":c,"login_candidates":logins,
-                    "login_candidates_unavailable":unavailable}))
+                    "login_candidates_unavailable":unavailable,
+                    "preferred_linked_login_id":p.preferred_linked_login_id.clone().unwrap_or_default()}))
             }).collect();
             AgentResponse::ok(json!({"requests":requests}))
         }

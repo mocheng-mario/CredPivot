@@ -437,7 +437,8 @@
     }
     if (msg.type === 'capture_login') {
       const {user,pass} = loginFields(true,bind(lastInput));
-      respond({documentId,origin:location.origin,username:user?.value ?? '',password:pass?.value ?? ''}); return;
+      respond({documentId,origin:location.origin,username:user?.value ?? '',password:pass?.value ?? ''});
+      return;
     }
     if (msg.type !== 'deliver_secret') return;
     if (msg.document_id !== documentId || msg.origin !== location.origin || (msg.url && msg.url !== location.href)) {
@@ -456,7 +457,12 @@
       username_filled:usernameFilled,password_filled:passwordFilled,otp_filled:otpFilled,
       partial:Boolean((msg.username && !usernameFilled) || (msg.password && !passwordFilled)),
       reason:usernameFilled || passwordFilled || otpFilled ? undefined : 'no_login_fields'});
-    } finally { delivering = false; }
+    } finally {
+      if (Object.hasOwn(msg, 'password')) msg.password = '';
+      if (Object.hasOwn(msg, 'username')) msg.username = '';
+      if (Object.hasOwn(msg, 'totp_code')) msg.totp_code = '';
+      delivering = false;
+    }
   }
   chrome.runtime.onMessage.addListener(onMessage);
   listen(document,'focusin',(event) => {

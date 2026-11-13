@@ -173,6 +173,11 @@ fn map_extension_to_agent(
             kind: envelope["kind"].as_str().unwrap_or("").into(),
             origin: envelope["origin"].as_str().unwrap_or("").into(),
             options: envelope["options"].clone(),
+            suggested_linked_login_id: envelope
+                .get("suggested_linked_login_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
         }),
         "passkey.poll" => Ok(AgentRequest::PasskeyPoll {
             request_id: envelope["passkey_request_id"].as_str().unwrap_or("").into(),
