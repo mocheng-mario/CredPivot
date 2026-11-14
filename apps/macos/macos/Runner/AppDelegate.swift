@@ -16,6 +16,12 @@ class AppDelegate: FlutterAppDelegate {
     true
   }
 
+  override func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    // 关闭窗口会保留后台 Agent，Dock 重开时需要恢复原来的 Flutter 窗口。
+    showMainWindow()
+    return false
+  }
+
   override func applicationDidFinishLaunching(_ notification: Notification) {
     // 发包时实际验证 dyld/Flutter 可启动，且不启动 Agent、不触碰用户保险库或集成配置。
     if ProcessInfo.processInfo.arguments.contains("--credpivot-startup-check") {
@@ -58,7 +64,11 @@ class AppDelegate: FlutterAppDelegate {
 
   @objc func showMainWindow() {
     NSApp.setActivationPolicy(.regular)
-    mainFlutterWindow?.makeKeyAndOrderFront(nil)
+    NSApp.unhide(nil)
+    if let window = mainFlutterWindow {
+      if window.isMiniaturized { window.deminiaturize(nil) }
+      window.makeKeyAndOrderFront(nil)
+    }
     NSApp.activate(ignoringOtherApps: true)
     platform?.notifyAppForeground()
   }

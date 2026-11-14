@@ -2193,8 +2193,7 @@ final class CredPivotPlatform: NSObject {
         result(FlutterError(code: "io", message: NativePresentation.tr("native.result.message"), details: nil))
       }
     case "showMainWindow":
-      NSApp.activate(ignoringOtherApps: true)
-      NSApp.windows.first(where: { $0.contentViewController is FlutterViewController })?.makeKeyAndOrderFront(nil)
+      (NSApp.delegate as? AppDelegate)?.showMainWindow()
       result(nil)
     case "scanQrImage":
       let embeddedImage = (call.arguments as? [String: String])?["image"]
